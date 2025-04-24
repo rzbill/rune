@@ -1,0 +1,19 @@
+name: hello-world
+image: nginx:alpine
+ports:
+  - 8080:80
+environment:
+  - NAME=World
+resources:
+  cpu:
+    request: 0.1
+    limit: 0.5
+  memory:
+    request: 50Mi
+    limit: 100Mi
+health:
+  path: /
+  port: 80
+  initialDelaySeconds: 5
+  periodSeconds: 10
+replicas: 1 

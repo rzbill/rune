@@ -1,0 +1,44 @@
+# Rune Configuration Example
+
+# API server configuration
+server:
+  address: "127.0.0.1"
+  port: 8080
+  tls:
+    enabled: false
+    cert: "/path/to/cert.pem"
+    key: "/path/to/key.pem"
+
+# Client configuration
+client:
+  timeout: 30s
+  retries: 3
+
+# Default namespace
+namespace: "default"
+
+# Authentication
+auth:
+  provider: "token"  # Options: token, oidc, none
+  token: ""  # Static token for simple auth
+
+# Resources
+resources:
+  cpu:
+    default_request: "100m"
+    default_limit: "500m"
+  memory:
+    default_request: "128Mi"
+    default_limit: "256Mi"
+
+# Logging
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "text"  # text, json
+
+# Additional plugins/extensions
+plugins:
+  dir: "/usr/local/lib/rune/plugins"
+  enabled:
+    - "metrics"
+    - "backup" 

@@ -1,0 +1,48 @@
+linters:
+  enable:
+    - gofmt
+    - golint
+    - govet
+    - errcheck
+    - staticcheck
+    - gosec
+    - gosimple
+    - ineffassign
+    - misspell
+    - unconvert
+    - unparam
+    - unused
+
+linters-settings:
+  govet:
+    check-shadowing: true
+  golint:
+    min-confidence: 0.8
+  gofmt:
+    simplify: true
+  gosec:
+    excludes:
+      - G204 # Audit use of command execution
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+run:
+  deadline: 5m
+  tests: true
+  skip-dirs:
+    - vendor/
+    - examples/
+  skip-files:
+    - ".*\\.generated\\.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true 
