@@ -1,0 +1,7 @@
+service:
+  name: echo
+  namespace: default
+  image: busybox
+  command: "echo"
+  args:
+    - "Hello from Rune!" 

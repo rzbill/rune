@@ -1,0 +1,145 @@
+services:
+  - name: frontend
+    namespace: default
+    image: nginx:alpine
+    scale: 2
+    ports:
+      - name: http
+        port: 80
+    env:
+      API_URL: "http://api:8080"
+    health:
+      liveness:
+        type: http
+        path: /health
+        port: 80
+        initialDelaySeconds: 3
+        intervalSeconds: 10
+      readiness:
+        type: http
+        path: /ready
+        port: 80
+        initialDelaySeconds: 5
+        intervalSeconds: 5
+    networkPolicy:
+      ingress:
+        - from:
+            - service: frontend
+      egress:
+        - to:
+            - service: api
+          ports:
+            - http
+    expose:
+      port: http
+      host: frontend.local
+    discovery:
+      mode: load-balanced
+    affinity:
+      required:
+        - region=us-east-1
+      preferred:
+        - zone=us-east-1a
+    autoscale:
+      enabled: true
+      min: 2
+      max: 4
+      metric: cpu
+      target: 75%
+
+  - name: api
+    namespace: default
+    image: node:alpine
+    command: "node"
+    args:
+      - server.js
+    scale: 3
+    ports:
+      - name: http
+        port: 8080
+    env:
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      LOG_LEVEL: "info"
+    resources:
+      cpu:
+        request: "500m"
+        limit: "500m"
+      memory:
+        request: "256Mi"
+        limit: "256Mi"
+    health:
+      liveness:
+        type: http
+        path: /health
+        port: 8080
+    networkPolicy:
+      ingress:
+        - from:
+            - service: frontend
+      egress:
+        - to:
+            - service: db
+          ports:
+            - postgres
+    expose:
+      port: http
+      host: api.local
+    discovery:
+      mode: headless
+    affinity:
+      required:
+        - disk=ssd
+    autoscale:
+      enabled: true
+      min: 3
+      max: 6
+      metric: cpu
+      target: 80%
+    secretMounts:
+      - name: db-creds
+        mountPath: /etc/secret/db
+        secretName: db-credentials
+    configMounts:
+      - name: api-config
+        mountPath: /etc/config
+        configName: api-settings
+
+  - name: db
+    namespace: default
+    image: postgres:alpine
+    scale: 1
+    ports:
+      - name: postgres
+        port: 5432
+    env:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: appdb
+    health:
+      liveness:
+        type: tcp
+        port: 5432
+        initialDelaySeconds: 10
+    networkPolicy:
+      ingress:
+        - from:
+            - service: api
+      egress:
+        - to:
+            - cidr: 0.0.0.0/0
+          ports:
+            - postgres
+    discovery:
+      mode: headless
+    affinity:
+      required:
+        - storage=ssd
+    secretMounts:
+      - name: postgres-creds
+        mountPath: /etc/secrets/postgres
+        secretName: db-credentials
+    configMounts:
+      - name: db-config
+        mountPath: /etc/config
+        configName: db-config 

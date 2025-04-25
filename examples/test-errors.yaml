@@ -1,0 +1,24 @@
+service:
+  name: test-service
+  # Missing required name field
+  namespace: default
+  image: nginx:latest
+  scale: 2  # Indentation error
+  ports:
+    - name: http
+      port: 80  # Fixed negative value
+  env:
+    DEBUG: true  # Fixed boolean format
+  health:
+    liveness:
+      type: http
+      path: /health
+      port: 80
+      initialDelaySeconds: 3
+      intervalSeconds: 10
+    readiness:
+      type: http
+      path: /ready
+      port: 8080  # Fixed invalid port range
+      initialDelaySeconds: 5
+      intervalSeconds: 5 

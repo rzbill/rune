@@ -1,19 +1,60 @@
-name: hello-world
-image: nginx:alpine
-ports:
-  - 8080:80
-environment:
-  - NAME=World
-resources:
-  cpu:
-    request: 0.1
-    limit: 0.5
-  memory:
-    request: 50Mi
-    limit: 100Mi
-health:
-  path: /
-  port: 80
-  initialDelaySeconds: 5
-  periodSeconds: 10
-replicas: 1 
+service:
+  name: hello-world
+  namespace: default
+  image: nginx:alpine
+  scale: 1
+  ports:
+    - name: http
+      port: 80
+  env:
+    NAME: "World"
+  resources:
+    cpu:
+      request: "100m"
+      limit: "500m"
+    memory:
+      request: "50Mi"
+      limit: "100Mi"
+  health:
+    liveness:
+      type: http
+      path: /
+      port: 80
+      initialDelaySeconds: 5
+      intervalSeconds: 10
+  networkPolicy:
+    ingress:
+      - from:
+          - namespace: default
+            service: hello-world
+        ports:
+          - http
+    egress:
+      - to:
+          - cidr: 0.0.0.0/0
+        ports:
+          - http
+  expose:
+    port: http
+    host: hello.local
+  discovery:
+    mode: load-balanced
+  affinity:
+    required:
+      - region=us-east-1
+    preferred:
+      - zone=us-east-1a
+  autoscale:
+    enabled: true
+    min: 1
+    max: 5
+    metric: cpu
+    target: 50%
+  secretMounts:
+    - name: db-secret
+      mountPath: /etc/secrets/db
+      secretName: db-credentials
+  configMounts:
+    - name: app-config
+      mountPath: /etc/config
+      configName: app-settings 
