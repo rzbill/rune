@@ -17,7 +17,7 @@ type Service struct {
 	Namespace string `json:"namespace" yaml:"namespace"`
 
 	// Container image for the service
-	Image string `json:"image" yaml:"image"`
+	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 
 	// Command to run in the container (overrides image CMD)
 	Command string `json:"command,omitempty" yaml:"command,omitempty"`
@@ -72,6 +72,12 @@ type Service struct {
 
 	// Last update timestamp
 	UpdatedAt time.Time `json:"updatedAt" yaml:"updatedAt"`
+
+	// Runtime for the service ("container" or "process")
+	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+
+	// Process-specific configuration (when Runtime="process")
+	Process *ProcessSpec `json:"process,omitempty" yaml:"process,omitempty"`
 }
 
 // ServicePort represents a port exposed by a service.
@@ -239,8 +245,22 @@ func (s *Service) Validate() error {
 		return NewValidationError("service name is required")
 	}
 
-	if s.Image == "" {
-		return NewValidationError("service image is required")
+	// Check runtime specific requirements
+	if s.Runtime == "container" || s.Runtime == "" {
+		// Default is container runtime
+		if s.Image == "" {
+			return NewValidationError("service image is required for container runtime")
+		}
+	} else if s.Runtime == "process" {
+		// For process runtime, we need a process spec
+		if s.Process == nil {
+			return NewValidationError("process configuration is required for process runtime")
+		}
+		if err := s.Process.Validate(); err != nil {
+			return WrapValidationError(err, "invalid process configuration")
+		}
+	} else {
+		return NewValidationError("unknown runtime: " + s.Runtime)
 	}
 
 	if s.Scale < 0 {

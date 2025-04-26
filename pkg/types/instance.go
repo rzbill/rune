@@ -30,11 +30,32 @@ type Instance struct {
 	// Container ID or process ID
 	ContainerID string `json:"containerId,omitempty" yaml:"containerId,omitempty"`
 
+	// Process ID for process runner
+	PID int `json:"pid,omitempty" yaml:"pid,omitempty"`
+
 	// Creation timestamp
 	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
 
 	// Last update timestamp
 	UpdatedAt time.Time `json:"updatedAt" yaml:"updatedAt"`
+
+	// Process-specific configuration for process runner
+	Process *ProcessSpec `json:"process,omitempty" yaml:"process,omitempty"`
+
+	// Execution configuration for commands and environment
+	Exec *Exec `json:"exec,omitempty" yaml:"exec,omitempty"`
+
+	// Resources requirements for the instance
+	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+}
+
+// Exec represents execution configuration for a command
+type Exec struct {
+	// Command to execute
+	Command []string `json:"command" yaml:"command"`
+
+	// Environment variables
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 // InstanceStatus represents the current status of an instance.
@@ -52,6 +73,11 @@ const (
 
 	// InstanceStatusFailed indicates the instance failed to start or crashed.
 	InstanceStatusFailed InstanceStatus = "Failed"
+
+	// Process runner specific statuses
+	InstanceStatusCreated  InstanceStatus = "Created"
+	InstanceStatusStarting InstanceStatus = "Starting"
+	InstanceStatusExited   InstanceStatus = "Exited"
 )
 
 // Validate validates the instance configuration.

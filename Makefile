@@ -1,4 +1,4 @@
-.PHONY: build test lint clean setup dev generate docs docker install
+.PHONY: build test lint clean setup dev generate docs docker install coverage-report coverage-summary
 
 # Project variables
 BINARY_NAME=rune
@@ -31,6 +31,25 @@ test-coverage:
 	@echo "Running tests with coverage..."
 	@go test -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out
+
+# Display coverage report from existing coverage.out file
+coverage-report:
+	@if [ ! -f coverage.out ]; then \
+		echo "Error: coverage.out file not found. Run 'make test-coverage' first."; \
+		exit 1; \
+	fi
+	$(GO) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated at coverage.html"
+
+# Just show coverage summary without regenerating the report
+coverage-summary:
+	@if [ ! -f coverage.out ]; then \
+		echo "Error: coverage.out file not found. Run 'make test-coverage' first."; \
+		exit 1; \
+	fi
+	@echo "───────────────────────────────────────────────────"
+	@$(GO) tool cover -func=coverage.out | grep total | awk '{print "Total coverage: " $$3}'
+	@echo "───────────────────────────────────────────────────"
 
 # Lint targets
 lint:
@@ -84,6 +103,8 @@ help:
 	@echo "  install        - Build and install binaries to GOPATH/bin"
 	@echo "  test           - Run tests"
 	@echo "  test-coverage  - Run tests with coverage report"
+	@echo "  coverage-report    Generate HTML coverage report from existing coverage.out"
+	@echo "  coverage-summary   Display coverage summary from existing coverage.out"
 	@echo "  lint           - Run linters"
 	@echo "  clean          - Clean build artifacts"
 	@echo "  setup          - Set up development environment"
