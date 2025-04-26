@@ -1,0 +1,22 @@
+[Unit]
+Description=Rune Server
+Documentation=https://github.com/rzbill/rune
+After=network.target
+
+[Service]
+Type=simple
+User=rune
+Group=rune
+ExecStart=/usr/local/bin/runed --config=/etc/rune/rune.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Security enhancements (optional)
+# NoNewPrivileges=true
+# ProtectHome=true
+# ProtectSystem=full
+# ReadWritePaths=/var/lib/rune
+
+[Install]
+WantedBy=multi-user.target 

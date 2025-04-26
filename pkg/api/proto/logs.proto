@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// LogRequest represents a request to get logs from a service or instance.
+message LogRequest {
+  // Type of log request
+  oneof target {
+    // Service name to get logs from (all instances)
+    string service_name = 1;
+    
+    // Specific instance ID to get logs from
+    string instance_id = 2;
+  }
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 3;
+  
+  // Follow the log output (like tail -f)
+  bool follow = 4;
+  
+  // Number of lines to show from the end of the logs (0 for all)
+  int32 tail = 5;
+  
+  // Show logs since this time (RFC 3339 format)
+  string since = 6;
+  
+  // Show logs until this time (RFC 3339 format)
+  string until = 7;
+  
+  // Include timestamps with logs
+  bool timestamps = 8;
+  
+  // Filter logs by text pattern
+  string filter = 9;
+  
+  // Client can send updated parameters while streaming
+  bool parameter_update = 10;
+}
+
+// LogResponse represents a log message in a stream response.
+message LogResponse {
+  // Service name the log is from
+  string service_name = 1;
+  
+  // Instance ID the log is from
+  string instance_id = 2;
+  
+  // Timestamp of the log (RFC 3339 format)
+  string timestamp = 3;
+  
+  // Contents of the log line
+  string content = 4;
+  
+  // Stream (stdout or stderr)
+  string stream = 5;
+  
+  // Status code for control messages
+  Status status = 6;
+}
+
+// LogService provides access to service and instance logs.
+service LogService {
+  // StreamLogs provides bidirectional streaming for logs.
+  // Clients can stream parameter updates, server streams log content.
+  rpc StreamLogs(stream LogRequest) returns (stream LogResponse);
+} 

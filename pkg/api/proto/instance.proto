@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// InstanceStatus represents the current status of an instance.
+enum InstanceStatus {
+  INSTANCE_STATUS_UNSPECIFIED = 0;
+  INSTANCE_STATUS_PENDING = 1;      // Instance is being created
+  INSTANCE_STATUS_CREATED = 2;      // Instance is created but not started
+  INSTANCE_STATUS_STARTING = 3;     // Instance is starting
+  INSTANCE_STATUS_RUNNING = 4;      // Instance is running
+  INSTANCE_STATUS_STOPPING = 5;     // Instance is stopping
+  INSTANCE_STATUS_STOPPED = 6;      // Instance has stopped
+  INSTANCE_STATUS_FAILED = 7;       // Instance failed to start or crashed
+  INSTANCE_STATUS_EXITED = 8;       // Instance exited
+}
+
+// Instance represents a running copy of a service.
+message Instance {
+  // Unique identifier for the instance
+  string id = 1;
+  
+  // Human-readable name for the instance
+  string name = 2;
+  
+  // ID of the service this instance belongs to
+  string service_id = 3;
+  
+  // ID of the node running this instance
+  string node_id = 4;
+  
+  // IP address assigned to this instance
+  string ip = 5;
+  
+  // Status of the instance
+  InstanceStatus status = 6;
+  
+  // Detailed status information
+  string status_message = 7;
+  
+  // Container ID or process ID
+  string container_id = 8;
+  
+  // Process ID for process runner
+  int32 pid = 9;
+  
+  // Creation timestamp (in RFC 3339 format)
+  string created_at = 10;
+  
+  // Last update timestamp (in RFC 3339 format)
+  string updated_at = 11;
+  
+  // Resource usage
+  Resources resources = 12;
+}
+
+// GetInstanceRequest requests a specific instance.
+message GetInstanceRequest {
+  // ID of the instance
+  string id = 1;
+}
+
+// InstanceResponse returns an instance or status.
+message InstanceResponse {
+  // The instance, if successful
+  Instance instance = 1;
+  
+  // Status message
+  Status status = 2;
+}
+
+// ListInstancesRequest requests a list of instances.
+message ListInstancesRequest {
+  // Filter by service name
+  string service_name = 1;
+  
+  // Filter by namespace
+  string namespace = 2;
+  
+  // Filter by node ID
+  string node_id = 3;
+  
+  // Filter by status
+  InstanceStatus status = 4;
+  
+  // Paging parameters
+  PagingParams paging = 5;
+}
+
+// ListInstancesResponse returns a list of instances.
+message ListInstancesResponse {
+  // List of instances
+  repeated Instance instances = 1;
+  
+  // Status message
+  Status status = 2;
+  
+  // Paging information for continuation
+  PagingParams paging = 3;
+}
+
+// InstanceActionRequest requests an action on an instance.
+message InstanceActionRequest {
+  // ID of the instance
+  string id = 1;
+  
+  // Timeout in seconds for the action
+  int32 timeout_seconds = 2;
+  
+  // Force the action if applicable
+  bool force = 3;
+}
+
+// InstanceService manages service instances within the platform.
+service InstanceService {
+  // GetInstance retrieves an instance by ID.
+  rpc GetInstance(GetInstanceRequest) returns (InstanceResponse);
+  
+  // ListInstances lists instances with filtering.
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  
+  // StartInstance starts an instance.
+  rpc StartInstance(InstanceActionRequest) returns (InstanceResponse);
+  
+  // StopInstance stops an instance.
+  rpc StopInstance(InstanceActionRequest) returns (InstanceResponse);
+  
+  // RestartInstance restarts an instance.
+  rpc RestartInstance(InstanceActionRequest) returns (InstanceResponse);
+} 

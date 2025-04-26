@@ -29,6 +29,48 @@ go install github.com/rzbill/rune/cmd/rune@latest
 rune version
 ```
 
+### Configuration
+
+Rune has sensible defaults built into the application, so configuration files are completely optional. You can run the server without any additional setup:
+
+```bash
+# Run with built-in defaults
+runed
+```
+
+To customize settings, you can:
+
+1. Use command-line flags (for simple overrides):
+
+```bash
+# Override the gRPC port and data directory
+runed --grpc-addr=":9090" --data-dir="/path/to/data"
+```
+
+2. Use a configuration file (for more complex setups):
+
+```yaml
+# rune.yaml
+server:
+  grpc_address: ":9090"
+  http_address: ":9091"
+  
+data_dir: "/path/to/data"
+
+# Additional settings...
+```
+
+Then run with:
+
+```bash
+# Point to your config file
+runed --config=/path/to/rune.yaml
+```
+
+The server looks for a `rune.yaml` file in the current directory, `~/.rune/`, or `/etc/rune/`, but you can always specify a custom location with the `--config` flag.
+
+See the `examples/config/rune.yaml` file for a complete example configuration.
+
 ### Quick Start
 
 1. Create a simple service definition:

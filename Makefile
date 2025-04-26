@@ -1,4 +1,4 @@
-.PHONY: build test lint clean setup dev generate docs docker install coverage-report coverage-summary
+.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test test-unit test-integration
 
 # Project variables
 BINARY_NAME=rune
@@ -26,6 +26,14 @@ install: build
 test:
 	@echo "Running tests..."
 	@go test -v ./...
+
+test-unit:
+	@echo "Running unit tests..."
+	@go test -tags=unit -v ./...
+
+test-integration:
+	@echo "Running integration tests..."
+	@scripts/integration/run_tests.sh
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -84,6 +92,17 @@ generate:
 	@go generate ./...
 	@echo "Code generation completed!"
 
+# Protocol Buffer targets
+proto:
+	@echo "Generating Protocol Buffer code..."
+	@bash scripts/generate-proto.sh
+	@echo "Protocol Buffer code generation completed!"
+
+proto-tools:
+	@echo "Installing Protocol Buffer tools..."
+	@bash scripts/install-proto-tools.sh
+	@echo "Protocol Buffer tools installation completed!"
+
 # Documentation targets
 docs:
 	@echo "Generating documentation..."
@@ -110,6 +129,8 @@ help:
 	@echo "  setup          - Set up development environment"
 	@echo "  dev            - Start development environment"
 	@echo "  generate       - Run code generation"
+	@echo "  proto          - Generate Protocol Buffer code"
+	@echo "  proto-tools    - Install Protocol Buffer tools"
 	@echo "  docs           - Generate and serve documentation"
 	@echo "  docker         - Build Docker image"
 	@echo "  help           - Show this help message"

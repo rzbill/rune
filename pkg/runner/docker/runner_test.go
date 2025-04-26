@@ -1,18 +1,17 @@
 package docker
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/runner"
-	"github.com/rzbill/rune/pkg/types"
+	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
 // skipIfDockerUnavailable skips the test if Docker is not available.
@@ -82,7 +81,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	}
 
 	// Use a simple, small image that starts quickly
-	instance := &types.Instance{
+	instance := &runetypes.Instance{
 		ID:        "test-instance",
 		Name:      "test-instance",
 		ServiceID: "test-service",
@@ -124,8 +123,8 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get status: %v", err)
 	}
-	if status != types.InstanceStatusRunning {
-		t.Errorf("Expected status %s, got %s", types.InstanceStatusRunning, status)
+	if status != runetypes.InstanceStatusRunning {
+		t.Errorf("Expected status %s, got %s", runetypes.InstanceStatusRunning, status)
 	}
 
 	// Test stopping the container
@@ -139,8 +138,8 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get status: %v", err)
 	}
-	if status != types.InstanceStatusStopped {
-		t.Errorf("Expected status %s, got %s", types.InstanceStatusStopped, status)
+	if status != runetypes.InstanceStatusStopped {
+		t.Errorf("Expected status %s, got %s", runetypes.InstanceStatusStopped, status)
 	}
 
 	// Test removing the container
@@ -158,106 +157,46 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 
 // TestDockerLogReader tests the log reader implementation.
 func TestDockerLogReader(t *testing.T) {
-	// Create a simple reader with a mock container log format
-	mockLog := strings.NewReader("Test log content")
-	logReader := newLogReader(io.NopCloser(mockLog))
+	// Create a buffer with the test content and prepend a mock Docker log header
+	testContent := "Test log content"
+
+	// Create a buffer to hold the Docker-formatted log
+	var buf bytes.Buffer
+
+	// First, write a fake Docker log header:
+	// - Byte 0: Stream type (1 for stdout)
+	// - Bytes 1-3: Padding (zeros)
+	// - Bytes 4-7: Frame size (length of our test content as uint32 big endian)
+	header := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	// Set the content length in big endian
+	binary.BigEndian.PutUint32(header[4:], uint32(len(testContent)))
+	buf.Write(header)
+
+	// Then write the content
+	buf.WriteString(testContent)
+
+	// Create a reader using our mock Docker log format
+	mockLog := io.NopCloser(&buf)
+	logReader := newLogReader(mockLog)
 	defer logReader.Close()
 
-	// Read all content from the reader
-	content, err := io.ReadAll(logReader)
-	if err != nil {
+	// Read the content
+	result := make([]byte, len(testContent))
+	n, err := io.ReadFull(logReader, result)
+
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 		t.Fatalf("Failed to read from log reader: %v", err)
 	}
 
 	// Check the content
-	if string(content) != "Test log content" {
-		t.Errorf("Expected 'Test log content', got: %q", string(content))
+	actualContent := string(result[:n])
+	if actualContent != testContent {
+		t.Errorf("Expected '%s', got: '%s'", testContent, actualContent)
 	}
 }
 
-// TestGetLogs tests the GetLogs functionality.
-func TestGetLogs(t *testing.T) {
-	skipIfDockerUnavailable(t)
-
-	// Create a unique test namespace based on timestamp
-	namespace := "log-test-" + time.Now().Format("20060102150405")
-	logger := log.NewLogger(
-		log.WithLevel(log.InfoLevel),
-		log.WithFormatter(&log.TextFormatter{
-			DisableColors: true, // Disable colors for tests
-		}),
-	)
-	r, err := NewDockerRunner(namespace, logger)
-	if err != nil {
-		t.Fatalf("Failed to create Docker runner: %v", err)
-	}
-
-	// Create a container that outputs logs
-	instance := &types.Instance{
-		ID:        "log-test-instance",
-		Name:      "log-test-instance",
-		ServiceID: "log-test-service",
-		NodeID:    "test-node",
-	}
-
-	// Create a context with timeout for all operations
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Ensure cleanup on test completion
-	defer func() {
-		r.Remove(ctx, instance.ID, true)
-	}()
-
-	// Create a container with a command that outputs logs
-	containerConfig, hostConfig, _ := r.instanceToContainerConfig(instance)
-	containerConfig.Cmd = []string{"sh", "-c", "echo 'test log message'; sleep 5"}
-	containerConfig.Image = "alpine:latest"
-
-	resp, err := r.client.ContainerCreate(
-		ctx,
-		containerConfig,
-		hostConfig,
-		nil,           // No network config for now
-		nil,           // No platform config
-		instance.Name, // Use instance name as container name
-	)
-
-	if err != nil {
-		t.Fatalf("Failed to create container: %v", err)
-	}
-	instance.ContainerID = resp.ID
-
-	// Start the container
-	if err := r.client.ContainerStart(ctx, instance.ContainerID, container.StartOptions{}); err != nil {
-		t.Fatalf("Failed to start container: %v", err)
-	}
-
-	// Wait a bit for the container to produce logs
-	time.Sleep(2 * time.Second)
-
-	// Get logs
-	logs, err := r.GetLogs(ctx, instance.ID, runner.LogOptions{
-		Follow:     false,
-		Tail:       10,
-		Timestamps: false,
-	})
-	if err != nil {
-		t.Fatalf("Failed to get logs: %v", err)
-	}
-	defer logs.Close()
-
-	// Read logs
-	buf, err := io.ReadAll(logs)
-	if err != nil {
-		t.Fatalf("Failed to read logs: %v", err)
-	}
-
-	logContent := string(buf)
-	if !strings.Contains(logContent, "test log message") {
-		t.Errorf("Expected log content not found, got: %q", logContent)
-	}
-}
+// TestGetLogs has been moved to test/integration/docker/logs_test.go
+// as it requires a Docker image and should be executed as part of integration tests.
 
 // TestList tests listing of containers.
 func TestList(t *testing.T) {
@@ -281,14 +220,14 @@ func TestList(t *testing.T) {
 	defer cancel()
 
 	// Create a couple of containers
-	instance1 := &types.Instance{
+	instance1 := &runetypes.Instance{
 		ID:        "list-test-1",
 		Name:      "list-test-1",
 		ServiceID: "list-test-service",
 		NodeID:    "test-node",
 	}
 
-	instance2 := &types.Instance{
+	instance2 := &runetypes.Instance{
 		ID:        "list-test-2",
 		Name:      "list-test-2",
 		ServiceID: "list-test-service",

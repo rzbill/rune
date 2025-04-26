@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// HealthStatus represents the health status of a component.
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_UNKNOWN = 1;    // Status is unknown
+  HEALTH_STATUS_HEALTHY = 2;    // Healthy and functioning correctly
+  HEALTH_STATUS_UNHEALTHY = 3;  // Unhealthy and not functioning correctly
+  HEALTH_STATUS_DEGRADED = 4;   // Functioning but with reduced capabilities
+}
+
+// HealthCheckType defines different types of health checks.
+enum HealthCheckType {
+  HEALTH_CHECK_TYPE_UNSPECIFIED = 0;
+  HEALTH_CHECK_TYPE_LIVENESS = 1;     // Basic liveness check
+  HEALTH_CHECK_TYPE_READINESS = 2;    // Readiness to receive traffic
+  HEALTH_CHECK_TYPE_STARTUP = 3;      // Initialization check
+}
+
+// HealthCheckResult represents the result of a health check.
+message HealthCheckResult {
+  // Type of health check
+  HealthCheckType type = 1;
+  
+  // Status of the check
+  HealthStatus status = 2;
+  
+  // Detailed message about the health status
+  string message = 3;
+  
+  // Last check timestamp (RFC 3339 format)
+  string timestamp = 4;
+  
+  // Consecutive successes
+  int32 consecutive_successes = 5;
+  
+  // Consecutive failures
+  int32 consecutive_failures = 6;
+}
+
+// ComponentHealth represents the health status of a component.
+message ComponentHealth {
+  // Component type (e.g., "service", "instance", "node", "api-server")
+  string component_type = 1;
+  
+  // Component identifier
+  string id = 2;
+  
+  // Name of the component
+  string name = 3;
+  
+  // Namespace of the component (if applicable)
+  string namespace = 4;
+  
+  // Overall health status
+  HealthStatus status = 5;
+  
+  // Detailed message about the health status
+  string message = 6;
+  
+  // Last update timestamp (RFC 3339 format)
+  string timestamp = 7;
+  
+  // Individual health check results
+  repeated HealthCheckResult check_results = 8;
+}
+
+// GetHealthRequest requests health information.
+message GetHealthRequest {
+  // Component type to check (e.g., "service", "instance", "node", "api-server")
+  string component_type = 1;
+  
+  // Component name to check (optional)
+  string name = 2;
+  
+  // Namespace of the component (if applicable)
+  string namespace = 3;
+  
+  // Include detailed check results
+  bool include_checks = 4;
+}
+
+// GetHealthResponse returns health information.
+message GetHealthResponse {
+  // Health information of the requested components
+  repeated ComponentHealth components = 1;
+  
+  // Status message
+  Status status = 2;
+}
+
+// HealthService provides health status information about platform components.
+service HealthService {
+  // GetHealth retrieves health status of platform components.
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+} 

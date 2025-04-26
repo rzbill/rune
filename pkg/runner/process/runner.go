@@ -579,3 +579,34 @@ func findStartPosition(file *os.File, fileSize int64, numLines int) int64 {
 	// If we reached here, we didn't find enough lines, return the start of the file
 	return 0
 }
+
+// Exec creates an interactive exec session within a running process.
+func (r *ProcessRunner) Exec(ctx context.Context, instanceID string, options runner.ExecOptions) (runner.ExecStream, error) {
+	r.mu.RLock()
+	_, exists := r.processes[instanceID]
+	r.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	// Verify instance is running
+	status, err := r.Status(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance status: %w", err)
+	}
+
+	if status != types.InstanceStatusRunning {
+		return nil, fmt.Errorf("instance is not running, status: %s", status)
+	}
+
+	// Create the exec stream
+	// For a process, exec means starting a new process (we can't exec inside an existing process)
+	// We could potentially use different methods like ptrace for more advanced use cases
+	execStream, err := NewProcessExecStream(ctx, instanceID, options, r.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create exec stream: %w", err)
+	}
+
+	return execStream, nil
+}

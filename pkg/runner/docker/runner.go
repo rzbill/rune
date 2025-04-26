@@ -269,6 +269,32 @@ func (r *DockerRunner) List(ctx context.Context) ([]*runetypes.Instance, error) 
 	return instances, nil
 }
 
+// Exec creates an interactive exec session with a running container.
+func (r *DockerRunner) Exec(ctx context.Context, instanceID string, options runner.ExecOptions) (runner.ExecStream, error) {
+	containerID, err := r.getContainerID(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container ID: %w", err)
+	}
+
+	// Check if the container is running
+	container, err := r.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	if !container.State.Running {
+		return nil, fmt.Errorf("container is not running")
+	}
+
+	// Create the exec stream
+	execStream, err := NewDockerExecStream(ctx, r.client, containerID, instanceID, options, r.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create exec stream: %w", err)
+	}
+
+	return execStream, nil
+}
+
 // getContainerID gets the container ID for an instance.
 func (r *DockerRunner) getContainerID(ctx context.Context, instanceID string) (string, error) {
 	// Try to get the container directly from the instance ID using labels

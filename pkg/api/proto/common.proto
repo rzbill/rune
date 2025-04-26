@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package rune.api;
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// Common status message returned by many operations
+message Status {
+  // Status code
+  int32 code = 1;
+  
+  // Status message
+  string message = 2;
+  
+  // Details about the status
+  repeated string details = 3;
+}
+
+// Empty request or response
+message Empty {}
+
+// ResourceType represents different resource types in the system
+enum ResourceType {
+  RESOURCE_TYPE_UNSPECIFIED = 0;
+  RESOURCE_TYPE_SERVICE = 1;
+  RESOURCE_TYPE_INSTANCE = 2;
+  RESOURCE_TYPE_NODE = 3;
+  RESOURCE_TYPE_SECRET = 4;
+  RESOURCE_TYPE_CONFIG = 5;
+}
+
+// Common paging parameters for list operations
+message PagingParams {
+  // Maximum number of items to return
+  int32 limit = 1;
+  
+  // Offset to start from
+  int32 offset = 2;
+  
+  // Token for continuation (if limit was applied)
+  string continuation_token = 3;
+}
+
+// ResourceLimit defines request and limit for a resource.
+message ResourceLimit {
+  // Requested resources (guaranteed)
+  string request = 1;
+  
+  // Maximum resources (limit)
+  string limit = 2;
+}
+
+// Resources represents resource requirements for a service instance.
+message Resources {
+  // CPU request and limit
+  ResourceLimit cpu = 1;
+  
+  // Memory request and limit
+  ResourceLimit memory = 2;
+}
+
+// ServicePort represents a port exposed by a service.
+message ServicePort {
+  // Name for this port
+  string name = 1;
+  
+  // Port number
+  int32 port = 2;
+  
+  // Target port (if different from port)
+  int32 target_port = 3;
+  
+  // Protocol (default: TCP)
+  string protocol = 4;
+}
+
+// ProbeType defines the type of health check
+enum ProbeType {
+  PROBE_TYPE_UNSPECIFIED = 0;
+  PROBE_TYPE_HTTP = 1;
+  PROBE_TYPE_TCP = 2;
+  PROBE_TYPE_COMMAND = 3;
+}
+
+// Probe represents a health check probe configuration.
+message Probe {
+  // Type of probe
+  ProbeType type = 1;
+  
+  // Path for HTTP probes
+  string path = 2;
+  
+  // Port to probe
+  int32 port = 3;
+  
+  // Command to execute for command probes
+  repeated string command = 4;
+  
+  // Initial delay before starting checks
+  int32 initial_delay_seconds = 5;
+  
+  // How often to perform the check
+  int32 period_seconds = 6;
+  
+  // Timeout for the check
+  int32 timeout_seconds = 7;
+  
+  // How many consecutive successes are needed to be considered healthy
+  int32 success_threshold = 8;
+  
+  // How many consecutive failures are needed to be considered unhealthy
+  int32 failure_threshold = 9;
+}
+
+// HealthCheck represents health check configuration for a service.
+message HealthCheck {
+  // Liveness probe checks if the instance is running
+  Probe liveness = 1;
+  
+  // Readiness probe checks if the instance is ready to receive traffic
+  Probe readiness = 2;
+} 

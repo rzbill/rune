@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// ExecRequest represents a request from client to server in an exec session.
+message ExecRequest {
+  // Request can be one of the following
+  oneof request {
+    // Initial setup for the exec session
+    ExecInitRequest init = 1;
+    
+    // Standard input data to send to the process
+    bytes stdin = 2;
+    
+    // Terminal resize event
+    TerminalSize resize = 3;
+    
+    // Signal to send to the process
+    Signal signal = 4;
+  }
+}
+
+// ExecInitRequest initializes an exec session.
+message ExecInitRequest {
+  // Target instance or service
+  oneof target {
+    // Service name (will select one instance)
+    string service_name = 1;
+    
+    // Specific instance ID
+    string instance_id = 2;
+  }
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 3;
+  
+  // Command to execute
+  repeated string command = 4;
+  
+  // Environment variables for the command
+  map<string, string> env = 5;
+  
+  // Working directory for the command
+  string working_dir = 6;
+  
+  // Whether to allocate a TTY
+  bool tty = 7;
+  
+  // Initial terminal size if TTY is true
+  TerminalSize terminal_size = 8;
+}
+
+// TerminalSize represents the size of a terminal.
+message TerminalSize {
+  // Width in characters
+  uint32 width = 1;
+  
+  // Height in characters
+  uint32 height = 2;
+}
+
+// Signal represents a signal to send to the process.
+message Signal {
+  // Signal name (e.g., "SIGINT", "SIGTERM")
+  string name = 1;
+}
+
+// ExecResponse represents a response from server to client in an exec session.
+message ExecResponse {
+  // Response can be one of the following
+  oneof response {
+    // Standard output from the process
+    bytes stdout = 1;
+    
+    // Standard error from the process
+    bytes stderr = 2;
+    
+    // Status message (for errors, completion, etc.)
+    Status status = 3;
+    
+    // Exit information when the process completes
+    ExitInfo exit = 4;
+  }
+}
+
+// ExitInfo provides information about the process exit.
+message ExitInfo {
+  // Exit code of the process
+  int32 code = 1;
+  
+  // Whether the process exited due to a signal
+  bool signaled = 2;
+  
+  // Signal that caused the exit, if signaled is true
+  string signal = 3;
+}
+
+// ExecService provides interactive terminal sessions with instances.
+service ExecService {
+  // StreamExec provides bidirectional streaming for exec.
+  rpc StreamExec(stream ExecRequest) returns (stream ExecResponse);
+} 

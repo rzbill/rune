@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// ServiceStatus represents the current status of a service.
+enum ServiceStatus {
+  SERVICE_STATUS_UNSPECIFIED = 0;
+  SERVICE_STATUS_PENDING = 1;     // Service is being created
+  SERVICE_STATUS_RUNNING = 2;     // Service is running
+  SERVICE_STATUS_UPDATING = 3;    // Service is being updated
+  SERVICE_STATUS_FAILED = 4;      // Service failed to deploy or run
+}
+
+// Service represents a deployable application or workload.
+message Service {
+  // Unique identifier for the service
+  string id = 1;
+  
+  // Human-readable name for the service
+  string name = 2;
+  
+  // Namespace the service belongs to
+  string namespace = 3;
+  
+  // Container image for the service
+  string image = 4;
+  
+  // Command to run in the container
+  string command = 5;
+  
+  // Arguments to the command
+  repeated string args = 6;
+  
+  // Environment variables for the service
+  map<string, string> env = 7;
+  
+  // Number of instances to run
+  int32 scale = 8;
+  
+  // Ports exposed by the service
+  repeated ServicePort ports = 9;
+  
+  // Resource requirements for each instance
+  Resources resources = 10;
+  
+  // Health checks for the service
+  HealthCheck health = 11;
+  
+  // Status of the service
+  ServiceStatus status = 12;
+  
+  // Creation timestamp (in RFC 3339 format)
+  string created_at = 13;
+  
+  // Last update timestamp (in RFC 3339 format)
+  string updated_at = 14;
+  
+  // Runtime for the service ("container" or "process")
+  string runtime = 15;
+}
+
+// CreateServiceRequest represents a request to create a new service.
+message CreateServiceRequest {
+  // Service to create
+  Service service = 1;
+  
+  // Optional deployment tag
+  string deployment_tag = 2;
+}
+
+// ServiceResponse returns a service or status.
+message ServiceResponse {
+  // The service, if successful
+  Service service = 1;
+  
+  // Status message
+  Status status = 2;
+}
+
+// GetServiceRequest requests a specific service.
+message GetServiceRequest {
+  // Name of the service
+  string name = 1;
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 2;
+}
+
+// ListServicesRequest requests a list of services.
+message ListServicesRequest {
+  // Namespace to list services from (optional, default: "default")
+  string namespace = 1;
+  
+  // Filter services by label
+  map<string, string> label_selector = 2;
+  
+  // Paging parameters
+  PagingParams paging = 3;
+}
+
+// ListServicesResponse returns a list of services.
+message ListServicesResponse {
+  // List of services
+  repeated Service services = 1;
+  
+  // Status message
+  Status status = 2;
+  
+  // Paging information for continuation
+  PagingParams paging = 3;
+}
+
+// UpdateServiceRequest requests an update to a service.
+message UpdateServiceRequest {
+  // Updated service definition
+  Service service = 1;
+  
+  // Optional deployment tag
+  string deployment_tag = 2;
+}
+
+// DeleteServiceRequest requests deletion of a service.
+message DeleteServiceRequest {
+  // Name of the service to delete
+  string name = 1;
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 2;
+  
+  // Force deletion even if instances are running
+  bool force = 3;
+}
+
+// DeleteServiceResponse returns the result of a service deletion.
+message DeleteServiceResponse {
+  // Status message
+  Status status = 1;
+}
+
+// ScaleServiceRequest requests a change in service scale.
+message ScaleServiceRequest {
+  // Name of the service to scale
+  string name = 1;
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 2;
+  
+  // Number of instances to scale to
+  int32 scale = 3;
+}
+
+// ServiceService manages services within the platform.
+service ServiceService {
+  // CreateService creates a new service.
+  rpc CreateService(CreateServiceRequest) returns (ServiceResponse);
+  
+  // GetService retrieves a service by name.
+  rpc GetService(GetServiceRequest) returns (ServiceResponse);
+  
+  // ListServices lists services with optional filtering.
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  
+  // UpdateService updates an existing service.
+  rpc UpdateService(UpdateServiceRequest) returns (ServiceResponse);
+  
+  // DeleteService removes a service.
+  rpc DeleteService(DeleteServiceRequest) returns (DeleteServiceResponse);
+  
+  // ScaleService changes the scale of a service.
+  rpc ScaleService(ScaleServiceRequest) returns (ServiceResponse);
+} 

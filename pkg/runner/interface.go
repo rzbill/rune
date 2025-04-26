@@ -32,6 +32,10 @@ type Runner interface {
 
 	// List lists all service instances managed by this runner.
 	List(ctx context.Context) ([]*types.Instance, error)
+
+	// Exec creates an interactive exec session with a running instance.
+	// Returns an ExecStream for bidirectional communication.
+	Exec(ctx context.Context, instanceID string, options ExecOptions) (ExecStream, error)
 }
 
 // LogOptions defines options for retrieving logs.
@@ -77,4 +81,50 @@ type InstanceStatus struct {
 
 	// ErrorMessage contains any error information.
 	ErrorMessage string
+}
+
+// ExecOptions defines options for executing a command in a running instance.
+type ExecOptions struct {
+	// Command is the command to execute.
+	Command []string
+
+	// Env is a map of environment variables to set for the command.
+	Env map[string]string
+
+	// WorkingDir is the working directory for the command.
+	WorkingDir string
+
+	// TTY indicates whether to allocate a pseudo-TTY.
+	TTY bool
+
+	// TerminalWidth is the initial width of the terminal.
+	TerminalWidth uint32
+
+	// TerminalHeight is the initial height of the terminal.
+	TerminalHeight uint32
+}
+
+// ExecStream provides bidirectional communication with an exec session.
+type ExecStream interface {
+	// Write writes data to the standard input of the process.
+	Write(p []byte) (n int, err error)
+
+	// Read reads data from the standard output of the process.
+	Read(p []byte) (n int, err error)
+
+	// Stderr provides access to the standard error stream of the process.
+	Stderr() io.Reader
+
+	// ResizeTerminal resizes the terminal (if TTY was enabled).
+	ResizeTerminal(width, height uint32) error
+
+	// Signal sends a signal to the process.
+	Signal(sigName string) error
+
+	// ExitCode returns the exit code after the process has completed.
+	// Returns an error if the process has not completed or if there was an error.
+	ExitCode() (int, error)
+
+	// Close terminates the exec session and releases resources.
+	Close() error
 }

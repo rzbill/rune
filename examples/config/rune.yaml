@@ -1,13 +1,22 @@
-# Rune Configuration Example
+# Rune Server Configuration Example
 
-# API server configuration
+# Server endpoints
 server:
-  address: "127.0.0.1"
-  port: 8080
+  # gRPC endpoint for API services
+  grpc_address: ":8080"
+  
+  # HTTP endpoint for REST gateway
+  http_address: ":8081"
+  
+  # TLS configuration (for future use)
   tls:
     enabled: false
-    cert: "/path/to/cert.pem"
-    key: "/path/to/key.pem"
+    cert_file: "/path/to/cert.pem"
+    key_file: "/path/to/key.pem"
+
+# Data directory for persistent storage
+# If not specified, a default OS-specific path will be used
+data_dir: "/var/lib/rune"
 
 # Client configuration
 client:
@@ -19,6 +28,9 @@ namespace: "default"
 
 # Authentication
 auth:
+  # Comma-separated list of API keys
+  # Leave empty to disable authentication
+  api_keys: ""
   provider: "token"  # Options: token, oidc, none
   token: ""  # Static token for simple auth
 
@@ -31,12 +43,15 @@ resources:
     default_request: "128Mi"
     default_limit: "256Mi"
 
-# Logging
-logging:
-  level: "info"  # debug, info, warn, error
-  format: "text"  # text, json
+# Logging configuration
+log:
+  # Log level (debug, info, warn, error)
+  level: "info"
+  
+  # Log format (future use)
+  format: "json"
 
-# Additional plugins/extensions
+# Additional plugins/extensions (future use)
 plugins:
   dir: "/usr/local/lib/rune/plugins"
   enabled:
