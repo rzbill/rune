@@ -1,0 +1,514 @@
+package client
+
+import (
+	"fmt"
+
+	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// ServiceClient provides methods for interacting with services on the Rune API server.
+type ServiceClient struct {
+	client *Client
+	logger log.Logger
+	svc    generated.ServiceServiceClient
+}
+
+// NewServiceClient creates a new service client.
+func NewServiceClient(client *Client) *ServiceClient {
+	return &ServiceClient{
+		client: client,
+		logger: client.logger.WithComponent("service-client"),
+		svc:    generated.NewServiceServiceClient(client.conn),
+	}
+}
+
+// CreateService creates a new service on the API server.
+func (s *ServiceClient) CreateService(service *types.Service) error {
+	s.logger.Debug("Creating service", log.Str("name", service.Name), log.Str("namespace", service.Namespace))
+
+	// Create the gRPC request
+	req := &generated.CreateServiceRequest{
+		Service: s.serviceToProto(service),
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.CreateService(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to create service", log.Err(err), log.Str("name", service.Name))
+		return convertGRPCError("create service", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to create service", log.Err(err), log.Str("name", service.Name))
+		return err
+	}
+
+	return nil
+}
+
+// GetService retrieves a service by name.
+func (s *ServiceClient) GetService(namespace, name string) (*types.Service, error) {
+	s.logger.Debug("Getting service", log.Str("name", name), log.Str("namespace", namespace))
+
+	// Create the gRPC request
+	req := &generated.GetServiceRequest{
+		Name:      name,
+		Namespace: namespace,
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.GetService(ctx, req)
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if ok && statusErr.Code() == codes.NotFound {
+			return nil, fmt.Errorf("service not found: %s/%s", namespace, name)
+		}
+		s.logger.Error("Failed to get service", log.Err(err), log.Str("name", name))
+		return nil, convertGRPCError("get service", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to get service", log.Err(err), log.Str("name", name))
+		return nil, err
+	}
+
+	// Convert the proto message to a service
+	service, err := s.protoToService(resp.Service)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert service: %w", err)
+	}
+
+	return service, nil
+}
+
+// UpdateService updates an existing service.
+func (s *ServiceClient) UpdateService(service *types.Service) error {
+	s.logger.Debug("Updating service", log.Str("name", service.Name), log.Str("namespace", service.Namespace))
+
+	// Create the gRPC request
+	req := &generated.UpdateServiceRequest{
+		Service: s.serviceToProto(service),
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.UpdateService(ctx, req)
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if ok && statusErr.Code() == codes.NotFound {
+			return fmt.Errorf("service not found: %s/%s", service.Namespace, service.Name)
+		}
+		s.logger.Error("Failed to update service", log.Err(err), log.Str("name", service.Name))
+		return convertGRPCError("update service", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to update service", log.Err(err), log.Str("name", service.Name))
+		return err
+	}
+
+	return nil
+}
+
+// DeleteService deletes a service by name.
+func (s *ServiceClient) DeleteService(namespace, name string) error {
+	s.logger.Debug("Deleting service", log.Str("name", name), log.Str("namespace", namespace))
+
+	// Create the gRPC request
+	req := &generated.DeleteServiceRequest{
+		Name:      name,
+		Namespace: namespace,
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.DeleteService(ctx, req)
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if ok && statusErr.Code() == codes.NotFound {
+			return fmt.Errorf("service not found: %s/%s", namespace, name)
+		}
+		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", name))
+		return convertGRPCError("delete service", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", name))
+		return err
+	}
+
+	return nil
+}
+
+// ListServices lists services in a namespace.
+func (s *ServiceClient) ListServices(namespace string) ([]*types.Service, error) {
+	s.logger.Debug("Listing services", log.Str("namespace", namespace))
+
+	// Create the gRPC request
+	req := &generated.ListServicesRequest{
+		Namespace: namespace,
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.ListServices(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to list services", log.Err(err), log.Str("namespace", namespace))
+		return nil, convertGRPCError("list services", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to list services", log.Err(err), log.Str("namespace", namespace))
+		return nil, err
+	}
+
+	// Convert the proto messages to services
+	services := make([]*types.Service, 0, len(resp.Services))
+	for _, protoService := range resp.Services {
+		service, err := s.protoToService(protoService)
+		if err != nil {
+			s.logger.Error("Failed to convert service", log.Err(err))
+			continue
+		}
+		services = append(services, service)
+	}
+
+	return services, nil
+}
+
+// ScaleService changes the scale of a service.
+func (s *ServiceClient) ScaleService(namespace, name string, scale int) error {
+	s.logger.Debug("Scaling service", log.Str("name", name), log.Str("namespace", namespace), log.Int("scale", scale))
+
+	// Create the gRPC request
+	req := &generated.ScaleServiceRequest{
+		Name:      name,
+		Namespace: namespace,
+		Scale:     int32(scale),
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.ScaleService(ctx, req)
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if ok && statusErr.Code() == codes.NotFound {
+			return fmt.Errorf("service not found: %s/%s", namespace, name)
+		}
+		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", name))
+		return convertGRPCError("scale service", err)
+	}
+
+	// Check if the API returned an error status
+	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+		err := fmt.Errorf("API error: %s", resp.Status.Message)
+		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", name))
+		return err
+	}
+
+	return nil
+}
+
+// Helper functions for converting between types.Service and generated.Service
+
+// serviceToProto converts a types.Service to a generated.Service proto message.
+func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Service {
+	if service == nil {
+		return nil
+	}
+
+	protoService := &generated.Service{
+		Id:        service.ID,
+		Name:      service.Name,
+		Namespace: service.Namespace,
+		Image:     service.Image,
+		Command:   service.Command,
+		Scale:     int32(service.Scale),
+		Runtime:   service.Runtime,
+	}
+
+	// Convert args
+	if len(service.Args) > 0 {
+		protoService.Args = make([]string, len(service.Args))
+		copy(protoService.Args, service.Args)
+	}
+
+	// Convert environment variables
+	if len(service.Env) > 0 {
+		protoService.Env = make(map[string]string)
+		for k, v := range service.Env {
+			protoService.Env[k] = v
+		}
+	}
+
+	// Convert ports
+	if len(service.Ports) > 0 {
+		protoService.Ports = make([]*generated.ServicePort, len(service.Ports))
+		for i, port := range service.Ports {
+			protoService.Ports[i] = &generated.ServicePort{
+				Name:       port.Name,
+				Port:       int32(port.Port),
+				TargetPort: int32(port.TargetPort),
+				Protocol:   port.Protocol,
+			}
+		}
+	}
+
+	// Convert resources
+	if service.Resources != (types.Resources{}) {
+		protoService.Resources = &generated.Resources{
+			Cpu: &generated.ResourceLimit{
+				Request: service.Resources.CPU.Request,
+				Limit:   service.Resources.CPU.Limit,
+			},
+			Memory: &generated.ResourceLimit{
+				Request: service.Resources.Memory.Request,
+				Limit:   service.Resources.Memory.Limit,
+			},
+		}
+	}
+
+	// Convert status
+	switch service.Status {
+	case types.ServiceStatusPending:
+		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_PENDING
+	case types.ServiceStatusRunning:
+		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_RUNNING
+	case types.ServiceStatusUpdating:
+		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UPDATING
+	case types.ServiceStatusFailed:
+		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_FAILED
+	default:
+		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UNSPECIFIED
+	}
+
+	// Convert health checks
+	if service.Health != nil {
+		protoService.Health = &generated.HealthCheck{}
+
+		if service.Health.Liveness != nil {
+			protoService.Health.Liveness = &generated.Probe{
+				InitialDelaySeconds: int32(service.Health.Liveness.InitialDelaySeconds),
+				PeriodSeconds:       int32(service.Health.Liveness.IntervalSeconds),
+				TimeoutSeconds:      int32(service.Health.Liveness.TimeoutSeconds),
+			}
+
+			switch service.Health.Liveness.Type {
+			case "http":
+				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_HTTP
+				protoService.Health.Liveness.Path = service.Health.Liveness.Path
+				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
+			case "tcp":
+				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_TCP
+				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
+			case "command":
+				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
+				protoService.Health.Liveness.Command = service.Health.Liveness.Command
+			}
+		}
+
+		if service.Health.Readiness != nil {
+			protoService.Health.Readiness = &generated.Probe{
+				InitialDelaySeconds: int32(service.Health.Readiness.InitialDelaySeconds),
+				PeriodSeconds:       int32(service.Health.Readiness.IntervalSeconds),
+				TimeoutSeconds:      int32(service.Health.Readiness.TimeoutSeconds),
+			}
+
+			switch service.Health.Readiness.Type {
+			case "http":
+				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_HTTP
+				protoService.Health.Readiness.Path = service.Health.Readiness.Path
+				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
+			case "tcp":
+				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_TCP
+				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
+			case "command":
+				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
+				protoService.Health.Readiness.Command = service.Health.Readiness.Command
+			}
+		}
+	}
+
+	return protoService
+}
+
+// protoToService converts a generated.Service proto message to a types.Service.
+func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service, error) {
+	if proto == nil {
+		return nil, fmt.Errorf("proto service is nil")
+	}
+
+	service := &types.Service{
+		ID:        proto.Id,
+		Name:      proto.Name,
+		Namespace: proto.Namespace,
+		Image:     proto.Image,
+		Command:   proto.Command,
+		Scale:     int(proto.Scale),
+		Runtime:   proto.Runtime,
+	}
+
+	// Convert args
+	if len(proto.Args) > 0 {
+		service.Args = make([]string, len(proto.Args))
+		copy(service.Args, proto.Args)
+	}
+
+	// Convert environment variables
+	if len(proto.Env) > 0 {
+		service.Env = make(map[string]string)
+		for k, v := range proto.Env {
+			service.Env[k] = v
+		}
+	}
+
+	// Convert ports
+	if len(proto.Ports) > 0 {
+		service.Ports = make([]types.ServicePort, len(proto.Ports))
+		for i, port := range proto.Ports {
+			service.Ports[i] = types.ServicePort{
+				Name:       port.Name,
+				Port:       int(port.Port),
+				TargetPort: int(port.TargetPort),
+				Protocol:   port.Protocol,
+			}
+		}
+	}
+
+	// Convert resources
+	if proto.Resources != nil {
+		if proto.Resources.Cpu != nil {
+			service.Resources.CPU = types.ResourceLimit{
+				Request: proto.Resources.Cpu.Request,
+				Limit:   proto.Resources.Cpu.Limit,
+			}
+		}
+		if proto.Resources.Memory != nil {
+			service.Resources.Memory = types.ResourceLimit{
+				Request: proto.Resources.Memory.Request,
+				Limit:   proto.Resources.Memory.Limit,
+			}
+		}
+	}
+
+	// Convert status
+	switch proto.Status {
+	case generated.ServiceStatus_SERVICE_STATUS_PENDING:
+		service.Status = types.ServiceStatusPending
+	case generated.ServiceStatus_SERVICE_STATUS_RUNNING:
+		service.Status = types.ServiceStatusRunning
+	case generated.ServiceStatus_SERVICE_STATUS_UPDATING:
+		service.Status = types.ServiceStatusUpdating
+	case generated.ServiceStatus_SERVICE_STATUS_FAILED:
+		service.Status = types.ServiceStatusFailed
+	default:
+		service.Status = types.ServiceStatusPending
+	}
+
+	// Convert health check
+	if proto.Health != nil {
+		service.Health = &types.HealthCheck{}
+
+		if proto.Health.Liveness != nil {
+			service.Health.Liveness = &types.Probe{
+				InitialDelaySeconds: int(proto.Health.Liveness.InitialDelaySeconds),
+				IntervalSeconds:     int(proto.Health.Liveness.PeriodSeconds),
+				TimeoutSeconds:      int(proto.Health.Liveness.TimeoutSeconds),
+			}
+
+			switch proto.Health.Liveness.Type {
+			case generated.ProbeType_PROBE_TYPE_HTTP:
+				service.Health.Liveness.Type = "http"
+				service.Health.Liveness.Path = proto.Health.Liveness.Path
+				service.Health.Liveness.Port = int(proto.Health.Liveness.Port)
+			case generated.ProbeType_PROBE_TYPE_TCP:
+				service.Health.Liveness.Type = "tcp"
+				service.Health.Liveness.Port = int(proto.Health.Liveness.Port)
+			case generated.ProbeType_PROBE_TYPE_COMMAND:
+				service.Health.Liveness.Type = "command"
+				service.Health.Liveness.Command = proto.Health.Liveness.Command
+			}
+		}
+
+		if proto.Health.Readiness != nil {
+			service.Health.Readiness = &types.Probe{
+				InitialDelaySeconds: int(proto.Health.Readiness.InitialDelaySeconds),
+				IntervalSeconds:     int(proto.Health.Readiness.PeriodSeconds),
+				TimeoutSeconds:      int(proto.Health.Readiness.TimeoutSeconds),
+			}
+
+			switch proto.Health.Readiness.Type {
+			case generated.ProbeType_PROBE_TYPE_HTTP:
+				service.Health.Readiness.Type = "http"
+				service.Health.Readiness.Path = proto.Health.Readiness.Path
+				service.Health.Readiness.Port = int(proto.Health.Readiness.Port)
+			case generated.ProbeType_PROBE_TYPE_TCP:
+				service.Health.Readiness.Type = "tcp"
+				service.Health.Readiness.Port = int(proto.Health.Readiness.Port)
+			case generated.ProbeType_PROBE_TYPE_COMMAND:
+				service.Health.Readiness.Type = "command"
+				service.Health.Readiness.Command = proto.Health.Readiness.Command
+			}
+		}
+	}
+
+	return service, nil
+}
+
+// convertGRPCError converts a gRPC error to a more user-friendly error message.
+func convertGRPCError(operation string, err error) error {
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		// Not a gRPC error
+		return fmt.Errorf("failed to %s: %w", operation, err)
+	}
+
+	switch statusErr.Code() {
+	case codes.NotFound:
+		return fmt.Errorf("resource not found: %s", statusErr.Message())
+	case codes.AlreadyExists:
+		return fmt.Errorf("resource already exists: %s", statusErr.Message())
+	case codes.InvalidArgument:
+		return fmt.Errorf("invalid argument: %s", statusErr.Message())
+	case codes.FailedPrecondition:
+		return fmt.Errorf("failed precondition: %s", statusErr.Message())
+	case codes.PermissionDenied:
+		return fmt.Errorf("permission denied: %s", statusErr.Message())
+	case codes.Unauthenticated:
+		return fmt.Errorf("unauthenticated: %s", statusErr.Message())
+	case codes.ResourceExhausted:
+		return fmt.Errorf("resource exhausted: %s", statusErr.Message())
+	case codes.Unavailable:
+		return fmt.Errorf("service unavailable: %s", statusErr.Message())
+	default:
+		return fmt.Errorf("failed to %s: %s (code %d)", operation, statusErr.Message(), statusErr.Code())
+	}
+}

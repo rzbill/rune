@@ -47,69 +47,15 @@ func (s *InstanceService) GetInstance(ctx context.Context, req *generated.GetIns
 		return nil, status.Error(codes.InvalidArgument, "instance ID is required")
 	}
 
-	// Get the instance from the store - we'll need to search all namespaces
-	// This is a simplification - in a production system you might have an index for instance IDs
+	if req.Namespace == "" {
+		req.Namespace = DefaultNamespace
+	}
+
 	var instance *types.Instance
-	namespaces, err := s.store.List(ctx, "namespaces", "")
+	err := s.store.Get(ctx, ResourceTypeInstance, req.Namespace, req.Id, &instance)
 	if err != nil {
-		s.logger.Error("Failed to list namespaces", log.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to list namespaces: %v", err)
-	}
-
-	// If no namespaces, use the default
-	if len(namespaces) == 0 {
-		// Look for the instance in the default namespace
-		instances, err := s.store.List(ctx, ResourceTypeInstance, DefaultNamespace)
-		if err != nil {
-			s.logger.Error("Failed to list instances", log.Err(err))
-			return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
-		}
-
-		for _, inst := range instances {
-			i, ok := inst.(*types.Instance)
-			if !ok {
-				continue
-			}
-
-			if i.ID == req.Id {
-				instance = i
-				break
-			}
-		}
-	} else {
-		// Look through all namespaces
-		for _, ns := range namespaces {
-			namespace, ok := ns.(string)
-			if !ok {
-				continue
-			}
-
-			instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
-			if err != nil {
-				s.logger.Error("Failed to list instances", log.Str("namespace", namespace), log.Err(err))
-				continue
-			}
-
-			for _, inst := range instances {
-				i, ok := inst.(*types.Instance)
-				if !ok {
-					continue
-				}
-
-				if i.ID == req.Id {
-					instance = i
-					break
-				}
-			}
-
-			if instance != nil {
-				break
-			}
-		}
-	}
-
-	if instance == nil {
-		return nil, status.Errorf(codes.NotFound, "instance not found: %s", req.Id)
+		// Handle error case
+		return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
 	}
 
 	// Get instance status from the appropriate runner

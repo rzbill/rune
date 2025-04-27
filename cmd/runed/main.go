@@ -23,6 +23,8 @@ var (
 	httpAddr   = flag.String("http-addr", ":8081", "HTTP server address")
 	dataDir    = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
 	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	logFormat  = flag.String("log-format", "text", "Log format (text, json)")
+	prettyLogs = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
 	apiKeys    = flag.String("api-keys", "", "Comma-separated list of API keys (empty to disable auth)")
 	showHelp   = flag.Bool("help", false, "Show help")
 	showVer    = flag.Bool("version", false, "Show version")
@@ -68,10 +70,11 @@ func loadConfig() {
 
 	// 1. Set default values that will be used if nothing else is specified
 	defaultDataDir := getDefaultDataDir()
-	v.SetDefault("server.grpc_address", ":8080")
+	v.SetDefault("server.grpc_address", ":8443")
 	v.SetDefault("server.http_address", ":8081")
 	v.SetDefault("data_dir", defaultDataDir)
 	v.SetDefault("log.level", "info")
+	v.SetDefault("log.format", "text")
 	v.SetDefault("auth.api_keys", "")
 
 	// 2. Try to load config file if specified or look in standard locations
@@ -136,6 +139,10 @@ func loadConfig() {
 		*logLevel = v.GetString("log.level")
 	}
 
+	if !cmdFlags["log-format"] {
+		*logFormat = v.GetString("log.format")
+	}
+
 	if !cmdFlags["api-keys"] {
 		*apiKeys = v.GetString("auth.api_keys")
 	}
@@ -165,8 +172,13 @@ func main() {
 	// Load configuration
 	loadConfig()
 
-	// Create logger
-	logger := log.NewLogger()
+	// If --pretty flag is set, override log format
+	if *prettyLogs {
+		*logFormat = "text"
+	}
+
+	// Create logger with appropriate formatter
+	var loggerOpts []log.LoggerOption
 
 	// Convert string log level to log.Level type
 	level, err := log.ParseLevel(*logLevel)
@@ -174,7 +186,20 @@ func main() {
 		fmt.Printf("Invalid log level: %s, defaulting to 'info'\n", *logLevel)
 		level = log.InfoLevel
 	}
-	logger.SetLevel(level)
+	loggerOpts = append(loggerOpts, log.WithLevel(level))
+
+	// Configure logger format
+	switch strings.ToLower(*logFormat) {
+	case "json":
+		loggerOpts = append(loggerOpts, log.WithFormatter(&log.JSONFormatter{}))
+	case "text", "pretty":
+		loggerOpts = append(loggerOpts, log.WithFormatter(&log.TextFormatter{}))
+	default:
+		fmt.Printf("Invalid log format: %s, defaulting to 'text'\n", *logFormat)
+		loggerOpts = append(loggerOpts, log.WithFormatter(&log.TextFormatter{}))
+	}
+
+	logger := log.NewLogger(loggerOpts...)
 
 	logger.Info("Starting Rune Server", log.Str("version", version.Version))
 
@@ -230,14 +255,12 @@ func main() {
 	}
 
 	// Create and start API server
-	logger.Info("Creating API server")
 	apiServer, err := server.New(serverOpts...)
 	if err != nil {
 		logger.Error("Failed to create API server", log.Err(err))
 		os.Exit(1)
 	}
 
-	logger.Info("Starting API server")
 	if err := apiServer.Start(); err != nil {
 		logger.Error("Failed to start API server", log.Err(err))
 		os.Exit(1)
@@ -247,7 +270,6 @@ func main() {
 	<-ctx.Done()
 
 	// Gracefully stop the API server
-	logger.Info("Stopping API server")
 	if err := apiServer.Stop(); err != nil {
 		logger.Error("Failed to stop API server", log.Err(err))
 	}

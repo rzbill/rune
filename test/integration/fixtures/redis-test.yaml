@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-test
+spec:
+  type: Docker
+  image: redis:latest
+  ports:
+    - containerPort: 6379
+      hostPort: 6379
+  env:
+    - name: REDIS_PASSWORD
+      value: test-password 

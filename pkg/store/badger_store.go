@@ -54,14 +54,14 @@ func (s *BadgerStore) Open(path string) error {
 	// Start watch event handler
 	go s.watchEventHandler()
 
-	s.logger.Info("BadgerDB store opened", log.Str("path", path))
+	s.logger.Info("Rune store opened", log.Str("path", path))
 	return nil
 }
 
 // Close closes the BadgerDB database.
 func (s *BadgerStore) Close() error {
 	if s.db != nil {
-		s.logger.Info("Closing BadgerDB store", log.Str("path", s.path))
+		s.logger.Info("Closing Rune store", log.Str("path", s.path))
 
 		// Clean up watch connections
 		s.watchMu.Lock()

@@ -87,7 +87,7 @@ func (s *APIServer) Start() error {
 		return fmt.Errorf("state store is required")
 	}
 
-	s.logger.Info("Starting API server")
+	s.logger.Info("Starting Rune Server")
 
 	// Create service implementations
 	s.serviceService = service.NewServiceService(s.store, s.logger)
@@ -237,9 +237,15 @@ func (s *APIServer) startRESTGateway() error {
 
 // Stop stops the API server gracefully.
 func (s *APIServer) Stop() error {
-	s.logger.Info("Stopping API server")
+	s.logger.Info("Stopping Rune Server")
 
-	close(s.shutdownCh)
+	// Ensure we only close the channel once
+	select {
+	case <-s.shutdownCh:
+		// Channel is already closed, nothing to do
+	default:
+		close(s.shutdownCh)
+	}
 
 	// Stop gRPC server
 	if s.grpcServer != nil {
@@ -259,7 +265,7 @@ func (s *APIServer) Stop() error {
 
 	// Wait for all goroutines to finish
 	s.wg.Wait()
-	s.logger.Info("API server stopped")
+	s.logger.Info("Rune Server stopped")
 
 	return nil
 }

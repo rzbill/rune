@@ -35,6 +35,85 @@ func NewExecService(dockerRunner, processRunner runner.Runner, store store.Store
 	}
 }
 
+// getTargetInstance resolves an instance from an init request, handling both service-based and instance-based targeting
+func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.ExecInitRequest) (*types.Instance, error) {
+	namespace := initReq.Namespace
+	if namespace == "" {
+		namespace = DefaultNamespace
+	}
+
+	if initReq.GetServiceName() != "" {
+		// Target is a service - need to select an instance
+		serviceName := initReq.GetServiceName()
+
+		// Get the service from the store
+		var service types.Service
+		if err := s.store.Get(ctx, ResourceTypeService, namespace, serviceName, &service); err != nil {
+			if IsNotFound(err) {
+				return nil, status.Errorf(codes.NotFound, "service not found: %s", serviceName)
+			}
+			s.logger.Error("Failed to get service", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get service: %v", err)
+		}
+
+		// Get all instances for the service
+		instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
+		if err != nil {
+			s.logger.Error("Failed to list instances", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
+		}
+
+		// Filter instances by service ID and running status
+		var runningInstances []string
+		for _, inst := range instances {
+			instance, ok := inst.(*types.Instance)
+			if !ok {
+				continue
+			}
+
+			if instance.ServiceID == serviceName && instance.Status == types.InstanceStatusRunning {
+				runningInstances = append(runningInstances, instance.ID)
+			}
+		}
+
+		if len(runningInstances) == 0 {
+			return nil, status.Errorf(codes.NotFound, "no running instances found for service: %s", serviceName)
+		}
+
+		// Just pick the first running instance for simplicity
+		instanceID := runningInstances[0]
+
+		// Get the full instance details
+		var instance types.Instance
+		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+			s.logger.Error("Failed to get instance", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
+		}
+
+		return &instance, nil
+	} else {
+		// Target is a specific instance
+		instanceID := initReq.GetInstanceId()
+
+		// Get the instance details
+		var instance types.Instance
+		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+			if IsNotFound(err) {
+				return nil, status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
+			}
+			s.logger.Error("Failed to get instance", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
+		}
+
+		// Check if the instance is running
+		if instance.Status != types.InstanceStatusRunning {
+			return nil, status.Errorf(codes.FailedPrecondition, "instance is not running, status: %s", instance.Status)
+		}
+
+		return &instance, nil
+	}
+}
+
 // StreamExec provides bidirectional streaming for exec operations.
 func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) error {
 	// Get the initial request
@@ -60,71 +139,10 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// Process request based on target (service or instance)
-	var instanceID string
-	var serviceName string
-	var namespace string = initReq.Namespace
-	if namespace == "" {
-		namespace = DefaultNamespace
-	}
-
-	if initReq.GetServiceName() != "" {
-		// Target is a service - need to select an instance
-		serviceName = initReq.GetServiceName()
-
-		// Get the service from the store
-		var service types.Service
-		if err := s.store.Get(ctx, ResourceTypeService, namespace, serviceName, &service); err != nil {
-			if IsNotFound(err) {
-				return status.Errorf(codes.NotFound, "service not found: %s", serviceName)
-			}
-			s.logger.Error("Failed to get service", log.Err(err))
-			return status.Errorf(codes.Internal, "failed to get service: %v", err)
-		}
-
-		// Get all instances for the service
-		instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
-		if err != nil {
-			s.logger.Error("Failed to list instances", log.Err(err))
-			return status.Errorf(codes.Internal, "failed to list instances: %v", err)
-		}
-
-		// Filter instances by service ID and running status
-		var runningInstances []string
-		for _, inst := range instances {
-			instance, ok := inst.(*types.Instance)
-			if !ok {
-				continue
-			}
-
-			if instance.ServiceID == serviceName && instance.Status == types.InstanceStatusRunning {
-				runningInstances = append(runningInstances, instance.ID)
-			}
-		}
-
-		if len(runningInstances) == 0 {
-			return status.Errorf(codes.NotFound, "no running instances found for service: %s", serviceName)
-		}
-
-		// Just pick the first running instance for simplicity
-		instanceID = runningInstances[0]
-	} else {
-		// Target is a specific instance
-		instanceID = initReq.GetInstanceId()
-
-		// Get the instance to determine its service
-		instanceService := NewInstanceService(s.store, s.dockerRunner, s.processRunner, s.logger)
-		instanceResp, err := instanceService.GetInstance(ctx, &generated.GetInstanceRequest{Id: instanceID})
-		if err != nil {
-			return err
-		}
-
-		// Check if the instance is running
-		if instanceResp.Instance.Status != generated.InstanceStatus_INSTANCE_STATUS_RUNNING {
-			return status.Errorf(codes.FailedPrecondition, "instance is not running, status: %s", instanceResp.Instance.Status)
-		}
-
-		serviceName = instanceResp.Instance.ServiceId
+	// Get target instance
+	instance, err := s.getTargetInstance(ctx, initReq)
+	if err != nil {
+		return err
 	}
 
 	// Send a status message to indicate successful connection
@@ -132,7 +150,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 		Response: &generated.ExecResponse_Status{
 			Status: &generated.Status{
 				Code:    int32(codes.OK),
-				Message: fmt.Sprintf("Connected to instance %s", instanceID),
+				Message: fmt.Sprintf("Connected to instance %s", instance.ID),
 			},
 		},
 	}); err != nil {
@@ -141,14 +159,8 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Determine which runner to use based on instance type
-	instanceService := NewInstanceService(s.store, s.dockerRunner, s.processRunner, s.logger)
-	instanceResp, err := instanceService.GetInstance(ctx, &generated.GetInstanceRequest{Id: instanceID})
-	if err != nil {
-		return err
-	}
-
 	var execRunner runner.Runner
-	if instanceResp.Instance.ContainerId != "" {
+	if instance.ContainerID != "" {
 		execRunner = s.dockerRunner
 	} else {
 		execRunner = s.processRunner
@@ -165,7 +177,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Create exec stream
-	execStream, err := execRunner.Exec(ctx, instanceID, execOptions)
+	execStream, err := execRunner.Exec(ctx, instance.ID, execOptions)
 	if err != nil {
 		s.logger.Error("Failed to create exec stream", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to create exec stream: %v", err)

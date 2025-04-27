@@ -62,6 +62,9 @@ message Instance {
 message GetInstanceRequest {
   // ID of the instance
   string id = 1;
+
+  // Namespace of the instance
+  string namespace = 2;
 }
 
 // InstanceResponse returns an instance or status.
