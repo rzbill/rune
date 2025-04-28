@@ -2,6 +2,9 @@ service:
   name: echo
   namespace: default
   image: busybox
+  scale: 1
+  labels:
+    app: echo
   command: "echo"
   args:
     - "Hello from Rune!" 

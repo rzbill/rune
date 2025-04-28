@@ -2,6 +2,8 @@ package client
 
 import (
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
@@ -162,13 +164,36 @@ func (s *ServiceClient) DeleteService(namespace, name string) error {
 	return nil
 }
 
-// ListServices lists services in a namespace.
-func (s *ServiceClient) ListServices(namespace string) ([]*types.Service, error) {
-	s.logger.Debug("Listing services", log.Str("namespace", namespace))
+// ListServices lists services in a namespace with optional filtering.
+func (s *ServiceClient) ListServices(namespace string, labelSelector string, fieldSelector string) ([]*types.Service, error) {
+	s.logger.Debug("Listing services",
+		log.Str("namespace", namespace),
+		log.Str("labelSelector", labelSelector),
+		log.Str("fieldSelector", fieldSelector))
 
 	// Create the gRPC request
 	req := &generated.ListServicesRequest{
-		Namespace: namespace,
+		Namespace:     namespace,
+		LabelSelector: make(map[string]string),
+		FieldSelector: make(map[string]string),
+	}
+
+	// Parse label selector if provided
+	if labelSelector != "" {
+		labels, err := parseSelector(labelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid label selector: %w", err)
+		}
+		req.LabelSelector = labels
+	}
+
+	// Parse field selector if provided
+	if fieldSelector != "" {
+		fields, err := parseSelector(fieldSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid field selector: %w", err)
+		}
+		req.FieldSelector = fields
 	}
 
 	// Send the request to the API server
@@ -200,6 +225,33 @@ func (s *ServiceClient) ListServices(namespace string) ([]*types.Service, error)
 	}
 
 	return services, nil
+}
+
+// Helper function for parsing key=value selectors
+func parseSelector(selector string) (map[string]string, error) {
+	result := make(map[string]string)
+	if selector == "" {
+		return result, nil
+	}
+
+	pairs := strings.Split(selector, ",")
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid selector format, expected key=value: %s", pair)
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("empty key in selector: %s", pair)
+		}
+		if value == "" {
+			return nil, fmt.Errorf("empty value in selector: %s", pair)
+		}
+		result[key] = value
+	}
+
+	return result, nil
 }
 
 // ScaleService changes the scale of a service.
@@ -511,4 +563,131 @@ func convertGRPCError(operation string, err error) error {
 	default:
 		return fmt.Errorf("failed to %s: %s (code %d)", operation, statusErr.Message(), statusErr.Code())
 	}
+}
+
+// WatchEvent represents a service change event
+type WatchEvent struct {
+	Service   *types.Service
+	EventType string // "ADDED", "MODIFIED", "DELETED"
+	Error     error
+}
+
+// WatchServices watches services for changes and returns a channel of events.
+func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fieldSelector string) (<-chan WatchEvent, error) {
+	s.logger.Debug("Watching services",
+		log.Str("namespace", namespace),
+		log.Str("labelSelector", labelSelector),
+		log.Str("fieldSelector", fieldSelector))
+
+	// Create the gRPC request
+	req := &generated.WatchServicesRequest{
+		Namespace:     namespace,
+		LabelSelector: make(map[string]string),
+		FieldSelector: make(map[string]string),
+	}
+
+	// Parse label selector if provided
+	if labelSelector != "" {
+		labels, err := parseSelector(labelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid label selector: %w", err)
+		}
+		req.LabelSelector = labels
+	}
+
+	// Parse field selector if provided
+	if fieldSelector != "" {
+		fields, err := parseSelector(fieldSelector)
+		if err != nil {
+			return nil, fmt.Errorf("invalid field selector: %w", err)
+		}
+		req.FieldSelector = fields
+	}
+
+	// Create context with client timeout
+	ctx, cancel := s.client.Context()
+
+	// Establish the streaming connection
+	stream, err := s.svc.WatchServices(ctx, req)
+	if err != nil {
+		cancel()
+		s.logger.Error("Failed to establish watch connection", log.Err(err))
+		return nil, convertGRPCError("watch services", err)
+	}
+
+	// Create channel for watch events
+	eventCh := make(chan WatchEvent)
+
+	// Start goroutine to receive watch events and send them to the channel
+	go func() {
+		defer cancel()
+		defer close(eventCh)
+
+		for {
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				s.logger.Debug("Watch context cancelled")
+				return
+			default:
+				// Continue processing
+			}
+
+			// Receive event from server
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				s.logger.Debug("Watch stream closed by server")
+				return
+			}
+			if err != nil {
+				s.logger.Error("Error receiving watch event", log.Err(err))
+				eventCh <- WatchEvent{
+					Error: fmt.Errorf("watch error: %w", err),
+				}
+				return
+			}
+
+			// Check if the API returned an error status
+			if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
+				err := fmt.Errorf("API error: %s", resp.Status.Message)
+				s.logger.Error("Watch API error", log.Err(err))
+				eventCh <- WatchEvent{
+					Error: err,
+				}
+				return
+			}
+
+			// Convert proto event type to string
+			var eventType string
+			switch resp.EventType {
+			case generated.EventType_EVENT_TYPE_ADDED:
+				eventType = "ADDED"
+			case generated.EventType_EVENT_TYPE_MODIFIED:
+				eventType = "MODIFIED"
+			case generated.EventType_EVENT_TYPE_DELETED:
+				eventType = "DELETED"
+			default:
+				eventType = "UNKNOWN"
+			}
+
+			// Convert the proto service to a type service
+			service, err := s.protoToService(resp.Service)
+			if err != nil {
+				s.logger.Error("Failed to convert service", log.Err(err))
+				eventCh <- WatchEvent{
+					Error: fmt.Errorf("failed to convert service: %w", err),
+				}
+				continue
+			}
+
+			// Send the event to the channel
+			eventCh <- WatchEvent{
+				Service:   service,
+				EventType: eventType,
+				Error:     nil,
+			}
+		}
+	}()
+
+	return eventCh, nil
 }

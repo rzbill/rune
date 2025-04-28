@@ -15,6 +15,14 @@ enum ServiceStatus {
   SERVICE_STATUS_FAILED = 4;      // Service failed to deploy or run
 }
 
+// EventType represents the type of event in a watch stream
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_ADDED = 1;       // Resource was added
+  EVENT_TYPE_MODIFIED = 2;    // Resource was modified
+  EVENT_TYPE_DELETED = 3;     // Resource was deleted
+}
+
 // Service represents a deployable application or workload.
 message Service {
   // Unique identifier for the service
@@ -25,6 +33,9 @@ message Service {
   
   // Namespace the service belongs to
   string namespace = 3;
+  
+  // Labels for the service
+  map<string, string> labels = 16;
   
   // Container image for the service
   string image = 4;
@@ -97,9 +108,12 @@ message ListServicesRequest {
   
   // Filter services by label
   map<string, string> label_selector = 2;
+
+  // Filter services by field
+  map<string, string> field_selector = 3;
   
   // Paging parameters
-  PagingParams paging = 3;
+  PagingParams paging = 4;
 }
 
 // ListServicesResponse returns a list of services.
@@ -112,6 +126,30 @@ message ListServicesResponse {
   
   // Paging information for continuation
   PagingParams paging = 3;
+}
+
+// WatchServicesRequest requests to watch services for changes.
+message WatchServicesRequest {
+  // Namespace to watch services from (optional, default: "default", use "*" for all namespaces)
+  string namespace = 1;
+  
+  // Filter services by label
+  map<string, string> label_selector = 2;
+
+  // Filter services by field
+  map<string, string> field_selector = 3;
+}
+
+// WatchServicesResponse returns service change events.
+message WatchServicesResponse {
+  // The service that changed
+  Service service = 1;
+  
+  // Type of event (added, modified, deleted)
+  EventType event_type = 2;
+  
+  // Status message
+  Status status = 3;
 }
 
 // UpdateServiceRequest requests an update to a service.
@@ -163,6 +201,9 @@ service ServiceService {
   
   // ListServices lists services with optional filtering.
   rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  
+  // WatchServices watches services for changes.
+  rpc WatchServices(WatchServicesRequest) returns (stream WatchServicesResponse);
   
   // UpdateService updates an existing service.
   rpc UpdateService(UpdateServiceRequest) returns (ServiceResponse);

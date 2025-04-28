@@ -16,6 +16,9 @@ type Service struct {
 	// Namespace the service belongs to
 	Namespace string `json:"namespace" yaml:"namespace"`
 
+	// Labels are key/value pairs that can be used to organize and categorize services
+	Labels map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
+
 	// Container image for the service
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 

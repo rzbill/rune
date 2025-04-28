@@ -18,6 +18,9 @@ type ServiceSpec struct {
 	// Namespace the service belongs to (optional, defaults to "default")
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 
+	// Labels for the service
+	Labels map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
+
 	// Container image for the service (required)
 	Image string `json:"image" yaml:"image"`
 
@@ -251,6 +254,7 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		ID:            uuid.New().String(),
 		Name:          s.Name,
 		Namespace:     namespace,
+		Labels:        s.Labels,
 		Image:         s.Image,
 		Command:       s.Command,
 		Args:          s.Args,

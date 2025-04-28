@@ -28,6 +28,8 @@ type ServiceServiceClient interface {
 	GetService(ctx context.Context, in *GetServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
 	// ListServices lists services with optional filtering.
 	ListServices(ctx context.Context, in *ListServicesRequest, opts ...grpc.CallOption) (*ListServicesResponse, error)
+	// WatchServices watches services for changes.
+	WatchServices(ctx context.Context, in *WatchServicesRequest, opts ...grpc.CallOption) (ServiceService_WatchServicesClient, error)
 	// UpdateService updates an existing service.
 	UpdateService(ctx context.Context, in *UpdateServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
 	// DeleteService removes a service.
@@ -71,6 +73,38 @@ func (c *serviceServiceClient) ListServices(ctx context.Context, in *ListService
 	return out, nil
 }
 
+func (c *serviceServiceClient) WatchServices(ctx context.Context, in *WatchServicesRequest, opts ...grpc.CallOption) (ServiceService_WatchServicesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ServiceService_ServiceDesc.Streams[0], "/rune.api.ServiceService/WatchServices", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &serviceServiceWatchServicesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type ServiceService_WatchServicesClient interface {
+	Recv() (*WatchServicesResponse, error)
+	grpc.ClientStream
+}
+
+type serviceServiceWatchServicesClient struct {
+	grpc.ClientStream
+}
+
+func (x *serviceServiceWatchServicesClient) Recv() (*WatchServicesResponse, error) {
+	m := new(WatchServicesResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *serviceServiceClient) UpdateService(ctx context.Context, in *UpdateServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error) {
 	out := new(ServiceResponse)
 	err := c.cc.Invoke(ctx, "/rune.api.ServiceService/UpdateService", in, out, opts...)
@@ -108,6 +142,8 @@ type ServiceServiceServer interface {
 	GetService(context.Context, *GetServiceRequest) (*ServiceResponse, error)
 	// ListServices lists services with optional filtering.
 	ListServices(context.Context, *ListServicesRequest) (*ListServicesResponse, error)
+	// WatchServices watches services for changes.
+	WatchServices(*WatchServicesRequest, ServiceService_WatchServicesServer) error
 	// UpdateService updates an existing service.
 	UpdateService(context.Context, *UpdateServiceRequest) (*ServiceResponse, error)
 	// DeleteService removes a service.
@@ -129,6 +165,9 @@ func (UnimplementedServiceServiceServer) GetService(context.Context, *GetService
 }
 func (UnimplementedServiceServiceServer) ListServices(context.Context, *ListServicesRequest) (*ListServicesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListServices not implemented")
+}
+func (UnimplementedServiceServiceServer) WatchServices(*WatchServicesRequest, ServiceService_WatchServicesServer) error {
+	return status.Errorf(codes.Unimplemented, "method WatchServices not implemented")
 }
 func (UnimplementedServiceServiceServer) UpdateService(context.Context, *UpdateServiceRequest) (*ServiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateService not implemented")
@@ -204,6 +243,27 @@ func _ServiceService_ListServices_Handler(srv interface{}, ctx context.Context, 
 		return srv.(ServiceServiceServer).ListServices(ctx, req.(*ListServicesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _ServiceService_WatchServices_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchServicesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ServiceServiceServer).WatchServices(m, &serviceServiceWatchServicesServer{stream})
+}
+
+type ServiceService_WatchServicesServer interface {
+	Send(*WatchServicesResponse) error
+	grpc.ServerStream
+}
+
+type serviceServiceWatchServicesServer struct {
+	grpc.ServerStream
+}
+
+func (x *serviceServiceWatchServicesServer) Send(m *WatchServicesResponse) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _ServiceService_UpdateService_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -292,6 +352,12 @@ var ServiceService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ServiceService_ScaleService_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchServices",
+			Handler:       _ServiceService_WatchServices_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "pkg/api/proto/service.proto",
 }

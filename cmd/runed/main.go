@@ -18,16 +18,17 @@ import (
 )
 
 var (
-	configFile = flag.String("config", "", "Configuration file path")
-	grpcAddr   = flag.String("grpc-addr", ":8080", "gRPC server address")
-	httpAddr   = flag.String("http-addr", ":8081", "HTTP server address")
-	dataDir    = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
-	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	logFormat  = flag.String("log-format", "text", "Log format (text, json)")
-	prettyLogs = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
-	apiKeys    = flag.String("api-keys", "", "Comma-separated list of API keys (empty to disable auth)")
-	showHelp   = flag.Bool("help", false, "Show help")
-	showVer    = flag.Bool("version", false, "Show version")
+	configFile    = flag.String("config", "", "Configuration file path")
+	grpcAddr      = flag.String("grpc-addr", ":8080", "gRPC server address")
+	httpAddr      = flag.String("http-addr", ":8081", "HTTP server address")
+	dataDir       = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
+	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	debugLogLevel = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
+	logFormat     = flag.String("log-format", "text", "Log format (text, json)")
+	prettyLogs    = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
+	apiKeys       = flag.String("api-keys", "", "Comma-separated list of API keys (empty to disable auth)")
+	showHelp      = flag.Bool("help", false, "Show help")
+	showVer       = flag.Bool("version", false, "Show version")
 )
 
 // getDefaultDataDir returns the default data directory based on the OS
@@ -143,6 +144,14 @@ func loadConfig() {
 		*logFormat = v.GetString("log.format")
 	}
 
+	if !cmdFlags["debug"] {
+		*debugLogLevel = v.GetBool("debug")
+	}
+
+	if !cmdFlags["pretty"] {
+		*prettyLogs = v.GetBool("pretty")
+	}
+
 	if !cmdFlags["api-keys"] {
 		*apiKeys = v.GetString("auth.api_keys")
 	}
@@ -175,6 +184,10 @@ func main() {
 	// If --pretty flag is set, override log format
 	if *prettyLogs {
 		*logFormat = "text"
+	}
+
+	if *debugLogLevel {
+		*logLevel = "debug"
 	}
 
 	// Create logger with appropriate formatter

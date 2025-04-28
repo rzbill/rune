@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/pterm/pterm"
 )
 
 // Color codes
@@ -15,6 +17,7 @@ const (
 	Green      = "\033[32m"
 	Yellow     = "\033[33m"
 	Blue       = "\033[34m"
+	DarkBlue   = "\033[34;1m"
 	Magenta    = "\033[35m"
 	Cyan       = "\033[36m"
 	White      = "\033[37m"
@@ -144,6 +147,23 @@ func StatusLabel(status string) string {
 		return Colorize(BoldRed, status)
 	default:
 		return Colorize(White, status)
+	}
+}
+
+// PTermStatusLabel applies consistent coloring to status strings based on their value
+func PTermStatusLabel(status string) string {
+	// Convert to lowercase for comparison
+	statusLower := strings.ToLower(status)
+
+	switch statusLower {
+	case "running", "success", "succeeded", "healthy", "active", "ready":
+		return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint(status)
+	case "pending", "waiting", "starting", "initializing", "updating":
+		return pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprint(status)
+	case "failed", "error", "unhealthy", "terminated":
+		return pterm.NewStyle(pterm.FgRed, pterm.Bold).Sprint(status)
+	default:
+		return pterm.NewStyle(pterm.FgWhite).Sprint(status)
 	}
 }
 
