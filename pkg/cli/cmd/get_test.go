@@ -215,7 +215,7 @@ func TestWatchServices(t *testing.T) {
 						Namespace: "default",
 						Image:     "test:latest",
 						Scale:     2, // Scale changed
-						Status:    types.ServiceStatusUpdating,
+						Status:    types.ServiceStatusDeploying,
 						CreatedAt: time.Now().Add(-1 * time.Hour),
 					},
 					EventType: "MODIFIED",

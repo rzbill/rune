@@ -16,26 +16,26 @@ type Runner interface {
 	Create(ctx context.Context, instance *types.Instance) error
 
 	// Start starts an existing service instance.
-	Start(ctx context.Context, instanceID string) error
+	Start(ctx context.Context, instance *types.Instance) error
 
 	// Stop stops a running service instance.
-	Stop(ctx context.Context, instanceID string, timeout time.Duration) error
+	Stop(ctx context.Context, instance *types.Instance, timeout time.Duration) error
 
 	// Remove removes a service instance.
-	Remove(ctx context.Context, instanceID string, force bool) error
+	Remove(ctx context.Context, instance *types.Instance, force bool) error
 
 	// GetLogs retrieves logs from a service instance.
-	GetLogs(ctx context.Context, instanceID string, options LogOptions) (io.ReadCloser, error)
+	GetLogs(ctx context.Context, instance *types.Instance, options LogOptions) (io.ReadCloser, error)
 
 	// Status retrieves the current status of a service instance.
-	Status(ctx context.Context, instanceID string) (types.InstanceStatus, error)
+	Status(ctx context.Context, instance *types.Instance) (types.InstanceStatus, error)
 
 	// List lists all service instances managed by this runner.
-	List(ctx context.Context) ([]*types.Instance, error)
+	List(ctx context.Context, namespace string) ([]*types.Instance, error)
 
 	// Exec creates an interactive exec session with a running instance.
 	// Returns an ExecStream for bidirectional communication.
-	Exec(ctx context.Context, instanceID string, options ExecOptions) (ExecStream, error)
+	Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
 }
 
 // LogOptions defines options for retrieving logs.
@@ -127,4 +127,21 @@ type ExecStream interface {
 
 	// Close terminates the exec session and releases resources.
 	Close() error
+}
+
+// GetExecOptions returns ExecOptions using values from the instance
+func GetExecOptions(command []string, instance *types.Instance) ExecOptions {
+	opts := ExecOptions{
+		Command: command,
+		TTY:     false,
+	}
+
+	// Use instance environment if available
+	if instance != nil && instance.Environment != nil {
+		opts.Env = instance.Environment
+	} else {
+		opts.Env = make(map[string]string)
+	}
+
+	return opts
 }

@@ -15,15 +15,17 @@ import (
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
+// Validate that DockerRunner implements the runner.Runner interface
+var _ runner.Runner = &DockerRunner{}
+
 // DockerRunner implements the runner.Runner interface for Docker.
 type DockerRunner struct {
-	client    *client.Client
-	namespace string // Used to identify containers managed by this runner
-	logger    log.Logger
+	client *client.Client
+	logger log.Logger
 }
 
 // NewDockerRunner creates a new DockerRunner instance.
-func NewDockerRunner(namespace string, logger log.Logger) (*DockerRunner, error) {
+func NewDockerRunner(logger log.Logger) (*DockerRunner, error) {
 	// Default to use global logger if none provided
 	if logger == nil {
 		logger = log.GetDefaultLogger().WithComponent("docker-runner")
@@ -39,9 +41,8 @@ func NewDockerRunner(namespace string, logger log.Logger) (*DockerRunner, error)
 	client.NegotiateAPIVersion(context.Background())
 
 	return &DockerRunner{
-		client:    client,
-		namespace: namespace,
-		logger:    logger.WithField("namespace", namespace),
+		client: client,
+		logger: logger,
 	}, nil
 }
 
@@ -82,8 +83,8 @@ func (r *DockerRunner) Create(ctx context.Context, instance *runetypes.Instance)
 }
 
 // Start starts an existing container.
-func (r *DockerRunner) Start(ctx context.Context, instanceID string) error {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) Start(ctx context.Context, instance *runetypes.Instance) error {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -95,14 +96,16 @@ func (r *DockerRunner) Start(ctx context.Context, instanceID string) error {
 
 	r.logger.Info("Started container for instance",
 		log.Str("container_id", containerID),
-		log.Str("instance_id", instanceID))
+		log.Str("instance_id", instance.ID),
+		log.Str("instance_name", instance.Name),
+		log.Str("instance_status", string(instance.Status)))
 
 	return nil
 }
 
 // Stop stops a running container.
-func (r *DockerRunner) Stop(ctx context.Context, instanceID string, timeout time.Duration) error {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) Stop(ctx context.Context, instance *runetypes.Instance, timeout time.Duration) error {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -117,14 +120,14 @@ func (r *DockerRunner) Stop(ctx context.Context, instanceID string, timeout time
 
 	r.logger.Info("Stopped container for instance",
 		log.Str("container_id", containerID),
-		log.Str("instance_id", instanceID))
+		log.Str("instance_id", instance.ID))
 
 	return nil
 }
 
 // Remove removes a container.
-func (r *DockerRunner) Remove(ctx context.Context, instanceID string, force bool) error {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) Remove(ctx context.Context, instance *runetypes.Instance, force bool) error {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -140,14 +143,14 @@ func (r *DockerRunner) Remove(ctx context.Context, instanceID string, force bool
 
 	r.logger.Info("Removed container for instance",
 		log.Str("container_id", containerID),
-		log.Str("instance_id", instanceID))
+		log.Str("instance_id", instance.ID))
 
 	return nil
 }
 
 // GetLogs retrieves logs from a container.
-func (r *DockerRunner) GetLogs(ctx context.Context, instanceID string, options runner.LogOptions) (io.ReadCloser, error) {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) GetLogs(ctx context.Context, instance *runetypes.Instance, options runner.LogOptions) (io.ReadCloser, error) {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -186,8 +189,8 @@ func (r *DockerRunner) GetLogs(ctx context.Context, instanceID string, options r
 }
 
 // Status retrieves the current status of a container.
-func (r *DockerRunner) Status(ctx context.Context, instanceID string) (runetypes.InstanceStatus, error) {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) Status(ctx context.Context, instance *runetypes.Instance) (runetypes.InstanceStatus, error) {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return "", fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -209,12 +212,15 @@ func (r *DockerRunner) Status(ctx context.Context, instanceID string) (runetypes
 }
 
 // List lists all service instances managed by this runner.
-func (r *DockerRunner) List(ctx context.Context) ([]*runetypes.Instance, error) {
+func (r *DockerRunner) List(ctx context.Context, namespace string) ([]*runetypes.Instance, error) {
 	// Filter containers managed by this runner
 	args := filters.NewArgs(
 		filters.Arg("label", "rune.managed=true"),
-		filters.Arg("label", "rune.namespace="+r.namespace),
 	)
+
+	if namespace != "" {
+		args.Add("label", "rune.namespace="+namespace)
+	}
 
 	containers, err := r.client.ContainerList(ctx, container.ListOptions{
 		All:     true, // Include stopped containers
@@ -270,8 +276,8 @@ func (r *DockerRunner) List(ctx context.Context) ([]*runetypes.Instance, error) 
 }
 
 // Exec creates an interactive exec session with a running container.
-func (r *DockerRunner) Exec(ctx context.Context, instanceID string, options runner.ExecOptions) (runner.ExecStream, error) {
-	containerID, err := r.getContainerID(ctx, instanceID)
+func (r *DockerRunner) Exec(ctx context.Context, instance *runetypes.Instance, options runner.ExecOptions) (runner.ExecStream, error) {
+	containerID, err := r.getContainerID(ctx, instance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container ID: %w", err)
 	}
@@ -287,7 +293,7 @@ func (r *DockerRunner) Exec(ctx context.Context, instanceID string, options runn
 	}
 
 	// Create the exec stream
-	execStream, err := NewDockerExecStream(ctx, r.client, containerID, instanceID, options, r.logger)
+	execStream, err := NewDockerExecStream(ctx, r.client, containerID, instance.ID, options, r.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create exec stream: %w", err)
 	}
@@ -296,13 +302,16 @@ func (r *DockerRunner) Exec(ctx context.Context, instanceID string, options runn
 }
 
 // getContainerID gets the container ID for an instance.
-func (r *DockerRunner) getContainerID(ctx context.Context, instanceID string) (string, error) {
+func (r *DockerRunner) getContainerID(ctx context.Context, instance *runetypes.Instance) (string, error) {
 	// Try to get the container directly from the instance ID using labels
 	args := filters.NewArgs(
 		filters.Arg("label", "rune.managed=true"),
-		filters.Arg("label", "rune.namespace="+r.namespace),
-		filters.Arg("label", "rune.instance.id="+instanceID),
+		filters.Arg("label", "rune.instance.id="+instance.ID),
 	)
+
+	if instance.Namespace != "" {
+		args.Add("label", "rune.namespace="+instance.Namespace)
+	}
 
 	containers, err := r.client.ContainerList(ctx, container.ListOptions{
 		All:     true, // Include stopped containers
@@ -313,12 +322,12 @@ func (r *DockerRunner) getContainerID(ctx context.Context, instanceID string) (s
 	}
 
 	if len(containers) == 0 {
-		return "", fmt.Errorf("no container found for instance ID: %s", instanceID)
+		return "", fmt.Errorf("no container found for instance ID: %s", instance.ID)
 	}
 
 	if len(containers) > 1 {
 		r.logger.Warn("Multiple containers found for instance ID",
-			log.Str("instance_id", instanceID),
+			log.Str("instance_id", instance.ID),
 			log.Int("container_count", len(containers)))
 	}
 
@@ -340,11 +349,12 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 		Image: "nginx:latest", // Fixed image for testing
 		Labels: map[string]string{
 			"rune.managed":      "true",
-			"rune.namespace":    r.namespace,
+			"rune.namespace":    instance.Namespace,
 			"rune.instance.id":  instance.ID,
 			"rune.service.id":   serviceID,
 			"rune.service.name": instance.Name,
 		},
+		Env: formatEnvVars(instance.Environment),
 	}
 
 	// Simple host config with no special settings

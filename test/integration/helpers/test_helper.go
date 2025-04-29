@@ -225,7 +225,7 @@ func (h *TestHelper) GetService(ctx context.Context, namespace, name string) (*t
 	h.store.EnsureNamespace("services", namespace)
 
 	var svc types.Service
-	err := h.store.Get(ctx, "services", namespace, name, &svc)
+	err := h.store.Get(ctx, types.ResourceTypeService, namespace, name, &svc)
 	if err != nil {
 		return nil, err
 	}

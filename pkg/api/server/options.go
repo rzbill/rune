@@ -2,71 +2,63 @@ package server
 
 import (
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 )
 
-// Options defines configuration options for the API server.
+// Options defines the options for the API server.
 type Options struct {
-	// GRPCAddr is the address to listen on for gRPC connections.
+	// Server addresses
 	GRPCAddr string
-
-	// HTTPAddr is the address to listen on for HTTP connections.
 	HTTPAddr string
 
-	// TLSCertFile is the path to the TLS certificate file.
+	// TLS configuration
+	EnableTLS   bool
 	TLSCertFile string
+	TLSKeyFile  string
 
-	// TLSKeyFile is the path to the TLS key file.
-	TLSKeyFile string
-
-	// EnableTLS indicates whether to enable TLS.
-	EnableTLS bool
-
-	// EnableAuth indicates whether to enable authentication.
+	// Authentication
 	EnableAuth bool
+	APIKeys    []string
 
-	// APIKeys is a list of valid API keys for authentication.
-	APIKeys []string
+	// Logging
+	Logger log.Logger
 
-	// Store is the state store to use.
+	// State store
 	Store store.Store
 
-	// DockerRunner is the Docker runner to use.
-	DockerRunner runner.Runner
+	// Runner manager
+	RunnerManager *manager.RunnerManager
 
-	// ProcessRunner is the process runner to use.
-	ProcessRunner runner.Runner
-
-	// Logger is the logger to use.
-	Logger log.Logger
+	// Orchestrator
+	Orchestrator orchestrator.Orchestrator
 }
 
-// DefaultOptions returns the default options for the API server.
+// Option is a function that configures options.
+type Option func(*Options)
+
+// DefaultOptions returns the default options.
 func DefaultOptions() *Options {
 	return &Options{
-		GRPCAddr:   ":8080",
-		HTTPAddr:   ":8081",
-		EnableTLS:  false,
-		EnableAuth: false,
-		Logger:     log.GetDefaultLogger().WithComponent("api-server"),
+		GRPCAddr:  ":8080",
+		HTTPAddr:  ":8081",
+		EnableTLS: false,
 	}
 }
 
-// Option is a function that configures the API server options.
-type Option func(*Options)
-
 // WithGRPCAddr sets the gRPC address.
 func WithGRPCAddr(addr string) Option {
-	return func(o *Options) {
-		o.GRPCAddr = addr
+	return func(opts *Options) {
+		opts.GRPCAddr = addr
 	}
 }
 
 // WithHTTPAddr sets the HTTP address.
 func WithHTTPAddr(addr string) Option {
-	return func(o *Options) {
-		o.HTTPAddr = addr
+	return func(opts *Options) {
+		opts.HTTPAddr = addr
 	}
 }
 
@@ -89,28 +81,35 @@ func WithAuth(apiKeys []string) Option {
 
 // WithStore sets the state store.
 func WithStore(store store.Store) Option {
-	return func(o *Options) {
-		o.Store = store
+	return func(opts *Options) {
+		opts.Store = store
 	}
 }
 
 // WithDockerRunner sets the Docker runner.
 func WithDockerRunner(runner runner.Runner) Option {
-	return func(o *Options) {
-		o.DockerRunner = runner
+	return func(opts *Options) {
+		// No longer needed - runner is handled by orchestrator
 	}
 }
 
 // WithProcessRunner sets the process runner.
 func WithProcessRunner(runner runner.Runner) Option {
-	return func(o *Options) {
-		o.ProcessRunner = runner
+	return func(opts *Options) {
+		// No longer needed - runner is handled by orchestrator
 	}
 }
 
 // WithLogger sets the logger.
 func WithLogger(logger log.Logger) Option {
-	return func(o *Options) {
-		o.Logger = logger
+	return func(opts *Options) {
+		opts.Logger = logger
+	}
+}
+
+// WithOrchestrator sets the orchestrator.
+func WithOrchestrator(orchestrator orchestrator.Orchestrator) Option {
+	return func(opts *Options) {
+		opts.Orchestrator = orchestrator
 	}
 }

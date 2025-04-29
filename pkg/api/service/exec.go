@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -19,17 +20,15 @@ import (
 type ExecService struct {
 	generated.UnimplementedExecServiceServer
 
-	dockerRunner  runner.Runner
-	processRunner runner.Runner
+	runnerManager manager.IRunnerManager
 	store         store.Store
 	logger        log.Logger
 }
 
 // NewExecService creates a new ExecService with the given runners, store, and logger.
-func NewExecService(dockerRunner, processRunner runner.Runner, store store.Store, logger log.Logger) *ExecService {
+func NewExecService(runnerManager manager.IRunnerManager, store store.Store, logger log.Logger) *ExecService {
 	return &ExecService{
-		dockerRunner:  dockerRunner,
-		processRunner: processRunner,
+		runnerManager: runnerManager,
 		store:         store,
 		logger:        logger.WithComponent("exec-service"),
 	}
@@ -57,7 +56,8 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 		}
 
 		// Get all instances for the service
-		instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
+		var instances []types.Instance
+		err := s.store.List(ctx, ResourceTypeInstance, namespace, &instances)
 		if err != nil {
 			s.logger.Error("Failed to list instances", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
@@ -65,13 +65,12 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 
 		// Filter instances by service ID and running status
 		var runningInstances []string
-		for _, inst := range instances {
-			instance, ok := inst.(*types.Instance)
-			if !ok {
+		for _, instance := range instances {
+			if instance.ServiceID != serviceName {
 				continue
 			}
 
-			if instance.ServiceID == serviceName && instance.Status == types.InstanceStatusRunning {
+			if instance.Status == types.InstanceStatusRunning {
 				runningInstances = append(runningInstances, instance.ID)
 			}
 		}
@@ -159,11 +158,9 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Determine which runner to use based on instance type
-	var execRunner runner.Runner
-	if instance.ContainerID != "" {
-		execRunner = s.dockerRunner
-	} else {
-		execRunner = s.processRunner
+	execRunner, err := s.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return err
 	}
 
 	// Convert gRPC options to runner options
@@ -177,7 +174,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Create exec stream
-	execStream, err := execRunner.Exec(ctx, instance.ID, execOptions)
+	execStream, err := execRunner.Exec(ctx, instance, execOptions)
 	if err != nil {
 		s.logger.Error("Failed to create exec stream", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to create exec stream: %v", err)

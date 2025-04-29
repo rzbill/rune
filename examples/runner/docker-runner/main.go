@@ -32,7 +32,7 @@ func main() {
 	runnerLogger.Info("Starting Rune Docker Runner example")
 
 	// Create a Docker runner
-	dockerRunner, err := docker.NewDockerRunner("example", runnerLogger)
+	dockerRunner, err := docker.NewDockerRunner(runnerLogger)
 	if err != nil {
 		runnerLogger.Fatal("Failed to create Docker runner", log.Err(err))
 	}
@@ -64,7 +64,7 @@ func main() {
 
 	// Start the instance
 	runnerLogger.Info("Starting instance", log.Str("id", instanceID))
-	if err := dockerRunner.Start(ctx, instanceID); err != nil {
+	if err := dockerRunner.Start(ctx, instance); err != nil {
 		runnerLogger.Fatal("Failed to start instance", log.Err(err))
 	}
 
@@ -73,7 +73,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	// Get the status
-	status, err := dockerRunner.Status(ctx, instanceID)
+	status, err := dockerRunner.Status(ctx, instance)
 	if err != nil {
 		runnerLogger.Fatal("Failed to get status", log.Err(err))
 	}
@@ -81,7 +81,7 @@ func main() {
 
 	// Get logs
 	runnerLogger.Info("Getting logs for instance", log.Str("id", instanceID))
-	logs, err := dockerRunner.GetLogs(ctx, instanceID, runner.LogOptions{
+	logs, err := dockerRunner.GetLogs(ctx, instance, runner.LogOptions{
 		Tail:       10,
 		Follow:     false,
 		Timestamps: true,
@@ -99,7 +99,7 @@ func main() {
 
 	// List all instances
 	runnerLogger.Info("Listing all instances:")
-	instances, err := dockerRunner.List(ctx)
+	instances, err := dockerRunner.List(ctx, instance.Namespace)
 	if err != nil {
 		runnerLogger.Fatal("Failed to list instances", log.Err(err))
 	}
@@ -112,12 +112,12 @@ func main() {
 
 	// Cleanup
 	runnerLogger.Info("Stopping instance", log.Str("id", instanceID))
-	if err := dockerRunner.Stop(ctx, instanceID, 10*time.Second); err != nil {
+	if err := dockerRunner.Stop(ctx, instance, 10*time.Second); err != nil {
 		runnerLogger.Fatal("Failed to stop instance", log.Err(err))
 	}
 
 	runnerLogger.Info("Removing instance", log.Str("id", instanceID))
-	if err := dockerRunner.Remove(ctx, instanceID, false); err != nil {
+	if err := dockerRunner.Remove(ctx, instance, false); err != nil {
 		runnerLogger.Fatal("Failed to remove instance", log.Err(err))
 	}
 

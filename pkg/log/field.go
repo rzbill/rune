@@ -1,6 +1,7 @@
 package log
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -90,6 +91,20 @@ func Any(key string, value interface{}) Field {
 	return Field{
 		Key:   key,
 		Value: value,
+	}
+}
+
+// JSON creates a field for a JSON-serializable value
+func Json(key string, value interface{}) Field {
+	// Marshal the value to JSON
+	jsonBytes, err := json.Marshal(value)
+	if err != nil {
+		return Field{Key: key, Value: err.Error()}
+	}
+
+	return Field{
+		Key:   key,
+		Value: string(jsonBytes),
 	}
 }
 

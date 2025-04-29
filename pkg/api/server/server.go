@@ -18,7 +18,8 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/api/service"
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/orchestrator"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -47,15 +48,17 @@ type APIServer struct {
 	// State store
 	store store.Store
 
-	// Runners
-	dockerRunner  runner.Runner
-	processRunner runner.Runner
+	// Orchestrator
+	orchestrator orchestrator.Orchestrator
 
 	// Shutdown channel
 	shutdownCh chan struct{}
 
 	// Wait group for server goroutines
 	wg sync.WaitGroup
+
+	// Runner manager
+	runnerManager *manager.RunnerManager
 }
 
 // New creates a new API server with the given options.
@@ -70,14 +73,22 @@ func New(opts ...Option) (*APIServer, error) {
 		logger = log.GetDefaultLogger().WithComponent("api-server")
 	}
 
-	return &APIServer{
+	runnerManager := options.RunnerManager
+	if runnerManager == nil {
+		runnerManager = manager.NewRunnerManager(logger)
+	}
+
+	// Initialize the basic server with options
+	server := &APIServer{
 		options:       options,
 		logger:        logger,
 		store:         options.Store,
-		dockerRunner:  options.DockerRunner,
-		processRunner: options.ProcessRunner,
+		orchestrator:  options.Orchestrator,
 		shutdownCh:    make(chan struct{}),
-	}, nil
+		runnerManager: runnerManager,
+	}
+
+	return server, nil
 }
 
 // Start starts the API server.
@@ -89,11 +100,32 @@ func (s *APIServer) Start() error {
 
 	s.logger.Info("Starting Rune Server")
 
+	// Initialize the runner manager
+	if err := s.runnerManager.Initialize(); err != nil {
+		s.logger.Warn("Error initializing runners", log.Err(err))
+	}
+
+	// Initialize orchestrator if not provided
+	if s.orchestrator == nil {
+		var err error
+
+		// Use the default orchestrator creation which handles all component setup internally
+		s.orchestrator, err = orchestrator.NewDefaultOrchestrator(s.store, s.logger, s.runnerManager)
+		if err != nil {
+			return fmt.Errorf("failed to create default orchestrator: %w", err)
+		}
+	}
+
+	// Start the orchestrator
+	if err := s.orchestrator.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start orchestrator: %w", err)
+	}
+
 	// Create service implementations
 	s.serviceService = service.NewServiceService(s.store, s.logger)
-	s.instanceService = service.NewInstanceService(s.store, s.dockerRunner, s.processRunner, s.logger)
-	s.logService = service.NewLogService(s.dockerRunner, s.processRunner, s.store, s.logger)
-	s.execService = service.NewExecService(s.dockerRunner, s.processRunner, s.store, s.logger)
+	s.instanceService = service.NewInstanceService(s.store, s.runnerManager, s.logger)
+	s.logService = service.NewLogService(s.runnerManager, s.store, s.logger)
+	s.execService = service.NewExecService(s.runnerManager, s.store, s.logger)
 	s.healthService = service.NewHealthService(s.store, s.logger)
 
 	// Start gRPC server
@@ -238,6 +270,14 @@ func (s *APIServer) startRESTGateway() error {
 // Stop stops the API server gracefully.
 func (s *APIServer) Stop() error {
 	s.logger.Info("Stopping Rune Server")
+
+	// Stop the orchestrator first
+	if s.orchestrator != nil {
+		s.logger.Info("Stopping orchestrator")
+		if err := s.orchestrator.Stop(); err != nil {
+			s.logger.Error("Error stopping orchestrator", log.Err(err))
+		}
+	}
 
 	// Ensure we only close the channel once
 	select {

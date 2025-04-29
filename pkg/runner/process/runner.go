@@ -19,10 +19,12 @@ import (
 	"github.com/rzbill/rune/pkg/types"
 )
 
+// Validate that ProcessRunner implements the runner.Runner interface
+var _ runner.Runner = &ProcessRunner{}
+
 // ProcessRunner implements the runner.Runner interface for local processes
 type ProcessRunner struct {
 	baseDir   string
-	namespace string
 	logger    log.Logger
 	processes map[string]*managedProcess
 	mu        sync.RWMutex
@@ -50,13 +52,6 @@ func WithBaseDir(dir string) ProcessOption {
 	}
 }
 
-// WithNamespace sets the namespace for the runner
-func WithNamespace(namespace string) ProcessOption {
-	return func(r *ProcessRunner) {
-		r.namespace = namespace
-	}
-}
-
 // WithLogger sets the logger for the runner
 func WithLogger(logger log.Logger) ProcessOption {
 	return func(r *ProcessRunner) {
@@ -71,7 +66,6 @@ func NewProcessRunner(options ...ProcessOption) (*ProcessRunner, error) {
 
 	runner := &ProcessRunner{
 		baseDir:   os.TempDir(),
-		namespace: "default",
 		logger:    defaultLogger,
 		processes: make(map[string]*managedProcess),
 	}
@@ -98,6 +92,10 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 		instance.ID = uuid.New().String()
 	}
 
+	if instance.Namespace == "" {
+		instance.Namespace = instance.ServiceID
+	}
+
 	if err := instance.Validate(); err != nil {
 		return fmt.Errorf("invalid instance: %w", err)
 	}
@@ -121,7 +119,7 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 	}
 
 	// Create workspace directory
-	workDir := filepath.Join(r.baseDir, "rune", r.namespace, instance.ID)
+	workDir := filepath.Join(r.baseDir, "rune", instance.Namespace, instance.ID)
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
@@ -137,6 +135,16 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 
 	// Prepare command (but don't start it)
 	cmd := exec.CommandContext(ctx, instance.Process.Command, instance.Process.Args...)
+
+	// Set environment variables
+	if instance.Environment != nil && len(instance.Environment) > 0 {
+		// Convert map to slice of KEY=VALUE strings
+		env := os.Environ() // Include parent environment
+		for key, value := range instance.Environment {
+			env = append(env, fmt.Sprintf("%s=%s", key, value))
+		}
+		cmd.Env = env
+	}
 
 	// Set working directory if specified
 	if instance.Process.WorkingDir != "" {
@@ -190,13 +198,13 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 }
 
 // Start starts an existing process instance
-func (r *ProcessRunner) Start(ctx context.Context, instanceID string) error {
+func (r *ProcessRunner) Start(ctx context.Context, instance *types.Instance) error {
 	r.mu.RLock()
-	proc, exists := r.processes[instanceID]
+	proc, exists := r.processes[instance.ID]
 	r.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("instance with ID %s not found", instanceID)
+		return fmt.Errorf("instance with ID %s not found", instance.ID)
 	}
 
 	proc.mu.Lock()
@@ -272,13 +280,13 @@ func (r *ProcessRunner) Start(ctx context.Context, instanceID string) error {
 }
 
 // Stop stops a running process instance
-func (r *ProcessRunner) Stop(ctx context.Context, instanceID string, timeout time.Duration) error {
+func (r *ProcessRunner) Stop(ctx context.Context, instance *types.Instance, timeout time.Duration) error {
 	r.mu.RLock()
-	proc, exists := r.processes[instanceID]
+	proc, exists := r.processes[instance.ID]
 	r.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("instance with ID %s not found", instanceID)
+		return fmt.Errorf("instance with ID %s not found", instance.ID)
 	}
 
 	proc.mu.Lock()
@@ -349,13 +357,13 @@ func (r *ProcessRunner) Stop(ctx context.Context, instanceID string, timeout tim
 }
 
 // Remove removes a process instance
-func (r *ProcessRunner) Remove(ctx context.Context, instanceID string, force bool) error {
+func (r *ProcessRunner) Remove(ctx context.Context, instance *types.Instance, force bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	proc, exists := r.processes[instanceID]
+	proc, exists := r.processes[instance.ID]
 	if !exists {
-		return fmt.Errorf("instance with ID %s not found", instanceID)
+		return fmt.Errorf("instance with ID %s not found", instance.ID)
 	}
 
 	proc.mu.Lock()
@@ -390,7 +398,7 @@ func (r *ProcessRunner) Remove(ctx context.Context, instanceID string, force boo
 	}
 
 	// Remove from process map
-	delete(r.processes, instanceID)
+	delete(r.processes, instance.ID)
 
 	r.logger.Info("Removed process instance",
 		log.Str("instance_id", proc.instance.ID),
@@ -400,13 +408,13 @@ func (r *ProcessRunner) Remove(ctx context.Context, instanceID string, force boo
 }
 
 // GetLogs retrieves logs from a process instance
-func (r *ProcessRunner) GetLogs(ctx context.Context, instanceID string, options runner.LogOptions) (io.ReadCloser, error) {
+func (r *ProcessRunner) GetLogs(ctx context.Context, instance *types.Instance, options runner.LogOptions) (io.ReadCloser, error) {
 	r.mu.RLock()
-	proc, exists := r.processes[instanceID]
+	proc, exists := r.processes[instance.ID]
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("instance with ID %s not found", instanceID)
+		return nil, fmt.Errorf("instance with ID %s not found", instance.ID)
 	}
 
 	proc.mu.RLock()
@@ -414,7 +422,7 @@ func (r *ProcessRunner) GetLogs(ctx context.Context, instanceID string, options 
 
 	// Ensure log file exists
 	if proc.logFile == nil {
-		return nil, fmt.Errorf("log file not found for instance %s", instanceID)
+		return nil, fmt.Errorf("log file not found for instance %s", instance.ID)
 	}
 
 	// Get log file path
@@ -500,13 +508,13 @@ func (r *ProcessRunner) GetLogs(ctx context.Context, instanceID string, options 
 }
 
 // Status retrieves the current status of a process instance
-func (r *ProcessRunner) Status(ctx context.Context, instanceID string) (types.InstanceStatus, error) {
+func (r *ProcessRunner) Status(ctx context.Context, instance *types.Instance) (types.InstanceStatus, error) {
 	r.mu.RLock()
-	proc, exists := r.processes[instanceID]
+	proc, exists := r.processes[instance.ID]
 	r.mu.RUnlock()
 
 	if !exists {
-		return types.InstanceStatusFailed, fmt.Errorf("instance with ID %s not found", instanceID)
+		return types.InstanceStatusFailed, fmt.Errorf("instance with ID %s not found", instance.ID)
 	}
 
 	proc.mu.RLock()
@@ -516,7 +524,7 @@ func (r *ProcessRunner) Status(ctx context.Context, instanceID string) (types.In
 }
 
 // List lists all process instances
-func (r *ProcessRunner) List(ctx context.Context) ([]*types.Instance, error) {
+func (r *ProcessRunner) List(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -581,17 +589,17 @@ func findStartPosition(file *os.File, fileSize int64, numLines int) int64 {
 }
 
 // Exec creates an interactive exec session within a running process.
-func (r *ProcessRunner) Exec(ctx context.Context, instanceID string, options runner.ExecOptions) (runner.ExecStream, error) {
+func (r *ProcessRunner) Exec(ctx context.Context, instance *types.Instance, options runner.ExecOptions) (runner.ExecStream, error) {
 	r.mu.RLock()
-	_, exists := r.processes[instanceID]
+	_, exists := r.processes[instance.ID]
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("instance not found: %s", instanceID)
+		return nil, fmt.Errorf("instance not found: %s", instance.ID)
 	}
 
 	// Verify instance is running
-	status, err := r.Status(ctx, instanceID)
+	status, err := r.Status(ctx, instance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance status: %w", err)
 	}
@@ -603,7 +611,7 @@ func (r *ProcessRunner) Exec(ctx context.Context, instanceID string, options run
 	// Create the exec stream
 	// For a process, exec means starting a new process (we can't exec inside an existing process)
 	// We could potentially use different methods like ptrace for more advanced use cases
-	execStream, err := NewProcessExecStream(ctx, instanceID, options, r.logger)
+	execStream, err := NewProcessExecStream(ctx, instance.ID, options, r.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create exec stream: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -24,17 +24,15 @@ type InstanceService struct {
 	generated.UnimplementedInstanceServiceServer
 
 	store         store.Store
-	dockerRunner  runner.Runner
-	processRunner runner.Runner
+	runnerManager manager.IRunnerManager
 	logger        log.Logger
 }
 
 // NewInstanceService creates a new InstanceService with the given store, runners, and logger.
-func NewInstanceService(store store.Store, dockerRunner, processRunner runner.Runner, logger log.Logger) *InstanceService {
+func NewInstanceService(store store.Store, runnerManager manager.IRunnerManager, logger log.Logger) *InstanceService {
 	return &InstanceService{
 		store:         store,
-		dockerRunner:  dockerRunner,
-		processRunner: runner.Runner(processRunner),
+		runnerManager: runnerManager,
 		logger:        logger.WithComponent("instance-service"),
 	}
 }
@@ -62,19 +60,12 @@ func (s *InstanceService) GetInstance(ctx context.Context, req *generated.GetIns
 	var status types.InstanceStatus
 	var statusErr error
 
-	if instance.ContainerID != "" {
-		if s.dockerRunner != nil {
-			status, statusErr = s.dockerRunner.Status(ctx, instance.ID)
-		} else {
-			statusErr = fmt.Errorf("docker runner not available")
-		}
-	} else {
-		if s.processRunner != nil {
-			status, statusErr = s.processRunner.Status(ctx, instance.ID)
-		} else {
-			statusErr = fmt.Errorf("process runner not available")
-		}
+	runnerToUse, err := s.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return nil, err
 	}
+
+	status, statusErr = runnerToUse.Status(ctx, instance)
 
 	if statusErr != nil {
 		s.logger.Warn("Failed to get instance status", log.Str("id", req.Id), log.Err(statusErr))
@@ -109,7 +100,8 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 	}
 
 	// Get instances from the store
-	storeInstances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
+	var storeInstances []types.Instance
+	err := s.store.List(ctx, ResourceTypeInstance, namespace, &storeInstances)
 	if err != nil {
 		s.logger.Error("Failed to list instances", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
@@ -117,11 +109,7 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 
 	// Convert to domain model instances
 	instances := make([]*types.Instance, 0, len(storeInstances))
-	for _, inst := range storeInstances {
-		instance, ok := inst.(*types.Instance)
-		if !ok {
-			continue
-		}
+	for _, instance := range storeInstances {
 
 		// Apply service name filter if provided
 		if req.ServiceName != "" && instance.ServiceID != req.ServiceName {
@@ -141,7 +129,7 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 			}
 		}
 
-		instances = append(instances, instance)
+		instances = append(instances, &instance)
 	}
 
 	// Convert to protobuf messages
@@ -151,15 +139,11 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 		var status types.InstanceStatus
 		var statusErr error
 
-		if instance.ContainerID != "" {
-			if s.dockerRunner != nil {
-				status, statusErr = s.dockerRunner.Status(ctx, instance.ID)
-			}
-		} else {
-			if s.processRunner != nil {
-				status, statusErr = s.processRunner.Status(ctx, instance.ID)
-			}
+		runnerToUse, err := s.runnerManager.GetInstanceRunner(instance)
+		if err != nil {
+			return nil, err
 		}
+		status, statusErr = runnerToUse.Status(ctx, instance)
 
 		if statusErr == nil {
 			// Update the instance status
@@ -203,21 +187,17 @@ func (s *InstanceService) StartInstance(ctx context.Context, req *generated.Inst
 	}
 
 	// Determine the appropriate runner
-	var runnerToUse runner.Runner
-	if instanceResp.Instance.ContainerId != "" {
-		if s.dockerRunner == nil {
-			return nil, status.Error(codes.Unavailable, "docker runner not available")
-		}
-		runnerToUse = s.dockerRunner
-	} else {
-		if s.processRunner == nil {
-			return nil, status.Error(codes.Unavailable, "process runner not available")
-		}
-		runnerToUse = s.processRunner
+	instance, err := s.ProtoInstanceToInstanceModel(instanceResp.Instance)
+	if err != nil {
+		return nil, err
+	}
+	runnerToUse, err := s.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return nil, err
 	}
 
 	// Start the instance
-	if err := runnerToUse.Start(ctx, req.Id); err != nil {
+	if err := runnerToUse.Start(ctx, instance); err != nil {
 		s.logger.Error("Failed to start instance", log.Str("id", req.Id), log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to start instance: %v", err)
 	}
@@ -241,17 +221,13 @@ func (s *InstanceService) StopInstance(ctx context.Context, req *generated.Insta
 	}
 
 	// Determine the appropriate runner
-	var runnerToUse runner.Runner
-	if instanceResp.Instance.ContainerId != "" {
-		if s.dockerRunner == nil {
-			return nil, status.Error(codes.Unavailable, "docker runner not available")
-		}
-		runnerToUse = s.dockerRunner
-	} else {
-		if s.processRunner == nil {
-			return nil, status.Error(codes.Unavailable, "process runner not available")
-		}
-		runnerToUse = s.processRunner
+	instance, err := s.ProtoInstanceToInstanceModel(instanceResp.Instance)
+	if err != nil {
+		return nil, err
+	}
+	runnerToUse, err := s.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set timeout
@@ -261,7 +237,7 @@ func (s *InstanceService) StopInstance(ctx context.Context, req *generated.Insta
 	}
 
 	// Stop the instance
-	if err := runnerToUse.Stop(ctx, req.Id, timeout); err != nil {
+	if err := runnerToUse.Stop(ctx, instance, timeout); err != nil {
 		s.logger.Error("Failed to stop instance", log.Str("id", req.Id), log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to stop instance: %v", err)
 	}
@@ -286,6 +262,102 @@ func (s *InstanceService) RestartInstance(ctx context.Context, req *generated.In
 
 	// Then start it again
 	return s.StartInstance(ctx, req)
+}
+
+// ProtoInstanceToInstanceModel converts a protobuf message to a domain model instance.
+func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.Instance) (*types.Instance, error) {
+	if protoInstance == nil {
+		return nil, fmt.Errorf("proto instance is nil")
+	}
+
+	// Create a new Instance with basic fields
+	instance := &types.Instance{
+		ID:            protoInstance.Id,
+		Name:          protoInstance.Name,
+		Namespace:     protoInstance.Namespace,
+		ServiceID:     protoInstance.ServiceId,
+		NodeID:        protoInstance.NodeId,
+		IP:            protoInstance.Ip,
+		StatusMessage: protoInstance.StatusMessage,
+		ContainerID:   protoInstance.ContainerId,
+	}
+
+	// Convert PID (int32 -> int)
+	if protoInstance.Pid > 0 {
+		instance.PID = int(protoInstance.Pid)
+	}
+
+	// Parse timestamps
+	if protoInstance.CreatedAt != "" {
+		createdAt, err := time.Parse(time.RFC3339, protoInstance.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid created_at timestamp: %w", err)
+		}
+		instance.CreatedAt = createdAt
+	} else {
+		instance.CreatedAt = time.Now() // Default to current time if not provided
+	}
+
+	if protoInstance.UpdatedAt != "" {
+		updatedAt, err := time.Parse(time.RFC3339, protoInstance.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid updated_at timestamp: %w", err)
+		}
+		instance.UpdatedAt = updatedAt
+	} else {
+		instance.UpdatedAt = instance.CreatedAt // Default to created time if not provided
+	}
+
+	// Convert status
+	instance.Status = s.protoStatusToInstanceStatus(protoInstance.Status)
+
+	// Convert resources if provided
+	if protoInstance.Resources != nil {
+		instance.Resources = &types.Resources{}
+
+		if protoInstance.Resources.Cpu != nil {
+			instance.Resources.CPU = types.ResourceLimit{
+				Request: protoInstance.Resources.Cpu.Request,
+				Limit:   protoInstance.Resources.Cpu.Limit,
+			}
+		}
+
+		if protoInstance.Resources.Memory != nil {
+			instance.Resources.Memory = types.ResourceLimit{
+				Request: protoInstance.Resources.Memory.Request,
+				Limit:   protoInstance.Resources.Memory.Limit,
+			}
+		}
+	}
+
+	// Validate the instance
+	if err := instance.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid instance: %w", err)
+	}
+
+	return instance, nil
+}
+
+// Convert proto status enum to domain model status
+func (s *InstanceService) protoStatusToInstanceStatus(status generated.InstanceStatus) types.InstanceStatus {
+	switch status {
+	case generated.InstanceStatus_INSTANCE_STATUS_PENDING:
+		return types.InstanceStatusPending
+	case generated.InstanceStatus_INSTANCE_STATUS_CREATED:
+		return types.InstanceStatusCreated
+	case generated.InstanceStatus_INSTANCE_STATUS_STARTING:
+		return types.InstanceStatusStarting
+	case generated.InstanceStatus_INSTANCE_STATUS_RUNNING:
+		return types.InstanceStatusRunning
+	case generated.InstanceStatus_INSTANCE_STATUS_STOPPED:
+		return types.InstanceStatusStopped
+	case generated.InstanceStatus_INSTANCE_STATUS_FAILED:
+		return types.InstanceStatusFailed
+	case generated.InstanceStatus_INSTANCE_STATUS_EXITED:
+		return types.InstanceStatusExited
+	default:
+		return types.InstanceStatusPending // Default to pending if unspecified
+	}
 }
 
 // instanceModelToProto converts a domain model instance to a protobuf message.

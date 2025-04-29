@@ -140,20 +140,22 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 		namespace = DefaultNamespace
 	}
 
-	var services []interface{}
+	var services []types.Service
 	var err error
 
 	// Check if we need to list across all namespaces
 	if namespace == "*" {
 		// For all namespaces, we need to list each namespace separately
 		// Get all namespaces first (this would typically come from a namespace store)
-		// For now, we'll just query all resources directly without namespace filtering
+		// TODO: For now, we'll just query all resources directly without namespace filtering
 		s.logger.Debug("Listing services across all namespaces")
-		services, err = s.store.List(ctx, ResourceTypeService, "")
+		err = s.store.List(ctx, ResourceTypeService, "", &services)
 	} else {
 		// Get services from the store for a specific namespace
-		services, err = s.store.List(ctx, ResourceTypeService, namespace)
+		err = s.store.List(ctx, ResourceTypeService, namespace, &services)
 	}
+
+	s.logger.Debug("======client requested========Found services", log.Json("services", services))
 
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
@@ -164,29 +166,7 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 
 	// Convert to protobuf messages
 	protoServices := make([]*generated.Service, 0, len(services))
-	for _, svc := range services {
-		// The store returns interface{} types that need proper conversion
-		var service types.Service
-
-		// Check if it's already a *types.Service
-		typedService, ok := svc.(*types.Service)
-		if ok {
-			service = *typedService
-		} else {
-			// If it's not a *types.Service, use JSON marshaling/unmarshaling to convert
-			// This handles all fields automatically and is more maintainable
-			rawData, err := json.Marshal(svc)
-			if err != nil {
-				s.logger.Warn("Failed to marshal service data", log.Err(err))
-				continue
-			}
-
-			if err := json.Unmarshal(rawData, &service); err != nil {
-				s.logger.Warn("Failed to unmarshal service data", log.Err(err))
-				continue
-			}
-		}
-
+	for _, service := range services {
 		// Apply selector filtering (both labels and fields)
 		if !matchSelectors(&service, req.LabelSelector, req.FieldSelector) {
 			continue
@@ -297,7 +277,7 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 	updatedService.ID = existingService.ID
 	updatedService.CreatedAt = existingService.CreatedAt
 	updatedService.UpdatedAt = time.Now()
-	updatedService.Status = types.ServiceStatusUpdating
+	updatedService.Status = types.ServiceStatusDeploying
 
 	// Store the updated service
 	if err := s.store.Update(ctx, ResourceTypeService, namespace, req.Service.Name, updatedService); err != nil {
@@ -485,7 +465,7 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_PENDING
 	case types.ServiceStatusRunning:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_RUNNING
-	case types.ServiceStatusUpdating:
+	case types.ServiceStatusDeploying:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UPDATING
 	case types.ServiceStatusFailed:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_FAILED
@@ -617,7 +597,7 @@ func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.S
 	case generated.ServiceStatus_SERVICE_STATUS_RUNNING:
 		service.Status = types.ServiceStatusRunning
 	case generated.ServiceStatus_SERVICE_STATUS_UPDATING:
-		service.Status = types.ServiceStatusUpdating
+		service.Status = types.ServiceStatusDeploying
 	case generated.ServiceStatus_SERVICE_STATUS_FAILED:
 		service.Status = types.ServiceStatusFailed
 	default:
@@ -706,34 +686,15 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 	}
 
 	// Initialize with current services (simulating ADDED events for all existing services)
-	services, err := s.store.List(ctx, ResourceTypeService, namespace)
+	var services []types.Service
+	err = s.store.List(ctx, ResourceTypeService, namespace, &services)
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to list initial services: %v", err)
 	}
 
 	// Send all existing services as ADDED events
-	for _, svc := range services {
-		// Convert to typed service
-		var service types.Service
-
-		// Try to convert service
-		typedService, ok := svc.(*types.Service)
-		if ok {
-			service = *typedService
-		} else {
-			// Use JSON marshaling/unmarshaling for conversion
-			rawData, err := json.Marshal(svc)
-			if err != nil {
-				s.logger.Warn("Failed to marshal service data", log.Err(err))
-				continue
-			}
-
-			if err := json.Unmarshal(rawData, &service); err != nil {
-				s.logger.Warn("Failed to unmarshal service data", log.Err(err))
-				continue
-			}
-		}
+	for _, service := range services {
 
 		// Apply selector filtering
 		if !matchSelectors(&service, req.LabelSelector, req.FieldSelector) {

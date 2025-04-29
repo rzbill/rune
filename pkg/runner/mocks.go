@@ -19,38 +19,38 @@ func (m *MockRunner) Create(ctx context.Context, instance *types.Instance) error
 	return args.Error(0)
 }
 
-func (m *MockRunner) Start(ctx context.Context, instanceID string) error {
-	args := m.Called(ctx, instanceID)
+func (m *MockRunner) Start(ctx context.Context, instance *types.Instance) error {
+	args := m.Called(ctx, instance)
 	return args.Error(0)
 }
 
-func (m *MockRunner) Stop(ctx context.Context, instanceID string, timeout time.Duration) error {
-	args := m.Called(ctx, instanceID, timeout)
+func (m *MockRunner) Stop(ctx context.Context, instance *types.Instance, timeout time.Duration) error {
+	args := m.Called(ctx, instance, timeout)
 	return args.Error(0)
 }
 
-func (m *MockRunner) Remove(ctx context.Context, instanceID string, force bool) error {
-	args := m.Called(ctx, instanceID, force)
+func (m *MockRunner) Remove(ctx context.Context, instance *types.Instance, force bool) error {
+	args := m.Called(ctx, instance, force)
 	return args.Error(0)
 }
 
-func (m *MockRunner) GetLogs(ctx context.Context, instanceID string, options LogOptions) (io.ReadCloser, error) {
-	args := m.Called(ctx, instanceID, options)
+func (m *MockRunner) GetLogs(ctx context.Context, instance *types.Instance, options LogOptions) (io.ReadCloser, error) {
+	args := m.Called(ctx, instance, options)
 	return args.Get(0).(io.ReadCloser), args.Error(1)
 }
 
-func (m *MockRunner) Status(ctx context.Context, instanceID string) (types.InstanceStatus, error) {
-	args := m.Called(ctx, instanceID)
+func (m *MockRunner) Status(ctx context.Context, instance *types.Instance) (types.InstanceStatus, error) {
+	args := m.Called(ctx, instance)
 	return args.Get(0).(types.InstanceStatus), args.Error(1)
 }
 
-func (m *MockRunner) List(ctx context.Context) ([]*types.Instance, error) {
-	args := m.Called(ctx)
+func (m *MockRunner) List(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	args := m.Called(ctx, namespace)
 	return args.Get(0).([]*types.Instance), args.Error(1)
 }
 
-func (m *MockRunner) Exec(ctx context.Context, instanceID string, options ExecOptions) (ExecStream, error) {
-	args := m.Called(ctx, instanceID, options)
+func (m *MockRunner) Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error) {
+	args := m.Called(ctx, instance, options)
 	return args.Get(0).(ExecStream), args.Error(1)
 }
 

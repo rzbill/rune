@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -19,17 +20,15 @@ import (
 type LogService struct {
 	generated.UnimplementedLogServiceServer
 
-	dockerRunner  runner.Runner
-	processRunner runner.Runner
+	runnerManager *manager.RunnerManager
 	store         store.Store
 	logger        log.Logger
 }
 
 // NewLogService creates a new LogService with the given runners, store, and logger.
-func NewLogService(dockerRunner, processRunner runner.Runner, store store.Store, logger log.Logger) *LogService {
+func NewLogService(runnerManager *manager.RunnerManager, store store.Store, logger log.Logger) *LogService {
 	return &LogService{
-		dockerRunner:  dockerRunner,
-		processRunner: processRunner,
+		runnerManager: runnerManager,
 		store:         store,
 		logger:        logger.WithComponent("log-service"),
 	}
@@ -55,7 +54,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	defer cancel()
 
 	// Process request based on target (service or instance)
-	var instanceIDs []string
+	var instances []*types.Instance
 	var namespace string
 	var serviceName string
 
@@ -78,40 +77,38 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 		}
 
 		// Get all instances for the service
-		instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
+		var listedInstances []types.Instance
+		err = s.store.List(ctx, ResourceTypeInstance, namespace, &listedInstances)
 		if err != nil {
 			s.logger.Error("Failed to list instances", log.Err(err))
 			return status.Errorf(codes.Internal, "failed to list instances: %v", err)
 		}
 
 		// Filter instances by service ID
-		for _, inst := range instances {
-			instance, ok := inst.(*types.Instance)
-			if !ok {
-				continue
-			}
-
-			if instance.ServiceID == serviceName {
-				instanceIDs = append(instanceIDs, instance.ID)
+		for _, inst := range listedInstances {
+			if inst.ServiceID == serviceName {
+				instances = append(instances, &inst)
 			}
 		}
 
-		if len(instanceIDs) == 0 {
+		if len(instances) == 0 {
 			return status.Errorf(codes.NotFound, "no instances found for service: %s", serviceName)
 		}
 	} else {
 		// Target is a specific instance
-		instanceIDs = append(instanceIDs, req.GetInstanceId())
-
 		// Get the instance to determine its service and namespace
-		instanceService := NewInstanceService(s.store, s.dockerRunner, s.processRunner, s.logger)
+		instanceService := NewInstanceService(s.store, s.runnerManager, s.logger)
 		instanceResp, err := instanceService.GetInstance(ctx, &generated.GetInstanceRequest{Id: req.GetInstanceId()})
 		if err != nil {
 			return err
 		}
 
-		serviceName = instanceResp.Instance.ServiceId
-		// We don't have the namespace in the instance proto, but for logging we can use the service ID
+		instance, err := instanceService.ProtoInstanceToInstanceModel(instanceResp.Instance)
+		if err != nil {
+			return err
+		}
+		instances = append(instances, instance)
+		serviceName = instance.ServiceID
 	}
 
 	// Set up log options
@@ -143,14 +140,14 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	defer close(logCh)
 
 	// Error channel to propagate errors from goroutines
-	errCh := make(chan error, len(instanceIDs))
+	errCh := make(chan error, len(instances))
 
 	// Track the active readers
-	activeReaders := len(instanceIDs)
+	activeReaders := len(instances)
 
 	// Start a goroutine for each instance to stream logs
-	for _, instanceID := range instanceIDs {
-		go func(id string) {
+	for _, instance := range instances {
+		go func(instance *types.Instance) {
 			defer func() {
 				activeReaders--
 				if activeReaders == 0 && !req.Follow {
@@ -161,10 +158,10 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 
 			// We'd normally determine this from the instance's runtime
 			// For simplicity, we'll try docker first, then process
-			logReader, err := s.getLogReader(ctx, id, logOptions)
+			logReader, err := s.getLogReader(ctx, instance, logOptions)
 			if err != nil {
-				s.logger.Error("Failed to get log reader", log.Str("instanceId", id), log.Err(err))
-				errCh <- fmt.Errorf("failed to get logs for instance %s: %v", id, err)
+				s.logger.Error("Failed to get log reader", log.Str("instanceId", instance.ID), log.Err(err))
+				errCh <- fmt.Errorf("failed to get logs for instance %s: %v", instance.ID, err)
 				return
 			}
 			defer logReader.Close()
@@ -175,18 +172,18 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 				n, err := logReader.Read(buf)
 				if err != nil {
 					if err == io.EOF {
-						s.logger.Debug("End of logs", log.Str("instanceId", id))
+						s.logger.Debug("End of logs", log.Str("instanceId", instance.ID))
 						return
 					}
-					s.logger.Error("Failed to read logs", log.Str("instanceId", id), log.Err(err))
-					errCh <- fmt.Errorf("failed to read logs for instance %s: %v", id, err)
+					s.logger.Error("Failed to read logs", log.Str("instanceId", instance.ID), log.Err(err))
+					errCh <- fmt.Errorf("failed to read logs for instance %s: %v", instance.ID, err)
 					return
 				}
 
 				// Send the log chunk to the client
 				if n > 0 {
 					logCh <- &generated.LogResponse{
-						InstanceId:  id,
+						InstanceId:  instance.ID,
 						ServiceName: serviceName,
 						Content:     string(buf[:n]),
 						Timestamp:   time.Now().Format(time.RFC3339),
@@ -202,7 +199,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 					// Continue
 				}
 			}
-		}(instanceID)
+		}(instance)
 	}
 
 	// Handle parameter updates from client
@@ -290,20 +287,30 @@ func (s *LogService) validateLogRequest(req *generated.LogRequest) error {
 }
 
 // getLogReader gets a log reader for an instance from the appropriate runner.
-func (s *LogService) getLogReader(ctx context.Context, instanceID string, options runner.LogOptions) (io.ReadCloser, error) {
+func (s *LogService) getLogReader(ctx context.Context, instance *types.Instance, options runner.LogOptions) (io.ReadCloser, error) {
+	dockerRunner, err := s.runnerManager.GetDockerRunner()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get docker runner: %v", err)
+	}
+
 	// Try the docker runner first
-	if s.dockerRunner != nil {
-		reader, err := s.dockerRunner.GetLogs(ctx, instanceID, options)
+	if dockerRunner != nil {
+		reader, err := dockerRunner.GetLogs(ctx, instance, options)
 		if err == nil {
 			return reader, nil
 		}
 		// If not found, try the process runner
-		s.logger.Debug("Docker runner failed to get logs, trying process runner", log.Str("instanceId", instanceID), log.Err(err))
+		s.logger.Debug("Docker runner failed to get logs, trying process runner", log.Str("instanceId", instance.ID), log.Err(err))
 	}
 
 	// Try the process runner
-	if s.processRunner != nil {
-		reader, err := s.processRunner.GetLogs(ctx, instanceID, options)
+	processRunner, err := s.runnerManager.GetProcessRunner()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get process runner: %v", err)
+	}
+
+	if processRunner != nil {
+		reader, err := processRunner.GetLogs(ctx, instance, options)
 		if err == nil {
 			return reader, nil
 		}

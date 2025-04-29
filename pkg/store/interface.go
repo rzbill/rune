@@ -21,7 +21,7 @@ type Store interface {
 	Get(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
 
 	// List retrieves all resources of a given type in a namespace.
-	List(ctx context.Context, resourceType string, namespace string) ([]interface{}, error)
+	List(ctx context.Context, resourceType string, namespace string, resource interface{}) error
 
 	// Update updates an existing resource.
 	Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error

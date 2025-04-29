@@ -59,6 +59,52 @@ message Resources {
   ResourceLimit memory = 2;
 }
 
+
+// ProcessSpec represents process-specific configuration for a service.
+message ProcessSpec {
+  // Command to run in the container
+  string command = 1;
+
+  // Arguments to the command
+  repeated string args = 2;
+  
+  // Working directory for the command  
+  string working_dir = 3;
+
+  // Security context for the process
+  ProcessSecurityContext security_context = 4;
+}
+
+// ProcessSecurityContext defines security settings for a process.
+message ProcessSecurityContext {
+  // User to run as
+  string user = 1;
+
+  // Group to run as
+  string group = 2;
+  
+  // Run with read-only filesystem
+  bool read_only_fs = 3;
+
+  // Linux capabilities to add
+  repeated string capabilities = 4;
+
+  // Allowed syscalls (seccomp)
+  repeated string allowed_syscalls = 5;
+
+  // Denied syscalls (seccomp)
+  repeated string denied_syscalls = 6;
+
+}
+
+// RestartPolicy defines the restart policy for a service.
+enum RestartPolicy {
+  RESTART_POLICY_UNSPECIFIED = 0;
+  RESTART_POLICY_ALWAYS = 1;
+  RESTART_POLICY_ON_FAILURE = 2;
+  RESTART_POLICY_NEVER = 3;
+}
+
 // ServicePort represents a port exposed by a service.
 message ServicePort {
   // Name for this port

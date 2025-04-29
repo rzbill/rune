@@ -95,17 +95,14 @@ func (s *HealthService) getServiceHealth(ctx context.Context, req *generated.Get
 		components = append(components, component)
 	} else {
 		// Get health for all services in the namespace
-		services, err := s.store.List(ctx, ResourceTypeService, namespace)
+		var services []types.Service
+		err := s.store.List(ctx, ResourceTypeService, namespace, &services)
 		if err != nil {
 			s.logger.Error("Failed to list services", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to list services: %v", err)
 		}
 
-		for _, svc := range services {
-			service, ok := svc.(*types.Service)
-			if !ok {
-				continue
-			}
+		for _, service := range services {
 
 			healthStatus, healthMessage := s.computeServiceHealthFromInstances(ctx, service.Name, namespace)
 
@@ -262,7 +259,8 @@ func (s *HealthService) getAPIServerHealth(ctx context.Context, req *generated.G
 // computeServiceHealthFromInstances computes the health status of a service from its instances.
 func (s *HealthService) computeServiceHealthFromInstances(ctx context.Context, serviceName, namespace string) (generated.HealthStatus, string) {
 	// Get all instances for the service
-	instances, err := s.store.List(ctx, ResourceTypeInstance, namespace)
+	var instances []types.Instance
+	err := s.store.List(ctx, ResourceTypeInstance, namespace, &instances)
 	if err != nil {
 		s.logger.Error("Failed to list instances", log.Err(err))
 		return generated.HealthStatus_HEALTH_STATUS_UNKNOWN, "Failed to retrieve instance data"
@@ -270,12 +268,7 @@ func (s *HealthService) computeServiceHealthFromInstances(ctx context.Context, s
 
 	// Count instances by status
 	var totalInstances, runningInstances, failedInstances int
-	for _, inst := range instances {
-		instance, ok := inst.(*types.Instance)
-		if !ok {
-			continue
-		}
-
+	for _, instance := range instances {
 		if instance.ServiceID != serviceName {
 			continue
 		}

@@ -24,7 +24,6 @@ func Example() {
 	// Create a process runner with options
 	processRunner, err := process.NewProcessRunner(
 		process.WithBaseDir(os.TempDir()),
-		process.WithNamespace("example"),
 		process.WithLogger(logger),
 	)
 	if err != nil {
@@ -55,7 +54,7 @@ func Example() {
 
 	// Start the instance
 	fmt.Println("Starting process instance...")
-	if err := processRunner.Start(ctx, instanceID); err != nil {
+	if err := processRunner.Start(ctx, instance); err != nil {
 		fmt.Printf("Failed to start instance: %v\n", err)
 		return
 	}
@@ -64,7 +63,7 @@ func Example() {
 	time.Sleep(1 * time.Second)
 
 	// Get the status
-	status, err := processRunner.Status(ctx, instanceID)
+	status, err := processRunner.Status(ctx, instance)
 	if err != nil {
 		fmt.Printf("Failed to get status: %v\n", err)
 		return
@@ -73,7 +72,7 @@ func Example() {
 
 	// Get logs
 	fmt.Println("Getting logs...")
-	logs, err := processRunner.GetLogs(ctx, instanceID, runner.LogOptions{
+	logs, err := processRunner.GetLogs(ctx, instance, runner.LogOptions{
 		Tail: 10,
 	})
 	if err != nil {
@@ -91,7 +90,7 @@ func Example() {
 	fmt.Printf("Log output: %s\n", string(logBytes))
 
 	// List all instances
-	instances, err := processRunner.List(ctx)
+	instances, err := processRunner.List(ctx, "example")
 	if err != nil {
 		fmt.Printf("Failed to list instances: %v\n", err)
 		return
@@ -100,7 +99,7 @@ func Example() {
 
 	// Remove the instance
 	fmt.Println("Removing process instance...")
-	if err := processRunner.Remove(ctx, instanceID, true); err != nil {
+	if err := processRunner.Remove(ctx, instance, true); err != nil {
 		fmt.Printf("Failed to remove instance: %v\n", err)
 		return
 	}

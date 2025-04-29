@@ -296,7 +296,7 @@ func TestServiceSpec_ToService(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "zero scale converts to 1",
+			name: "zero scale stays 0, that's a way to scale to 0",
 			spec: &ServiceSpec{
 				Name:  "test-service",
 				Image: "nginx:latest",
@@ -423,7 +423,7 @@ func TestServiceSpec_ToService(t *testing.T) {
 			}
 
 			if tt.spec.Scale == 0 && service.Scale != 1 {
-				t.Errorf("Service scale = %v, want 1 (default for zero)", service.Scale)
+				t.Errorf("Service scale = %v, want 0 (default for zero)", service.Scale)
 			} else if tt.spec.Scale > 0 && service.Scale != tt.spec.Scale {
 				t.Errorf("Service scale = %v, want %v", service.Scale, tt.spec.Scale)
 			}

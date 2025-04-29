@@ -47,7 +47,7 @@ func TestNewDockerRunner(t *testing.T) {
 			DisableColors: true, // Disable colors for tests
 		}),
 	)
-	r, err := NewDockerRunner("test", logger)
+	r, err := NewDockerRunner(logger)
 
 	if err != nil {
 		t.Fatalf("Failed to create Docker runner: %v", err)
@@ -57,9 +57,6 @@ func TestNewDockerRunner(t *testing.T) {
 		t.Fatal("Docker runner is nil")
 	}
 
-	if r.namespace != "test" {
-		t.Errorf("Expected namespace 'test', got '%s'", r.namespace)
-	}
 }
 
 // TestDockerRunnerLifecycle tests the full lifecycle of an instance using a real Docker daemon.
@@ -75,7 +72,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 			DisableColors: true, // Disable colors for tests
 		}),
 	)
-	r, err := NewDockerRunner(namespace, logger)
+	r, err := NewDockerRunner(logger)
 	if err != nil {
 		t.Fatalf("Failed to create Docker runner: %v", err)
 	}
@@ -83,6 +80,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	// Use a simple, small image that starts quickly
 	instance := &runetypes.Instance{
 		ID:        "test-instance",
+		Namespace: namespace,
 		Name:      "test-instance",
 		ServiceID: "test-service",
 		NodeID:    "test-node",
@@ -95,7 +93,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	// Ensure cleanup on test completion
 	defer func() {
 		// Attempt to remove the container regardless of test outcome
-		r.Remove(ctx, instance.ID, true)
+		r.Remove(ctx, instance, true)
 	}()
 
 	// Test creating a container
@@ -110,7 +108,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	}
 
 	// Test starting the container
-	err = r.Start(ctx, instance.ID)
+	err = r.Start(ctx, instance)
 	if err != nil {
 		t.Fatalf("Failed to start container: %v", err)
 	}
@@ -119,7 +117,7 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Check status
-	status, err := r.Status(ctx, instance.ID)
+	status, err := r.Status(ctx, instance)
 	if err != nil {
 		t.Fatalf("Failed to get status: %v", err)
 	}
@@ -128,13 +126,13 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	}
 
 	// Test stopping the container
-	err = r.Stop(ctx, instance.ID, 10*time.Second)
+	err = r.Stop(ctx, instance, 10*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to stop container: %v", err)
 	}
 
 	// Verify container stopped
-	status, err = r.Status(ctx, instance.ID)
+	status, err = r.Status(ctx, instance)
 	if err != nil {
 		t.Fatalf("Failed to get status: %v", err)
 	}
@@ -143,13 +141,13 @@ func TestDockerRunnerLifecycle(t *testing.T) {
 	}
 
 	// Test removing the container
-	err = r.Remove(ctx, instance.ID, false)
+	err = r.Remove(ctx, instance, false)
 	if err != nil {
 		t.Fatalf("Failed to remove container: %v", err)
 	}
 
 	// Verify container was removed by checking that getting its status now fails
-	_, err = r.Status(ctx, instance.ID)
+	_, err = r.Status(ctx, instance)
 	if err == nil {
 		t.Fatal("Expected error getting status of removed container, got nil")
 	}
@@ -210,7 +208,7 @@ func TestList(t *testing.T) {
 			DisableColors: true, // Disable colors for tests
 		}),
 	)
-	r, err := NewDockerRunner(namespace, logger)
+	r, err := NewDockerRunner(logger)
 	if err != nil {
 		t.Fatalf("Failed to create Docker runner: %v", err)
 	}
@@ -236,8 +234,8 @@ func TestList(t *testing.T) {
 
 	// Ensure cleanup on test completion
 	defer func() {
-		r.Remove(ctx, instance1.ID, true)
-		r.Remove(ctx, instance2.ID, true)
+		r.Remove(ctx, instance1, true)
+		r.Remove(ctx, instance2, true)
 	}()
 
 	// Create the containers
@@ -252,7 +250,7 @@ func TestList(t *testing.T) {
 	}
 
 	// List containers
-	instances, err := r.List(ctx)
+	instances, err := r.List(ctx, namespace)
 	if err != nil {
 		t.Fatalf("Failed to list containers: %v", err)
 	}

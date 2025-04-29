@@ -9,11 +9,17 @@ type Instance struct {
 	// Unique identifier for the instance
 	ID string `json:"id" yaml:"id"`
 
+	// Namespace of the instance
+	Namespace string `json:"namespace" yaml:"namespace"`
+
 	// Human-readable name for the instance
 	Name string `json:"name" yaml:"name"`
 
 	// ID of the service this instance belongs to
 	ServiceID string `json:"serviceId" yaml:"serviceId"`
+
+	// Name of the service this instance belongs to
+	ServiceName string `json:"serviceName" yaml:"serviceName"`
 
 	// ID of the node running this instance
 	NodeID string `json:"nodeId" yaml:"nodeId"`
@@ -47,6 +53,9 @@ type Instance struct {
 
 	// Resources requirements for the instance
 	Resources *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+
+	// Environment variables for the instance
+	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
 }
 
 // Exec represents execution configuration for a command
@@ -78,12 +87,17 @@ const (
 	InstanceStatusCreated  InstanceStatus = "Created"
 	InstanceStatusStarting InstanceStatus = "Starting"
 	InstanceStatusExited   InstanceStatus = "Exited"
+	InstanceStatusUnknown  InstanceStatus = "Unknown"
 )
 
 // Validate validates the instance configuration.
 func (i *Instance) Validate() error {
 	if i.ID == "" {
 		return NewValidationError("instance ID is required")
+	}
+
+	if i.Namespace == "" {
+		return NewValidationError("instance namespace is required")
 	}
 
 	if i.Name == "" {

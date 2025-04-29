@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/types"
 )
 
 // createTempDir creates a temporary directory for testing.
@@ -110,7 +111,8 @@ func TestBadgerStoreCRUD(t *testing.T) {
 	}
 
 	// Test list
-	resources, err := store.List(ctx, resourceType, namespace)
+	var resources []Service
+	err = store.List(ctx, resourceType, namespace, &resources)
 	if err != nil {
 		t.Fatalf("Failed to list resources: %v", err)
 	}
@@ -257,7 +259,7 @@ func TestBadgerStoreTransaction(t *testing.T) {
 	// Verify all services were created
 	for i := 1; i <= 3; i++ {
 		var service Service
-		err := store.Get(ctx, "services", "default", fmt.Sprintf("service-%d", i), &service)
+		err := store.Get(ctx, types.ResourceTypeService, "default", fmt.Sprintf("service-%d", i), &service)
 		if err != nil {
 			t.Fatalf("Failed to get service-%d: %v", i, err)
 		}
@@ -293,7 +295,7 @@ func TestBadgerStoreTransaction(t *testing.T) {
 
 	// Verify the first service was not created due to rollback
 	var rollbackService Service
-	err = store.Get(ctx, "services", "default", "will-rollback", &rollbackService)
+	err = store.Get(ctx, types.ResourceTypeService, "default", "will-rollback", &rollbackService)
 	if err == nil {
 		t.Fatalf("Service 'will-rollback' should not exist due to transaction rollback")
 	}

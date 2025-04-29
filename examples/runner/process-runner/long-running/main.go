@@ -31,7 +31,6 @@ func main() {
 	// Create a process runner
 	processRunner, err := process.NewProcessRunner(
 		process.WithLogger(logger),
-		process.WithNamespace("example"),
 	)
 	if err != nil {
 		logger.Error("Failed to create process runner", log.Err(err))
@@ -65,7 +64,7 @@ func main() {
 
 	// Start the instance
 	logger.Info("Starting counter process")
-	if err := processRunner.Start(ctx, instance.ID); err != nil {
+	if err := processRunner.Start(ctx, instance); err != nil {
 		logger.Error("Failed to start instance", log.Err(err))
 		os.Exit(1)
 	}
@@ -74,7 +73,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	// Get initial status
-	status, err := processRunner.Status(ctx, instance.ID)
+	status, err := processRunner.Status(ctx, instance)
 	if err != nil {
 		logger.Error("Failed to get status", log.Err(err))
 		os.Exit(1)
@@ -86,7 +85,7 @@ func main() {
 	logCtx, logCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer logCancel()
 
-	logs, err := processRunner.GetLogs(logCtx, instance.ID, runner.LogOptions{
+	logs, err := processRunner.GetLogs(logCtx, instance, runner.LogOptions{
 		Follow:     true,
 		Timestamps: true,
 	})
@@ -109,7 +108,7 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	// Get current status
-	status, err = processRunner.Status(ctx, instance.ID)
+	status, err = processRunner.Status(ctx, instance)
 	if err != nil {
 		logger.Error("Failed to get status", log.Err(err))
 		os.Exit(1)
@@ -118,13 +117,13 @@ func main() {
 
 	// Gracefully stop the process
 	logger.Info("Stopping process...")
-	if err := processRunner.Stop(ctx, instance.ID, 5*time.Second); err != nil {
+	if err := processRunner.Stop(ctx, instance, 5*time.Second); err != nil {
 		logger.Error("Failed to stop process", log.Err(err))
 		os.Exit(1)
 	}
 
 	// Check status after stopping
-	status, err = processRunner.Status(ctx, instance.ID)
+	status, err = processRunner.Status(ctx, instance)
 	if err != nil {
 		logger.Error("Failed to get status", log.Err(err))
 		os.Exit(1)
@@ -132,7 +131,7 @@ func main() {
 	logger.Info("Status after stopping", log.Str("status", string(status)))
 
 	// Get final logs
-	finalLogs, err := processRunner.GetLogs(ctx, instance.ID, runner.LogOptions{
+	finalLogs, err := processRunner.GetLogs(ctx, instance, runner.LogOptions{
 		Tail: 5, // Just the last 5 lines
 	})
 	if err != nil {
@@ -152,7 +151,7 @@ func main() {
 
 	// Remove the instance
 	logger.Info("Removing process instance")
-	if err := processRunner.Remove(ctx, instance.ID, false); err != nil {
+	if err := processRunner.Remove(ctx, instance, false); err != nil {
 		logger.Error("Failed to remove instance", log.Err(err))
 		os.Exit(1)
 	}

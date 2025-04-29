@@ -81,6 +81,9 @@ type Service struct {
 
 	// Process-specific configuration (when Runtime="process")
 	Process *ProcessSpec `json:"process,omitempty" yaml:"process,omitempty"`
+
+	// Restart policy for the service
+	RestartPolicy RestartPolicy `json:"restart_policy,omitempty" yaml:"restart_policy,omitempty"`
 }
 
 // ServicePort represents a port exposed by a service.
@@ -180,11 +183,14 @@ const (
 	// ServiceStatusRunning indicates the service is running.
 	ServiceStatusRunning ServiceStatus = "Running"
 
-	// ServiceStatusUpdating indicates the service is being updated.
-	ServiceStatusUpdating ServiceStatus = "Updating"
+	// ServiceStatusDeploying indicates the service is being updated.
+	ServiceStatusDeploying ServiceStatus = "Deploying"
 
 	// ServiceStatusFailed indicates the service failed to deploy or run.
 	ServiceStatusFailed ServiceStatus = "Failed"
+
+	// ServiceStatusDeleted indicates the service has been deleted.
+	ServiceStatusDeleted ServiceStatus = "Deleted"
 )
 
 // Resources represents resource requirements for a service instance.
@@ -236,7 +242,27 @@ type Probe struct {
 
 	// Timeout for the probe in seconds
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" yaml:"timeoutSeconds,omitempty"`
+
+	// Failure threshold for the probe
+	FailureThreshold int `json:"failureThreshold,omitempty" yaml:"failureThreshold,omitempty"`
+
+	// Success threshold for the probe
+	SuccessThreshold int `json:"successThreshold,omitempty" yaml:"successThreshold,omitempty"`
 }
+
+// RestartPolicy defines how instances should be restarted
+type RestartPolicy string
+
+const (
+	// RestartPolicyAlways means always restart when not explicitly stopped
+	RestartPolicyAlways RestartPolicy = "Always"
+
+	// RestartPolicyOnFailure means only restart on failure
+	RestartPolicyOnFailure RestartPolicy = "OnFailure"
+
+	// RestartPolicyNever means never restart automatically
+	RestartPolicyNever RestartPolicy = "Never"
+)
 
 // Validate validates the service configuration.
 func (s *Service) Validate() error {

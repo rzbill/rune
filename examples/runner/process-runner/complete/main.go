@@ -31,7 +31,6 @@ func main() {
 	// Create process runner
 	processRunner, err := process.NewProcessRunner(
 		process.WithLogger(logger),
-		process.WithNamespace("path-validation-example"),
 	)
 	if err != nil {
 		logger.Error("Failed to create process runner", log.Err(err))
@@ -132,18 +131,18 @@ echo "Arguments: $@"
 	} else {
 		// If creation succeeded, try to run it
 		// Don't re-create the instance, just start, get logs, and clean up
-		if err := processRunner.Start(ctx, instance3.ID); err != nil {
+		if err := processRunner.Start(ctx, instance3); err != nil {
 			logger.Error("Failed to start instance with security context",
 				log.Str("id", instance3.ID),
 				log.Err(err))
 			// Clean up
-			_ = processRunner.Remove(ctx, instance3.ID, true)
+			_ = processRunner.Remove(ctx, instance3, true)
 		} else {
 			// Wait for process to complete
 			time.Sleep(500 * time.Millisecond)
 
 			// Get logs
-			logs, err := processRunner.GetLogs(ctx, instance3.ID, runner.LogOptions{})
+			logs, err := processRunner.GetLogs(ctx, instance3, runner.LogOptions{})
 			if err != nil {
 				logger.Error("Failed to get logs",
 					log.Str("id", instance3.ID),
@@ -162,7 +161,7 @@ echo "Arguments: $@"
 			}
 
 			// Cleanup
-			if err := processRunner.Remove(ctx, instance3.ID, true); err != nil {
+			if err := processRunner.Remove(ctx, instance3, true); err != nil {
 				logger.Error("Failed to remove instance",
 					log.Str("id", instance3.ID),
 					log.Err(err))
@@ -240,12 +239,12 @@ func runInstance(ctx context.Context, processRunner *process.ProcessRunner, inst
 	}
 
 	// Start the instance
-	if err := processRunner.Start(ctx, instance.ID); err != nil {
+	if err := processRunner.Start(ctx, instance); err != nil {
 		logger.Error("Failed to start instance",
 			log.Str("id", instance.ID),
 			log.Err(err))
 		// Clean up
-		_ = processRunner.Remove(ctx, instance.ID, true)
+		_ = processRunner.Remove(ctx, instance, true)
 		return
 	}
 
@@ -253,7 +252,7 @@ func runInstance(ctx context.Context, processRunner *process.ProcessRunner, inst
 	time.Sleep(500 * time.Millisecond)
 
 	// Get logs
-	logs, err := processRunner.GetLogs(ctx, instance.ID, runner.LogOptions{})
+	logs, err := processRunner.GetLogs(ctx, instance, runner.LogOptions{})
 	if err != nil {
 		logger.Error("Failed to get logs",
 			log.Str("id", instance.ID),
@@ -272,7 +271,7 @@ func runInstance(ctx context.Context, processRunner *process.ProcessRunner, inst
 	}
 
 	// Cleanup
-	if err := processRunner.Remove(ctx, instance.ID, true); err != nil {
+	if err := processRunner.Remove(ctx, instance, true); err != nil {
 		logger.Error("Failed to remove instance",
 			log.Str("id", instance.ID),
 			log.Err(err))

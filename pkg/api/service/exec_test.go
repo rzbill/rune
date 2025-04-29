@@ -10,6 +10,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -18,11 +19,16 @@ import (
 )
 
 func TestExecServiceStreamExec(t *testing.T) {
-	// Create mocks
-	mockStore := new(store.MockStore)
+
+	testStore := store.NewTestStore()
 	mockDockerRunner := new(runner.MockRunner)
 	mockProcessRunner := new(runner.MockRunner)
 	mockCtx := metadata.NewIncomingContext(context.Background(), metadata.New(nil))
+
+	// Create a test runner manager
+	testRunnerMgr := manager.NewTestRunnerManager(nil)
+	testRunnerMgr.SetDockerRunner(mockDockerRunner)
+	testRunnerMgr.SetProcessRunner(mockProcessRunner)
 
 	// Set up stream with initial request
 	mockStream := NewMockExecServiceStream(mockCtx)
@@ -36,6 +42,10 @@ func TestExecServiceStreamExec(t *testing.T) {
 		Status:      types.InstanceStatusRunning,
 	}
 
+	// Add the instance to the TestStore
+	err := testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "instance123", instance)
+	assert.NoError(t, err)
+
 	// Create a mock exec stream for the Docker runner
 	mockExecStream := new(runner.MockExecStream)
 	mockExecStream.On("Close").Return(nil)
@@ -48,17 +58,9 @@ func TestExecServiceStreamExec(t *testing.T) {
 
 	mockExecStream.On("ExitCode").Return(0, nil)
 
-	// Set up Docker runner to expect an Exec call
-	mockDockerRunner.On("Exec", mock.Anything, "instance123", mock.AnythingOfType("runner.ExecOptions")).
+	// Set up Docker runner to expect an Exec call with the right parameters
+	mockDockerRunner.On("Exec", mock.Anything, mock.AnythingOfType("*types.Instance"), mock.AnythingOfType("runner.ExecOptions")).
 		Return(mockExecStream, nil)
-
-	// Expect instance lookup - using direct Get with namespace
-	mockStore.On("Get", mock.Anything, "instances", "default", "instance123", mock.AnythingOfType("*types.Instance")).
-		Run(func(args mock.Arguments) {
-			// Copy the instance data to the output parameter
-			instanceArg := args.Get(4).(*types.Instance)
-			*instanceArg = *instance
-		}).Return(nil, nil)
 
 	// First request will be the init request
 	mockStream.On("Recv").Return(&generated.ExecRequest{
@@ -92,15 +94,14 @@ func TestExecServiceStreamExec(t *testing.T) {
 
 	// Create ExecService
 	logger := log.NewLogger()
-	execService := NewExecService(mockDockerRunner, mockProcessRunner, mockStore, logger)
+	execService := NewExecService(testRunnerMgr, testStore, logger)
 
 	// Call StreamExec
-	err := execService.StreamExec(mockStream)
+	err = execService.StreamExec(mockStream)
 
 	// Verify the results
 	assert.NoError(t, err)
 	mockStream.AssertExpectations(t)
-	mockStore.AssertExpectations(t)
 }
 
 // MockStdErrReader mocks the stderr reader
@@ -117,8 +118,7 @@ func (m *MockStdErrReader) Read(p []byte) (n int, err error) {
 func TestSimpleExecService(t *testing.T) {
 	// Create a simple exec service without using the store
 	execService := &ExecService{
-		dockerRunner:  new(runner.MockRunner),
-		processRunner: new(runner.MockRunner),
+		runnerManager: manager.NewRunnerManager(log.NewLogger()),
 		logger:        log.NewLogger(),
 	}
 
@@ -129,8 +129,7 @@ func TestSimpleExecService(t *testing.T) {
 func TestExecServiceSimple(t *testing.T) {
 	// Create a simple exec service without using the store
 	execService := &ExecService{
-		dockerRunner:  new(runner.MockRunner),
-		processRunner: new(runner.MockRunner),
+		runnerManager: manager.NewRunnerManager(log.NewLogger()),
 		logger:        log.NewLogger(),
 	}
 
@@ -141,8 +140,9 @@ func TestExecServiceSimple(t *testing.T) {
 // TestExecServiceWithTestRunner tests the ExecService using the TestRunner instead of mocks
 func TestExecServiceWithTestRunner(t *testing.T) {
 	// Create test components
-	mockStore := new(store.MockStore)
+	testStore := store.NewTestStore()
 	testRunner := runner.NewTestRunner()
+	testRunnerMgr := manager.NewTestRunnerManager(testRunner)
 	mockCtx := metadata.NewIncomingContext(context.Background(), metadata.New(nil))
 	mockStream := NewMockExecServiceStream(mockCtx)
 
@@ -155,18 +155,14 @@ func TestExecServiceWithTestRunner(t *testing.T) {
 		Status:      types.InstanceStatusRunning,
 	}
 
+	// Add the instance to the TestStore
+	err := testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "instance123", instance)
+	assert.NoError(t, err)
+
 	// Configure the test runner's output
 	testRunner.ExecOutput = []byte("sample command output")
 	testRunner.ExecErrOutput = []byte("sample error output")
 	testRunner.ExitCodeVal = 0
-
-	// Expect instance lookup with the store
-	mockStore.On("Get", mock.Anything, "instances", "default", "instance123", mock.AnythingOfType("*types.Instance")).
-		Run(func(args mock.Arguments) {
-			// Copy the instance data to the output parameter
-			instanceArg := args.Get(4).(*types.Instance)
-			*instanceArg = *instance
-		}).Return(nil, nil)
 
 	// First request will be the init request
 	mockStream.On("Recv").Return(&generated.ExecRequest{
@@ -209,17 +205,16 @@ func TestExecServiceWithTestRunner(t *testing.T) {
 	var nilReq *generated.ExecRequest = nil
 	mockStream.On("Recv").Return(nilReq, io.EOF).Once()
 
-	// Create ExecService - using TestRunner for Docker and nil for processRunner
+	// Create ExecService - using TestRunner and the runner manager
 	logger := log.NewLogger()
-	execService := NewExecService(testRunner, nil, mockStore, logger)
+	execService := NewExecService(testRunnerMgr, testStore, logger)
 
 	// Call StreamExec
-	err := execService.StreamExec(mockStream)
+	err = execService.StreamExec(mockStream)
 
 	// Verify the results
 	assert.NoError(t, err)
 	mockStream.AssertExpectations(t)
-	mockStore.AssertExpectations(t)
 
 	// Verify that the TestRunner recorded the correct calls
 	assert.Equal(t, 1, len(testRunner.ExecCalls))

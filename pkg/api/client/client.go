@@ -137,3 +137,16 @@ func (c *apiKeyCredentials) GetRequestMetadata(ctx context.Context, uri ...strin
 func (c *apiKeyCredentials) RequireTransportSecurity() bool {
 	return c.secure
 }
+
+// parseTimestamp parses a timestamp string into a time.Time.
+func parseTimestamp(timestampStr string) (*time.Time, error) {
+	// Parse created_at timestamp
+	if timestampStr != "" {
+		timestamp, err := time.Parse(time.RFC3339, timestampStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse timestamp: %w", err)
+		}
+		return &timestamp, nil
+	}
+	return nil, nil
+}

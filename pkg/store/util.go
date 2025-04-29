@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -17,7 +18,7 @@ func MakeVersionKey(resourceType, namespace, name, version string) []byte {
 
 // MakePrefix creates a prefix for listing resources by type and namespace.
 func MakePrefix(resourceType, namespace string) []byte {
-	return []byte(fmt.Sprintf("%s/%s/", resourceType, namespace))
+	return []byte(fmt.Sprintf("%s/%s", resourceType, namespace))
 }
 
 // MakeVersionPrefix creates a prefix for listing resource versions.
@@ -67,4 +68,23 @@ func ResourceTypes() []string {
 		"networks",
 		"volumes",
 	}
+}
+
+// UnmarshalResource converts a resource interface to a target type using JSON marshaling/unmarshaling.
+// This is useful for converting between different types that share the same JSON structure.
+// The function handles the conversion by first marshaling the source to JSON and then
+// unmarshaling into the target type.
+func UnmarshalResource(source interface{}, target interface{}) error {
+	// Marshal the source to JSON
+	jsonData, err := json.Marshal(source)
+	if err != nil {
+		return fmt.Errorf("failed to marshal resource: %w", err)
+	}
+
+	// Unmarshal into the target type
+	if err := json.Unmarshal(jsonData, target); err != nil {
+		return fmt.Errorf("failed to unmarshal resource: %w", err)
+	}
+
+	return nil
 }

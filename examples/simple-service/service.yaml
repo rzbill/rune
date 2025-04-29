@@ -2,7 +2,7 @@ service:
   name: hello-world
   namespace: default
   image: nginx:alpine
-  scale: 2
+  scale: 1
   ports:
     - name: http
       port: 80

@@ -30,7 +30,6 @@ func main() {
 	// Create a process runner
 	processRunner, err := process.NewProcessRunner(
 		process.WithLogger(logger),
-		process.WithNamespace("example"),
 	)
 	if err != nil {
 		logger.Error("Failed to create process runner", log.Err(err))
@@ -72,7 +71,7 @@ func main() {
 
 	// Start the instance
 	logger.Info("Starting process instance")
-	if err := processRunner.Start(ctx, instance.ID); err != nil {
+	if err := processRunner.Start(ctx, instance); err != nil {
 		logger.Error("Failed to start instance", log.Err(err))
 		os.Exit(1)
 	}
@@ -81,7 +80,7 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	// Get the status of the process
-	status, err := processRunner.Status(ctx, instance.ID)
+	status, err := processRunner.Status(ctx, instance)
 	if err != nil {
 		logger.Error("Failed to get instance status", log.Err(err))
 		os.Exit(1)
@@ -90,7 +89,7 @@ func main() {
 
 	// Get the logs from the process
 	logger.Info("Getting process logs")
-	logs, err := processRunner.GetLogs(ctx, instance.ID, runner.LogOptions{
+	logs, err := processRunner.GetLogs(ctx, instance, runner.LogOptions{
 		Tail:       10,
 		Timestamps: true,
 	})
@@ -109,7 +108,7 @@ func main() {
 	fmt.Printf("Log output:\n%s\n", string(logContent))
 
 	// List all instances
-	instances, err := processRunner.List(ctx)
+	instances, err := processRunner.List(ctx, instance.Namespace)
 	if err != nil {
 		logger.Error("Failed to list instances", log.Err(err))
 		os.Exit(1)
@@ -118,7 +117,7 @@ func main() {
 
 	// Remove the instance
 	logger.Info("Removing process instance")
-	if err := processRunner.Remove(ctx, instance.ID, true); err != nil {
+	if err := processRunner.Remove(ctx, instance, true); err != nil {
 		logger.Error("Failed to remove instance", log.Err(err))
 		os.Exit(1)
 	}

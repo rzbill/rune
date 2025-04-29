@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
@@ -307,6 +308,15 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		Runtime:   service.Runtime,
 	}
 
+	// Format timestamps as RFC3339 strings
+	if !service.CreatedAt.IsZero() {
+		protoService.CreatedAt = service.CreatedAt.Format(time.RFC3339)
+	}
+
+	if !service.UpdatedAt.IsZero() {
+		protoService.UpdatedAt = service.UpdatedAt.Format(time.RFC3339)
+	}
+
 	// Convert args
 	if len(service.Args) > 0 {
 		protoService.Args = make([]string, len(service.Args))
@@ -354,7 +364,7 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_PENDING
 	case types.ServiceStatusRunning:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_RUNNING
-	case types.ServiceStatusUpdating:
+	case types.ServiceStatusDeploying:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UPDATING
 	case types.ServiceStatusFailed:
 		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_FAILED
@@ -418,6 +428,7 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 		return nil, fmt.Errorf("proto service is nil")
 	}
 
+	// Create an initial service with basic fields
 	service := &types.Service{
 		ID:        proto.Id,
 		Name:      proto.Name,
@@ -427,6 +438,24 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 		Scale:     int(proto.Scale),
 		Runtime:   proto.Runtime,
 	}
+
+	createdAt, err := parseTimestamp(proto.CreatedAt)
+	if err != nil {
+		s.logger.Warn("Failed to parse created_at timestamp",
+			log.Str("service", proto.Name),
+			log.Str("timestamp", proto.CreatedAt),
+			log.Err(err))
+	}
+	service.CreatedAt = *createdAt
+
+	updatedAt, err := parseTimestamp(proto.UpdatedAt)
+	if err != nil {
+		s.logger.Warn("Failed to parse updated_at timestamp",
+			log.Str("service", proto.Name),
+			log.Str("timestamp", proto.UpdatedAt),
+			log.Err(err))
+	}
+	service.UpdatedAt = *updatedAt
 
 	// Convert args
 	if len(proto.Args) > 0 {
@@ -478,7 +507,7 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 	case generated.ServiceStatus_SERVICE_STATUS_RUNNING:
 		service.Status = types.ServiceStatusRunning
 	case generated.ServiceStatus_SERVICE_STATUS_UPDATING:
-		service.Status = types.ServiceStatusUpdating
+		service.Status = types.ServiceStatusDeploying
 	case generated.ServiceStatus_SERVICE_STATUS_FAILED:
 		service.Status = types.ServiceStatusFailed
 	default:

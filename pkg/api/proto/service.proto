@@ -35,43 +35,49 @@ message Service {
   string namespace = 3;
   
   // Labels for the service
-  map<string, string> labels = 16;
+  map<string, string> labels = 4;
   
   // Container image for the service
-  string image = 4;
+  string image = 5;
   
   // Command to run in the container
-  string command = 5;
+  string command = 6;
   
   // Arguments to the command
-  repeated string args = 6;
+  repeated string args = 7;
   
   // Environment variables for the service
-  map<string, string> env = 7;
+  map<string, string> env = 8;
   
   // Number of instances to run
-  int32 scale = 8;
+  int32 scale = 9;
   
   // Ports exposed by the service
-  repeated ServicePort ports = 9;
+  repeated ServicePort ports = 10;
   
   // Resource requirements for each instance
-  Resources resources = 10;
+  Resources resources = 11;
   
   // Health checks for the service
-  HealthCheck health = 11;
+  HealthCheck health = 12;
   
   // Status of the service
-  ServiceStatus status = 12;
+  ServiceStatus status = 13;
   
   // Creation timestamp (in RFC 3339 format)
-  string created_at = 13;
+  string created_at = 14;
   
   // Last update timestamp (in RFC 3339 format)
-  string updated_at = 14;
+  string updated_at = 15;
   
   // Runtime for the service ("container" or "process")
-  string runtime = 15;
+  string runtime = 16;
+
+  // Process-specific configuration (when Runtime="process")
+  ProcessSpec process = 17;
+
+  // Restart policy for the service
+  RestartPolicy restart_policy = 18;
 }
 
 // CreateServiceRequest represents a request to create a new service.

@@ -298,7 +298,7 @@ func (s *BadgerStore) Delete(ctx context.Context, resourceType string, namespace
 }
 
 // List retrieves all resources of a given type in a namespace.
-func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace string) ([]interface{}, error) {
+func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace string, resource interface{}) error {
 	var resources []interface{}
 
 	// Generate the prefix for scanning
@@ -327,11 +327,12 @@ func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace s
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return resources, nil
+	s.logger.Debug("Found resources", log.Int("count", len(resources)))
+	return UnmarshalResource(resources, resource)
 }
 
 // Transaction executes multiple operations in a single transaction.

@@ -69,7 +69,7 @@ func (r *TestRunner) Create(ctx context.Context, instance *types.Instance) error
 }
 
 // Start tracks instance starting
-func (r *TestRunner) Start(ctx context.Context, instanceID string) error {
+func (r *TestRunner) Start(ctx context.Context, instance *types.Instance) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -77,10 +77,10 @@ func (r *TestRunner) Start(ctx context.Context, instanceID string) error {
 		return r.ErrorToReturn
 	}
 
-	r.StartedInstances = append(r.StartedInstances, instanceID)
+	r.StartedInstances = append(r.StartedInstances, instance.ID)
 
 	// Update status if we're tracking this instance
-	if instance, ok := r.Instances[instanceID]; ok {
+	if instance, ok := r.Instances[instance.ID]; ok {
 		instance.Status = types.InstanceStatusRunning
 	}
 
@@ -88,7 +88,7 @@ func (r *TestRunner) Start(ctx context.Context, instanceID string) error {
 }
 
 // Stop tracks instance stopping
-func (r *TestRunner) Stop(ctx context.Context, instanceID string, timeout time.Duration) error {
+func (r *TestRunner) Stop(ctx context.Context, instance *types.Instance, timeout time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -96,10 +96,10 @@ func (r *TestRunner) Stop(ctx context.Context, instanceID string, timeout time.D
 		return r.ErrorToReturn
 	}
 
-	r.StoppedInstances = append(r.StoppedInstances, instanceID)
+	r.StoppedInstances = append(r.StoppedInstances, instance.ID)
 
 	// Update status if we're tracking this instance
-	if instance, ok := r.Instances[instanceID]; ok {
+	if instance, ok := r.Instances[instance.ID]; ok {
 		instance.Status = types.InstanceStatusStopped
 	}
 
@@ -107,7 +107,7 @@ func (r *TestRunner) Stop(ctx context.Context, instanceID string, timeout time.D
 }
 
 // Remove tracks instance removal
-func (r *TestRunner) Remove(ctx context.Context, instanceID string, force bool) error {
+func (r *TestRunner) Remove(ctx context.Context, instance *types.Instance, force bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -115,17 +115,17 @@ func (r *TestRunner) Remove(ctx context.Context, instanceID string, force bool) 
 		return r.ErrorToReturn
 	}
 
-	r.RemovedInstances = append(r.RemovedInstances, instanceID)
-	delete(r.Instances, instanceID)
+	r.RemovedInstances = append(r.RemovedInstances, instance.ID)
+	delete(r.Instances, instance.ID)
 	return nil
 }
 
 // GetLogs returns predefined log output
-func (r *TestRunner) GetLogs(ctx context.Context, instanceID string, options LogOptions) (io.ReadCloser, error) {
+func (r *TestRunner) GetLogs(ctx context.Context, instance *types.Instance, options LogOptions) (io.ReadCloser, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.LogCalls = append(r.LogCalls, instanceID)
+	r.LogCalls = append(r.LogCalls, instance.ID)
 
 	if r.ErrorToReturn != nil {
 		return nil, r.ErrorToReturn
@@ -135,21 +135,21 @@ func (r *TestRunner) GetLogs(ctx context.Context, instanceID string, options Log
 }
 
 // Status returns predefined status or Running as default
-func (r *TestRunner) Status(ctx context.Context, instanceID string) (types.InstanceStatus, error) {
+func (r *TestRunner) Status(ctx context.Context, instance *types.Instance) (types.InstanceStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.StatusCalls = append(r.StatusCalls, instanceID)
+	r.StatusCalls = append(r.StatusCalls, instance.ID)
 
 	if r.ErrorToReturn != nil {
 		return types.InstanceStatusFailed, r.ErrorToReturn
 	}
 
-	if status, ok := r.StatusResults[instanceID]; ok {
+	if status, ok := r.StatusResults[instance.ID]; ok {
 		return status, nil
 	}
 
-	if instance, ok := r.Instances[instanceID]; ok {
+	if instance, ok := r.Instances[instance.ID]; ok {
 		return instance.Status, nil
 	}
 
@@ -158,7 +158,7 @@ func (r *TestRunner) Status(ctx context.Context, instanceID string) (types.Insta
 }
 
 // List returns all registered instances
-func (r *TestRunner) List(ctx context.Context) ([]*types.Instance, error) {
+func (r *TestRunner) List(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -175,11 +175,11 @@ func (r *TestRunner) List(ctx context.Context) ([]*types.Instance, error) {
 }
 
 // Exec returns a predefined TestExecStream
-func (r *TestRunner) Exec(ctx context.Context, instanceID string, options ExecOptions) (ExecStream, error) {
+func (r *TestRunner) Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.ExecCalls = append(r.ExecCalls, instanceID)
+	r.ExecCalls = append(r.ExecCalls, instance.ID)
 	r.ExecOptions = append(r.ExecOptions, options)
 
 	if r.ErrorToReturn != nil {

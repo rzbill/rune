@@ -177,4 +177,70 @@ if err != nil {
 - Addition of a metrics subsystem for monitoring store operations
 - Advanced query capabilities with filtering and sorting
 - Pluggable serialization formats
-- Integration with external storage systems (etcd, etc.) 
+- Integration with external storage systems (etcd, etc.)
+
+## Testing
+
+### TestStore
+
+The package includes a `TestStore` implementation specifically designed for testing:
+
+```go
+import (
+    "context"
+    "testing"
+    "github.com/rzbill/rune/pkg/store"
+    "github.com/rzbill/rune/pkg/types"
+)
+
+func TestMyFunction(t *testing.T) {
+    // Create a new TestStore
+    testStore := store.NewTestStore()
+    
+    // Use the convenience methods to add test data
+    ctx := context.Background()
+    
+    // Create test services and instances
+    service := &types.Service{
+        ID:        "test-service",
+        Name:      "test-service",
+        Namespace: "default",
+    }
+    
+    instance := &types.Instance{
+        ID:        "test-instance",
+        Name:      "test-instance",
+        Namespace: "default",
+        ServiceID: "test-service",
+    }
+    
+    // Add to store with helper methods
+    testStore.CreateService(ctx, service)
+    testStore.CreateInstance(ctx, instance)
+    
+    // Function to test
+    result := MyFunctionThatUsesStore(testStore)
+    
+    // Assertions
+    // ...
+}
+```
+
+### Advantages of TestStore
+
+The `TestStore` offers several advantages for testing:
+
+1. **No external dependencies**: Works in-memory without need for file system access
+2. **Built-in helper methods**: Simplified creation and retrieval of common types
+3. **Type-aware**: Handles type copying and conversion automatically
+4. **Reset capability**: Easily clear all data between tests
+5. **Simplified setup**: Directly load test data with `SetupTestData` method
+
+### Mock vs TestStore
+
+While the package also includes a `MockStore` based on testify/mock, `TestStore` is often more convenient:
+
+- Use `MockStore` when you need to verify specific method calls or simulate errors
+- Use `TestStore` when you need a working store implementation with real data
+
+The `TestStore` implementation is more natural for integration testing, while `MockStore` is better for strict unit testing with precise expectations. 

@@ -70,18 +70,18 @@ func (m *MemoryStore) Get(ctx context.Context, resourceType, namespace, name str
 }
 
 // List lists objects from the memory store.
-func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string) ([]interface{}, error) {
+func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string, value interface{}) error {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	nsMap, ok := m.data[resourceType]
 	if !ok {
-		return []interface{}{}, nil
+		return nil
 	}
 
 	objMap, ok := nsMap[namespace]
 	if !ok {
-		return []interface{}{}, nil
+		return nil
 	}
 
 	result := make([]interface{}, 0, len(objMap))
@@ -89,7 +89,7 @@ func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string) 
 		result = append(result, obj)
 	}
 
-	return result, nil
+	return UnmarshalResource(result, value)
 }
 
 // Create creates an object in the memory store.

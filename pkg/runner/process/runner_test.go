@@ -24,18 +24,15 @@ func TestNewProcessRunner(t *testing.T) {
 	r1, err := NewProcessRunner()
 	require.NoError(t, err)
 	assert.Equal(t, os.TempDir(), r1.baseDir)
-	assert.Equal(t, "default", r1.namespace)
 
 	// Test with custom options
 	logger := log.NewLogger()
 	r2, err := NewProcessRunner(
 		WithBaseDir(testDir),
-		WithNamespace("test"),
 		WithLogger(logger),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, testDir, r2.baseDir)
-	assert.Equal(t, "test", r2.namespace)
 	assert.Equal(t, logger, r2.logger)
 }
 
@@ -124,31 +121,31 @@ func TestProcessRunner_StartStopRemove(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test: Start the process
-	err = processRunner.Start(ctx, instance.ID)
+	err = processRunner.Start(ctx, instance)
 	require.NoError(t, err)
 
 	// Verify process is running
 	time.Sleep(100 * time.Millisecond) // Give it time to start
-	status, err := processRunner.Status(ctx, instance.ID)
+	status, err := processRunner.Status(ctx, instance)
 	require.NoError(t, err)
 	assert.Equal(t, types.InstanceStatusRunning, status)
 
 	// Test: Stop the process
-	err = processRunner.Stop(ctx, instance.ID, 5*time.Second)
+	err = processRunner.Stop(ctx, instance, 5*time.Second)
 	require.NoError(t, err)
 
 	// Verify process is stopped
 	time.Sleep(100 * time.Millisecond) // Give it time to stop
-	status, err = processRunner.Status(ctx, instance.ID)
+	status, err = processRunner.Status(ctx, instance)
 	require.NoError(t, err)
 	assert.Equal(t, types.InstanceStatusStopped, status)
 
 	// Test: Remove the process
-	err = processRunner.Remove(ctx, instance.ID, false)
+	err = processRunner.Remove(ctx, instance, false)
 	require.NoError(t, err)
 
 	// Verify process is removed
-	_, err = processRunner.Status(ctx, instance.ID)
+	_, err = processRunner.Status(ctx, instance)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -165,6 +162,7 @@ func TestProcessRunner_GetLogs(t *testing.T) {
 	// Create a process that outputs something
 	instance := &types.Instance{
 		ID:        "test-echo",
+		Namespace: "test",
 		Name:      "test-echo",
 		NodeID:    "local",
 		ServiceID: "test-service",
@@ -179,14 +177,14 @@ func TestProcessRunner_GetLogs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start the process
-	err = processRunner.Start(ctx, instance.ID)
+	err = processRunner.Start(ctx, instance)
 	require.NoError(t, err)
 
 	// Give the process time to complete
 	time.Sleep(100 * time.Millisecond)
 
 	// Test: Get logs
-	logs, err := processRunner.GetLogs(ctx, instance.ID, runner.LogOptions{})
+	logs, err := processRunner.GetLogs(ctx, instance, runner.LogOptions{})
 	require.NoError(t, err)
 	defer logs.Close()
 
@@ -200,7 +198,7 @@ func TestProcessRunner_GetLogs(t *testing.T) {
 	assert.Contains(t, string(logContent), "test output")
 
 	// Cleanup
-	err = processRunner.Remove(ctx, instance.ID, true)
+	err = processRunner.Remove(ctx, instance, true)
 	require.NoError(t, err)
 }
 
@@ -232,7 +230,7 @@ func TestProcessRunner_List(t *testing.T) {
 	}
 
 	// Test: List instances
-	instances, err := processRunner.List(ctx)
+	instances, err := processRunner.List(ctx, "test")
 	require.NoError(t, err)
 	assert.Len(t, instances, 3)
 

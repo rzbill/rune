@@ -58,7 +58,7 @@ func main() {
 	defer cancel()
 
 	namespace := "default"
-	if err := badgerStore.Create(ctx, "instances", namespace, instanceID, instance); err != nil {
+	if err := badgerStore.Create(ctx, types.ResourceTypeInstance, namespace, instanceID, instance); err != nil {
 		fmt.Printf("Failed to save instance to store: %v\n", err)
 		os.Exit(1)
 	}

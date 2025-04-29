@@ -158,7 +158,7 @@ func PTermStatusLabel(status string) string {
 	switch statusLower {
 	case "running", "success", "succeeded", "healthy", "active", "ready":
 		return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint(status)
-	case "pending", "waiting", "starting", "initializing", "updating":
+	case "pending", "waiting", "starting", "initializing", "updating", "deploying":
 		return pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprint(status)
 	case "failed", "error", "unhealthy", "terminated":
 		return pterm.NewStyle(pterm.FgRed, pterm.Bold).Sprint(status)

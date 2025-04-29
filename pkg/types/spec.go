@@ -231,12 +231,6 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		return nil, err
 	}
 
-	// Default values
-	scale := s.Scale
-	if scale <= 0 {
-		scale = 1
-	}
-
 	// Set default namespace if not specified
 	namespace := s.Namespace
 	if namespace == "" {
@@ -259,7 +253,7 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		Command:       s.Command,
 		Args:          s.Args,
 		Env:           s.Env,
-		Scale:         scale,
+		Scale:         s.Scale,
 		Ports:         s.Ports,
 		Resources:     resources,
 		Health:        s.Health,

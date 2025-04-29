@@ -277,7 +277,7 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 			action := "Creating"
 			_, err := serviceClient.GetService(service.Namespace, service.Name)
 			if err == nil {
-				action = "Updating"
+				action = "Deploying"
 			}
 
 			fmt.Printf("  [%d/%d] %s %s \"%s\" ",
@@ -502,7 +502,7 @@ func waitForServiceReady(serviceClient *client.ServiceClient, namespace, name st
 	defer cancel()
 
 	// Poll interval
-	pollInterval := 1 * time.Second // Reduced from 2s to 1s for more responsive feedback
+	pollInterval := 1 * time.Second
 
 	// Create a ticker for polling
 	ticker := time.NewTicker(pollInterval)
@@ -516,6 +516,8 @@ func waitForServiceReady(serviceClient *client.ServiceClient, namespace, name st
 		case <-ticker.C:
 			// Poll the service status
 			service, err := serviceClient.GetService(namespace, name)
+
+			fmt.Println("service", service.Status)
 			if err != nil {
 				log.Debug("Error getting service status", log.Err(err))
 				continue
