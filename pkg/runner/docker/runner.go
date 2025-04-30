@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/types"
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
@@ -22,6 +23,10 @@ var _ runner.Runner = &DockerRunner{}
 type DockerRunner struct {
 	client *client.Client
 	logger log.Logger
+}
+
+func (r *DockerRunner) Type() types.RunnerType {
+	return types.RunnerTypeDocker
 }
 
 // NewDockerRunner creates a new DockerRunner instance.
@@ -232,6 +237,8 @@ func (r *DockerRunner) List(ctx context.Context, namespace string) ([]*runetypes
 
 	// Convert Docker API types to Rune types
 	instances := make([]*runetypes.Instance, 0, len(containers))
+
+	r.logger.Info("listing containers", log.Int("count", len(containers)), log.Json("containers", containers))
 	for _, c := range containers {
 		// Extract instance information from container labels
 		instanceID := c.Labels["rune.instance.id"]

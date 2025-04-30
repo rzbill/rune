@@ -54,6 +54,10 @@ func NewTestRunner() *TestRunner {
 	}
 }
 
+func (r *TestRunner) Type() types.RunnerType {
+	return types.RunnerTypeTest
+}
+
 // Create tracks instance creation
 func (r *TestRunner) Create(ctx context.Context, instance *types.Instance) error {
 	r.mu.Lock()

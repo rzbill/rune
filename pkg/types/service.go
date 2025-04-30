@@ -77,7 +77,7 @@ type Service struct {
 	UpdatedAt time.Time `json:"updatedAt" yaml:"updatedAt"`
 
 	// Runtime for the service ("container" or "process")
-	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	Runtime RuntimeType `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 
 	// Process-specific configuration (when Runtime="process")
 	Process *ProcessSpec `json:"process,omitempty" yaml:"process,omitempty"`
@@ -289,7 +289,7 @@ func (s *Service) Validate() error {
 			return WrapValidationError(err, "invalid process configuration")
 		}
 	} else {
-		return NewValidationError("unknown runtime: " + s.Runtime)
+		return NewValidationError("unknown runtime: " + string(s.Runtime))
 	}
 
 	if s.Scale < 0 {

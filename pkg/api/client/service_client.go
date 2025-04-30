@@ -305,7 +305,7 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		Image:     service.Image,
 		Command:   service.Command,
 		Scale:     int32(service.Scale),
-		Runtime:   service.Runtime,
+		Runtime:   string(service.Runtime),
 	}
 
 	// Format timestamps as RFC3339 strings
@@ -436,7 +436,7 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 		Image:     proto.Image,
 		Command:   proto.Command,
 		Scale:     int(proto.Scale),
-		Runtime:   proto.Runtime,
+		Runtime:   types.RuntimeType(proto.Runtime),
 	}
 
 	createdAt, err := parseTimestamp(proto.CreatedAt)

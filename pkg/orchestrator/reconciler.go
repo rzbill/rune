@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -64,8 +65,14 @@ func (r *reconciler) Start(ctx context.Context) error {
 
 	r.ctx, r.cancel = context.WithCancel(ctx)
 
+	// Perform an initial reconciliation immediately
+	if err := r.reconcileServices(r.ctx); err != nil {
+		r.logger.Error("Initial reconciliation failed", log.Err(err))
+		// Continue despite error as this will be retried by the ticker
+	}
+
 	// Start periodic reconciliation
-	r.ticker = time.NewTicker(30 * time.Second)
+	r.ticker = time.NewTicker(r.reconcileInterval)
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
@@ -179,6 +186,8 @@ func (r *reconciler) reconcileServices(ctx context.Context) error {
 func (r *reconciler) collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
 	instances := make(map[string]*RunningInstance)
 
+	r.logger.Info("collecting running instances")
+
 	// Collect instances from docker runner
 	dockerRunner, err := r.runnerManager.GetDockerRunner()
 	if err != nil {
@@ -193,7 +202,7 @@ func (r *reconciler) collectRunningInstances(ctx context.Context) (map[string]*R
 			instances[instance.ID] = &RunningInstance{
 				Instance:   instance,
 				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
-				Runner:     "docker",
+				Runner:     dockerRunner.Type(),
 			}
 		}
 	}
@@ -212,7 +221,7 @@ func (r *reconciler) collectRunningInstances(ctx context.Context) (map[string]*R
 			instances[instance.ID] = &RunningInstance{
 				Instance:   instance,
 				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
-				Runner:     "process",
+				Runner:     processRunner.Type(),
 			}
 		}
 	}
@@ -266,16 +275,8 @@ func (r *reconciler) reconcileService(ctx context.Context, service *types.Servic
 	return nil
 }
 
-// getDesiredScale returns the number of instances a service should have
-func (r *reconciler) getDesiredScale(service *types.Service) int {
-	desiredScale := service.Scale
-	if desiredScale <= 0 {
-		desiredScale = 1 // Default to 1 instance if not specified
-	}
-	return desiredScale
-}
-
 // getServiceInstances retrieves and filters instances for a specific service
+// Marks running instances that belong to this service as not orphaned
 func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Service, runningInstances map[string]*RunningInstance) ([]types.Instance, error) {
 	// Get existing instances for this service from store
 	var storeInstances []types.Instance
@@ -315,10 +316,23 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 		log.Int("current", len(instances)),
 		log.Int("desired", service.Scale))
 
-	// Sort instances by creation time (oldest first)
+	// Sort instances by creation time (newest first)
+	sort.Slice(instances, func(i, j int) bool {
+		return instances[i].CreatedAt.After(instances[j].CreatedAt)
+	})
+
 	// For now we'll use a simple approach removing from the end
 	for i := service.Scale; i < len(instances); i++ {
 		instance := instances[i]
+
+		// Skip stopped instances
+		if instance.Status == types.InstanceStatusStopped {
+			r.logger.Info("Skipping stopped instance",
+				log.Str("service", service.Name),
+				log.Str("instance", instance.ID))
+			continue
+		}
+
 		r.logger.Info("Removing excess instance",
 			log.Str("service", service.Name),
 			log.Str("instance", instance.ID))
@@ -353,7 +367,7 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 		// Check if this instance already exists
 		var existingInstance *types.Instance
 		for j := range instances {
-			if instances[j].ID == instanceName {
+			if instances[j].Name == instanceName {
 				existingInstance = &instances[j]
 				break
 			}
@@ -368,15 +382,17 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 					log.Err(err))
 				// Continue with other instances
 			}
-		} else {
-			// Create a new instance
-			if err := r.createNewInstance(ctx, service, instanceName); err != nil {
-				r.logger.Error("Failed to create new instance",
-					log.Str("service", service.Name),
-					log.Str("instance", instanceName),
-					log.Err(err))
-				// Continue with other instances
-			}
+			continue
+		}
+
+		r.logger.Info("creating new instance", log.Json("instanceName", instanceName))
+		// Create a new instance
+		if err := r.createNewInstance(ctx, service, instanceName); err != nil {
+			r.logger.Error("Failed to create new instance",
+				log.Str("service", service.Name),
+				log.Str("instance", instanceName),
+				log.Err(err))
+			// Continue with other instances
 		}
 	}
 
@@ -414,17 +430,12 @@ func (r *reconciler) recreateInstance(ctx context.Context, service *types.Servic
 		r.healthController.RemoveInstance(instance.ID)
 	}
 
-	// Delete the instance that needs to be recreated
-	if err := r.instanceController.DeleteInstance(ctx, instance); err != nil {
-		return fmt.Errorf("failed to delete instance for recreation: %w", err)
-	}
-
-	// Create a new instance
+	// Recreate the instance
 	r.logger.Info("Recreating instance",
 		log.Str("service", service.Name),
 		log.Str("instance", instanceName))
 
-	newInstance, err := r.instanceController.CreateInstance(ctx, service, instanceName)
+	newInstance, err := r.instanceController.RecreateInstance(ctx, service, instance)
 	if err != nil {
 		return fmt.Errorf("failed to recreate instance: %w", err)
 	}
@@ -539,7 +550,7 @@ func (r *reconciler) updateServiceStatus(ctx context.Context, service *types.Ser
 type RunningInstance struct {
 	Instance   *types.Instance
 	IsOrphaned bool
-	Runner     string
+	Runner     types.RunnerType
 }
 
 // handleDeletedServices cleans up services that are marked as deleted

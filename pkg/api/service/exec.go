@@ -8,8 +8,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/runner"
-	"github.com/rzbill/rune/pkg/runner/manager"
+	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -20,17 +19,17 @@ import (
 type ExecService struct {
 	generated.UnimplementedExecServiceServer
 
-	runnerManager manager.IRunnerManager
-	store         store.Store
-	logger        log.Logger
+	store        store.Store
+	logger       log.Logger
+	orchestrator orchestrator.Orchestrator
 }
 
 // NewExecService creates a new ExecService with the given runners, store, and logger.
-func NewExecService(runnerManager manager.IRunnerManager, store store.Store, logger log.Logger) *ExecService {
+func NewExecService(store store.Store, logger log.Logger, orchestrator orchestrator.Orchestrator) *ExecService {
 	return &ExecService{
-		runnerManager: runnerManager,
-		store:         store,
-		logger:        logger.WithComponent("exec-service"),
+		store:        store,
+		logger:       logger.WithComponent("exec-service"),
+		orchestrator: orchestrator,
 	}
 }
 
@@ -138,33 +137,13 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	ctx, cancel := context.WithCancel(stream.Context())
 	defer cancel()
 
-	// Get target instance
-	instance, err := s.getTargetInstance(ctx, initReq)
-	if err != nil {
-		return err
+	namespace := initReq.Namespace
+	if namespace == "" {
+		namespace = DefaultNamespace
 	}
 
-	// Send a status message to indicate successful connection
-	if err := stream.Send(&generated.ExecResponse{
-		Response: &generated.ExecResponse_Status{
-			Status: &generated.Status{
-				Code:    int32(codes.OK),
-				Message: fmt.Sprintf("Connected to instance %s", instance.ID),
-			},
-		},
-	}); err != nil {
-		s.logger.Error("Failed to send status response", log.Err(err))
-		return status.Errorf(codes.Internal, "failed to send status response: %v", err)
-	}
-
-	// Determine which runner to use based on instance type
-	execRunner, err := s.runnerManager.GetInstanceRunner(instance)
-	if err != nil {
-		return err
-	}
-
-	// Convert gRPC options to runner options
-	execOptions := runner.ExecOptions{
+	// Convert gRPC options to orchestrator options
+	execOptions := orchestrator.ExecOptions{
 		Command:        initReq.Command,
 		Env:            initReq.Env,
 		WorkingDir:     initReq.WorkingDir,
@@ -173,13 +152,62 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 		TerminalHeight: initReq.TerminalSize.GetHeight(),
 	}
 
-	// Create exec stream
-	execStream, err := execRunner.Exec(ctx, instance, execOptions)
-	if err != nil {
-		s.logger.Error("Failed to create exec stream", log.Err(err))
-		return status.Errorf(codes.Internal, "failed to create exec stream: %v", err)
+	// Use orchestrator to execute the command
+	var execStream orchestrator.ExecStream
+	var instanceID string
+
+	if initReq.GetServiceName() != "" {
+		// Target is a service - use ExecInService
+		serviceName := initReq.GetServiceName()
+		execStream, err = s.orchestrator.ExecInService(ctx, namespace, serviceName, execOptions)
+		if err != nil {
+			s.logger.Error("Failed to exec in service",
+				log.Str("service", serviceName),
+				log.Err(err))
+			return status.Errorf(codes.Internal, "failed to exec in service: %v", err)
+		}
+	} else {
+		// Target is a specific instance
+		instanceID = initReq.GetInstanceId()
+
+		// Need to determine service ID for the instance
+		var instance types.Instance
+		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+			if IsNotFound(err) {
+				return status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
+			}
+			s.logger.Error("Failed to get instance", log.Err(err))
+			return status.Errorf(codes.Internal, "failed to get instance: %v", err)
+		}
+
+		serviceName := instance.ServiceID
+		execStream, err = s.orchestrator.ExecInInstance(ctx, namespace, serviceName, instanceID, execOptions)
+		if err != nil {
+			s.logger.Error("Failed to exec in instance",
+				log.Str("instance", instanceID),
+				log.Err(err))
+			return status.Errorf(codes.Internal, "failed to exec in instance: %v", err)
+		}
+		instanceID = instance.ID
+	}
+
+	if execStream == nil {
+		return status.Errorf(codes.Internal, "failed to create exec stream")
 	}
 	defer execStream.Close()
+
+	// Send a status message to indicate successful connection
+	if err := stream.Send(&generated.ExecResponse{
+		Response: &generated.ExecResponse_Status{
+			Status: &generated.Status{
+				Code:    int32(codes.OK),
+				Message: fmt.Sprintf("Connected to instance %s", instanceID),
+			},
+		},
+	}); err != nil {
+		s.logger.Error("Failed to send status response", log.Err(err))
+		return status.Errorf(codes.Internal, "failed to send status response: %v", err)
+	}
 
 	// Channel to coordinate between stdin and stdout/stderr streams
 	doneCh := make(chan error, 1)

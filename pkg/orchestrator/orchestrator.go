@@ -32,6 +32,13 @@ type Orchestrator interface {
 
 	// GetInstanceLogs returns a stream of logs for an instance
 	GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts LogOptions) (io.ReadCloser, error)
+
+	// ExecInService executes a command in a running instance of the service
+	// If multiple instances exist, one will be chosen
+	ExecInService(ctx context.Context, namespace, serviceName string, options ExecOptions) (ExecStream, error)
+
+	// ExecInInstance executes a command in a specific instance
+	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error)
 }
 
 // orchestrator implements the Orchestrator interface
@@ -56,7 +63,7 @@ type orchestrator struct {
 // NewOrchestrator creates a new orchestrator
 func NewOrchestrator(store store.Store, instanceController InstanceController, healthController HealthController, runnerManager manager.IRunnerManager, logger log.Logger) Orchestrator {
 	// Create the reconciler
-	r := newReconciler(
+	reconciler := newReconciler(
 		store,
 		instanceController,
 		healthController,
@@ -68,7 +75,7 @@ func NewOrchestrator(store store.Store, instanceController InstanceController, h
 		store:              store,
 		instanceController: instanceController,
 		healthController:   healthController,
-		reconciler:         r,
+		reconciler:         reconciler,
 		logger:             logger.WithComponent("orchestrator"),
 	}
 }
@@ -85,6 +92,11 @@ func (o *orchestrator) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start reconciler: %w", err)
 	}
 
+	// Start health controller
+	if err := o.healthController.Start(o.ctx); err != nil {
+		return fmt.Errorf("failed to start health controller: %w", err)
+	}
+
 	// Start watching services
 	watchCh, err := o.store.Watch(o.ctx, "services", "")
 	if err != nil {
@@ -98,17 +110,6 @@ func (o *orchestrator) Start(ctx context.Context) error {
 		defer o.wg.Done()
 		o.watchServices()
 	}()
-
-	// Start health controller
-	if err := o.healthController.Start(o.ctx); err != nil {
-		return fmt.Errorf("failed to start health controller: %w", err)
-	}
-
-	// Run an initial reconciliation
-	if err := o.reconciler.reconcileServices(o.ctx); err != nil {
-		o.logger.Error("Failed initial reconciliation", log.Err(err))
-		// Continue despite error as this will be retried
-	}
 
 	return nil
 }
@@ -297,7 +298,7 @@ func (o *orchestrator) handleServiceDeleted(ctx context.Context, service *types.
 		o.healthController.RemoveInstance(instance.ID)
 
 		// Remove from store
-		if err := o.store.Delete(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID); err != nil {
+		if err := o.store.Delete(ctx, "instances", service.Namespace, instance.ID); err != nil {
 			o.logger.Error("Failed to remove instance from store",
 				log.Str("instance", instance.ID),
 				log.Err(err))
@@ -416,11 +417,62 @@ func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceNa
 	return o.instanceController.GetInstanceLogs(ctx, &instance, opts)
 }
 
+// ExecInService executes a command in a running instance of the service
+func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName string, options ExecOptions) (ExecStream, error) {
+	// List instances for this service
+	instances, err := o.listInstancesForService(ctx, namespace, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no instances found for service %s in namespace %s", serviceName, namespace)
+	}
+
+	// Find a running instance
+	var runningInstance *types.Instance
+	for _, instance := range instances {
+		if instance.Status == types.InstanceStatusRunning {
+			runningInstance = instance
+			break
+		}
+	}
+
+	if runningInstance == nil {
+		return nil, fmt.Errorf("no running instances found for service %s in namespace %s", serviceName, namespace)
+	}
+
+	// Execute command in the selected instance
+	return o.instanceController.Exec(ctx, runningInstance, options)
+}
+
+// ExecInInstance executes a command in a specific instance
+func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error) {
+	// Get instance from store
+	var instance types.Instance
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		return nil, fmt.Errorf("failed to get instance: %w", err)
+	}
+
+	// Verify instance belongs to the specified service
+	if instance.ServiceID != serviceName {
+		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
+	}
+
+	// Verify instance is running
+	if instance.Status != types.InstanceStatusRunning {
+		return nil, fmt.Errorf("instance %s is not running, current status: %s", instanceID, instance.Status)
+	}
+
+	// Execute command in the instance
+	return o.instanceController.Exec(ctx, &instance, options)
+}
+
 // listInstancesForService lists all instances for a service
 func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, serviceName string) ([]*types.Instance, error) {
 	// Get all instances
 	var instances []types.Instance
-	err := o.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
+	err := o.store.List(ctx, "instances", namespace, &instances)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list instances: %w", err)
 	}
@@ -434,6 +486,11 @@ func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, s
 	}
 
 	return filteredInstances, nil
+}
+
+// GetInstanceController returns the instance controller for testing purposes
+func (o *orchestrator) GetInstanceController() InstanceController {
+	return o.instanceController
 }
 
 // NewDefaultOrchestrator creates a new orchestrator with default components

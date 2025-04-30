@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,9 @@ type InstanceController interface {
 	// CreateInstance creates a new instance for a service
 	CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error)
 
+	// RecreateInstance recreates an instance
+	RecreateInstance(ctx context.Context, service *types.Service, instance *types.Instance) (*types.Instance, error)
+
 	// UpdateInstance updates an existing instance
 	UpdateInstance(ctx context.Context, service *types.Service, instance *types.Instance) error
 
@@ -33,6 +37,10 @@ type InstanceController interface {
 
 	// RestartInstance restarts an instance with respect to the service's restart policy
 	RestartInstance(ctx context.Context, instance *types.Instance, reason string) error
+
+	// Exec executes a command in a running instance
+	// Returns an ExecStream for bidirectional communication
+	Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
 }
 
 // instanceController implements the InstanceController interface
@@ -52,58 +60,12 @@ func NewInstanceController(store store.Store, runnerManager manager.IRunnerManag
 }
 
 // CreateInstance creates a new instance for a service
+// This would be simplified to only handle the pure creation case
 func (c *instanceController) CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error) {
-	c.logger.Info("Creating instance",
+	c.logger.Info("Creating new instance",
 		log.Str("service", service.Name),
 		log.Str("namespace", service.Namespace),
 		log.Str("instance", instanceName))
-
-	// Check if instance already exists
-	var existingInstance types.Instance
-	err := c.store.Get(ctx, types.ResourceTypeInstance, service.Namespace, instanceName, &existingInstance)
-	if err == nil {
-		c.logger.Info("Instance already exists", log.Str("instance", instanceName))
-		// Check if instance is compatible with desired state
-		isCompatible, reason := c.isInstanceCompatibleWithService(ctx, &existingInstance, service)
-		if !isCompatible {
-			c.logger.Info("Instance exists but is incompatible with desired state, recreating",
-				log.Str("instance", instanceName),
-				log.Str("service", service.Name),
-				log.Str("reason", reason))
-
-			// Delete the incompatible instance
-			if err := c.DeleteInstance(ctx, &existingInstance); err != nil {
-				c.logger.Error("Failed to delete incompatible instance",
-					log.Str("instance", instanceName),
-					log.Err(err))
-				return nil, fmt.Errorf("failed to delete incompatible instance: %w", err)
-			}
-
-			// Continue with creating a new instance (execution will proceed past this if-block)
-		} else {
-			// If the instance is stopped or in some transient state, restart it
-			if existingInstance.Status != types.InstanceStatusRunning && existingInstance.Status != types.InstanceStatusStarting {
-				c.logger.Info("Instance exists but isn't running, restarting",
-					log.Str("instance", instanceName),
-					log.Str("status", string(existingInstance.Status)))
-
-				if err := c.RestartInstance(ctx, &existingInstance, "reconciliation"); err != nil {
-					return nil, fmt.Errorf("failed to restart existing instance: %w", err)
-				}
-
-				// Fetch the updated instance
-				var updatedInstance types.Instance
-				if err := c.store.Get(ctx, types.ResourceTypeInstance, service.Namespace, instanceName, &updatedInstance); err != nil {
-					return nil, fmt.Errorf("failed to get updated instance: %w", err)
-				}
-
-				return &updatedInstance, nil
-			}
-
-			// Instance is compatible and running, return it
-			return &existingInstance, nil
-		}
-	}
 
 	// Create instance object
 	instance := &types.Instance{
@@ -111,7 +73,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 		Name:      instanceName,
 		Namespace: service.Namespace,
 		ServiceID: service.ID,
-		NodeID:    "local", // TODO: Replace with actual node ID in multi-node setup
+		NodeID:    "local",
 		Status:    types.InstanceStatusPending,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -123,14 +85,13 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	}
 
 	// Create instance based on runtime
-	var activeRunner runner.Runner
-
-	runner, err := c.runnerManager.GetServiceRunner(service)
+	serviceRunner, err := c.runnerManager.GetServiceRunner(service)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get runner for service: %w", err)
 	}
 
-	activeRunner = runner
+	// Set the runner type for the instance
+	instance.Runner = serviceRunner.Type()
 
 	// Build environment variables using the proper function from envvar.go
 	envVars := buildEnvVars(service, instance)
@@ -158,7 +119,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	}
 
 	// Create the instance using the runner
-	if err := activeRunner.Create(ctx, instance); err != nil {
+	if err := serviceRunner.Create(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
 		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after create failure",
@@ -169,7 +130,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	}
 
 	// Start the instance
-	if err := activeRunner.Start(ctx, instance); err != nil {
+	if err := serviceRunner.Start(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
 		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after start failure",
@@ -189,6 +150,23 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	}
 
 	return instance, nil
+}
+
+// RecreateInstance destroys an existing instance and creates a new one with the same name
+func (c *instanceController) RecreateInstance(ctx context.Context, service *types.Service, existingInstance *types.Instance) (*types.Instance, error) {
+	instanceName := existingInstance.Name
+	c.logger.Info("Recreating instance",
+		log.Str("service", service.Name),
+		log.Str("namespace", service.Namespace),
+		log.Str("instance", instanceName))
+
+	// Delete the existing instance
+	if err := c.DeleteInstance(ctx, existingInstance); err != nil {
+		return nil, fmt.Errorf("failed to delete instance for recreation: %w", err)
+	}
+
+	// Create a new instance
+	return c.CreateInstance(ctx, service, instanceName)
 }
 
 // UpdateInstance updates an existing instance
@@ -291,44 +269,50 @@ func (c *instanceController) DeleteInstance(ctx context.Context, instance *types
 	c.logger.Info("Deleting instance",
 		log.Str("instance", instance.ID))
 
-	// For now, try to delete from both runners
-	// In a more complete implementation, we would track the runtime in the instance
-	errorCount := 0
+	c.logger.Info("deleting instance", log.Json("instance", instance))
 
 	runner, err := c.runnerManager.GetInstanceRunner(instance)
 	if err != nil {
 		return fmt.Errorf("failed to get runner for instance: %w", err)
 	}
 
+	// Track failures separately for better error reporting
+	failedToStop := false
+	failedToRemove := false
+
 	// Try to stop and remove with runner
 	if err := runner.Stop(ctx, instance, 10*time.Second); err != nil {
 		c.logger.Debug("Failed to stop instance with runner",
 			log.Str("instance", instance.ID),
 			log.Err(err))
-		errorCount++
+		failedToStop = true
 	}
 
 	if err := runner.Remove(ctx, instance, true); err != nil {
 		c.logger.Debug("Failed to remove instance with runner",
 			log.Str("instance", instance.ID),
 			log.Err(err))
-		errorCount++
+		failedToRemove = true
 	}
 
-	// If both runners failed to stop and remove, return an error
-	if errorCount >= 4 {
-		return fmt.Errorf("failed to delete instance with any runner")
+	// If both operations failed, return a more descriptive error
+	if failedToStop && failedToRemove {
+		return fmt.Errorf("failed to both stop and remove instance")
 	}
+
+	if failedToStop {
+		return fmt.Errorf("failed to stop instance")
+	}
+
+	if failedToRemove {
+		return fmt.Errorf("failed to remove instance")
+	}
+
+	c.logger.Info("instance deleted successfully", log.Json("instance", instance))
 
 	// Update instance status in store
 	instance.Status = types.InstanceStatusStopped
-	// Use the instance's namespace instead of a default
-	namespace := instance.Namespace
-	if namespace == "" {
-		namespace = "default" // Only use default as a fallback
-	}
-
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, namespace, instance.Name, instance); err != nil {
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); err != nil {
 		c.logger.Error("Failed to update instance status",
 			log.Str("instance", instance.ID),
 			log.Err(err))
@@ -376,6 +360,7 @@ func (c *instanceController) GetInstanceLogs(ctx context.Context, instance *type
 	logs, err := _runner.GetLogs(ctx, instance, runner.LogOptions{
 		Follow:     opts.Follow,
 		Since:      opts.Since,
+		Until:      opts.Until,
 		Tail:       opts.Tail,
 		Timestamps: opts.Timestamps,
 	})
@@ -384,6 +369,42 @@ func (c *instanceController) GetInstanceLogs(ctx context.Context, instance *type
 	}
 
 	return nil, fmt.Errorf("failed to get logs for instance %s: %w", instance.ID, err)
+}
+
+// Exec executes a command in a running instance
+func (c *instanceController) Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error) {
+	c.logger.Debug("Executing command in instance",
+		log.Str("instance", instance.ID),
+		log.Str("command", strings.Join(options.Command, " ")))
+
+	// Get runner for the instance
+	_runner, err := c.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get runner for instance: %w", err)
+	}
+
+	// Convert orchestrator exec options to runner exec options
+	runnerOptions := runner.ExecOptions{
+		Command:        options.Command,
+		Env:            options.Env,
+		WorkingDir:     options.WorkingDir,
+		TTY:            options.TTY,
+		TerminalWidth:  options.TerminalWidth,
+		TerminalHeight: options.TerminalHeight,
+	}
+
+	// Create exec session with the runner
+	execStream, err := _runner.Exec(ctx, instance, runnerOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute command in instance %s: %w", instance.ID, err)
+	}
+
+	return execStreamAdapter{execStream}, nil
+}
+
+// execStreamAdapter adapts runner.ExecStream to orchestrator.ExecStream
+type execStreamAdapter struct {
+	runner.ExecStream
 }
 
 // buildEnvVars prepares environment variables for an instance

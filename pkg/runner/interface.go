@@ -12,6 +12,9 @@ import (
 // Runner defines the interface for service runners, which are responsible for
 // managing the lifecycle of service instances (containers, processes, etc.).
 type Runner interface {
+	// Type returns the type of runner.
+	Type() types.RunnerType
+
 	// Create creates a new service instance but does not start it.
 	Create(ctx context.Context, instance *types.Instance) error
 

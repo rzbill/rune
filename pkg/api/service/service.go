@@ -230,7 +230,7 @@ func matchSelectors(service *types.Service, labels map[string]string, fields map
 				return false
 			}
 		case "runtime":
-			if service.Runtime != v {
+			if string(service.Runtime) != v {
 				return false
 			}
 		default:
@@ -407,7 +407,7 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		Scale:     int32(service.Scale),
 		CreatedAt: service.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: service.UpdatedAt.Format(time.RFC3339),
-		Runtime:   service.Runtime,
+		Runtime:   string(service.Runtime),
 	}
 
 	// Convert labels
@@ -536,7 +536,7 @@ func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.S
 		Image:     proto.Image,
 		Command:   proto.Command,
 		Scale:     int(proto.Scale),
-		Runtime:   proto.Runtime,
+		Runtime:   types.RuntimeType(proto.Runtime),
 	}
 
 	// Convert labels

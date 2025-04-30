@@ -171,7 +171,7 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		h.store.EnsureNamespace("services", svc.Namespace)
 
 		if runtime, ok := serviceMap["runtime"].(string); ok {
-			svc.Runtime = runtime
+			svc.Runtime = types.RuntimeType(runtime)
 		}
 
 		if image, ok := serviceMap["image"].(string); ok {

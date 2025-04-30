@@ -6,6 +6,9 @@ import (
 
 // Instance represents a running copy of a service.
 type Instance struct {
+	// Runner type for the instance
+	Runner RunnerType `json:"runner" yaml:"runner"`
+
 	// Unique identifier for the instance
 	ID string `json:"id" yaml:"id"`
 

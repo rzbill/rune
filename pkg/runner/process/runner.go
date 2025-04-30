@@ -2,12 +2,15 @@
 package process
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -80,6 +83,10 @@ func NewProcessRunner(options ...ProcessOption) (*ProcessRunner, error) {
 	}
 
 	return runner, nil
+}
+
+func (r *ProcessRunner) Type() types.RunnerType {
+	return types.RunnerTypeProcess
 }
 
 // Create creates a new process but does not start it
@@ -434,20 +441,22 @@ func (r *ProcessRunner) GetLogs(ctx context.Context, instance *types.Instance, o
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	// If Follow is not set, just return the file
-	if !options.Follow {
+	// If no filtering options are set, just return the file
+	if !options.Follow && options.Tail <= 0 && options.Since.IsZero() && options.Until.IsZero() {
 		return file, nil
 	}
 
-	// For follow mode, we need a custom reader that will continuously read
-	// until the process completes
+	// Create a filtered reader
 	pipeReader, pipeWriter := io.Pipe()
 
 	go func() {
 		defer pipeWriter.Close()
+		defer file.Close()
 
-		// Start at the end if tail is 0
+		// Start at the beginning by default
 		var startPos int64 = 0
+
+		// Handle tail option
 		if options.Tail > 0 {
 			// Get file size
 			info, err := file.Stat()
@@ -458,14 +467,21 @@ func (r *ProcessRunner) GetLogs(ctx context.Context, instance *types.Instance, o
 
 			// Find start position by counting lines from the end
 			startPos = findStartPosition(file, info.Size(), options.Tail)
-			_, err = file.Seek(startPos, 0)
-			if err != nil {
-				r.logger.Error("Failed to seek log file", log.Err(err))
-				return
-			}
 		}
 
+		// Seek to the start position
+		_, err = file.Seek(startPos, 0)
+		if err != nil {
+			r.logger.Error("Failed to seek log file", log.Err(err))
+			return
+		}
+
+		// Use a scanner to read the file line by line
+		scanner := bufio.NewScanner(file)
 		buffer := make([]byte, 4096)
+		scanner.Buffer(buffer, 1024*1024) // Increase buffer size for longer lines
+
+		// Channel to signal stop
 		stopCh := make(chan struct{})
 
 		// Setup context cancellation
@@ -474,37 +490,235 @@ func (r *ProcessRunner) GetLogs(ctx context.Context, instance *types.Instance, o
 			close(stopCh)
 		}()
 
-		for {
+		// Continuously read and filter lines
+		for scanner.Scan() {
 			select {
 			case <-stopCh:
 				return
 			default:
-				n, err := file.Read(buffer)
-				if n > 0 {
-					_, writeErr := pipeWriter.Write(buffer[:n])
+				line := scanner.Bytes()
+
+				// Check if we should filter this line based on timestamps
+				if shouldIncludeLine(line, options) {
+					// Include this line
+					_, writeErr := pipeWriter.Write(append(line, '\n'))
 					if writeErr != nil {
 						r.logger.Error("Failed to write to pipe", log.Err(writeErr))
 						return
 					}
 				}
-				if err == io.EOF {
-					// Check if process is still running
-					if proc.status.State != types.InstanceStatusRunning {
+			}
+		}
+
+		// Check for scanner errors
+		if err := scanner.Err(); err != nil {
+			r.logger.Error("Error scanning log file", log.Err(err))
+			return
+		}
+
+		// If follow mode is enabled, continue watching the file
+		if options.Follow && proc.status.State == types.InstanceStatusRunning {
+			// Create a file watcher to detect changes
+			watcher := make(chan struct{})
+
+			// Start a goroutine to poll the file for changes
+			go func() {
+				defer close(watcher)
+
+				lastSize, err := file.Seek(0, io.SeekCurrent)
+				if err != nil {
+					r.logger.Error("Failed to get file position", log.Err(err))
+					return
+				}
+
+				ticker := time.NewTicker(100 * time.Millisecond)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-stopCh:
+						return
+					case <-ticker.C:
+						// Get current file size
+						info, err := file.Stat()
+						if err != nil {
+							r.logger.Error("Failed to get file stats", log.Err(err))
+							return
+						}
+
+						// If file has grown, signal the watcher
+						if info.Size() > lastSize {
+							lastSize = info.Size()
+							watcher <- struct{}{}
+						}
+
+						// If process is no longer running, stop watching
+						if proc.status.State != types.InstanceStatusRunning {
+							return
+						}
+					}
+				}
+			}()
+
+			// Continue reading when changes are detected
+			for {
+				select {
+				case <-stopCh:
+					return
+				case _, ok := <-watcher:
+					if !ok {
+						return // Watcher closed
+					}
+
+					// Read new content
+					scanner := bufio.NewScanner(file)
+					for scanner.Scan() {
+						line := scanner.Bytes()
+
+						// Check if we should filter this line based on timestamps
+						if shouldIncludeLine(line, options) {
+							// Include this line
+							_, writeErr := pipeWriter.Write(append(line, '\n'))
+							if writeErr != nil {
+								r.logger.Error("Failed to write to pipe", log.Err(writeErr))
+								return
+							}
+						}
+					}
+
+					if err := scanner.Err(); err != nil {
+						r.logger.Error("Error scanning log file", log.Err(err))
 						return
 					}
-					// If still running, wait a bit and try again
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				if err != nil {
-					r.logger.Error("Error reading log file", log.Err(err))
-					return
 				}
 			}
 		}
 	}()
 
 	return pipeReader, nil
+}
+
+// shouldIncludeLine determines whether a log line should be included based on timestamp filters
+func shouldIncludeLine(line []byte, options runner.LogOptions) bool {
+	// If no timestamp filters are set, include the line
+	if options.Since.IsZero() && options.Until.IsZero() {
+		return true
+	}
+
+	// Try to extract timestamp from the line
+	timestamp, ok := extractTimestamp(line)
+	if !ok {
+		// If we can't extract a timestamp, include the line by default
+		return true
+	}
+
+	// For partial timestamps (without year or with zero year), use the current time's year
+	// to avoid filtering based on incorrect dates
+	if timestamp.Year() < 1000 {
+		currentYear := time.Now().Year()
+		// Create a new timestamp with the current year but preserve month, day, hour, etc.
+		timestamp = time.Date(
+			currentYear,
+			timestamp.Month(),
+			timestamp.Day(),
+			timestamp.Hour(),
+			timestamp.Minute(),
+			timestamp.Second(),
+			timestamp.Nanosecond(),
+			timestamp.Location(),
+		)
+	}
+
+	// Apply Since filter
+	if !options.Since.IsZero() && timestamp.Before(options.Since) {
+		return false
+	}
+
+	// Apply Until filter
+	if !options.Until.IsZero() && timestamp.After(options.Until) {
+		return false
+	}
+
+	return true
+}
+
+// extractTimestamp attempts to extract a timestamp from a log line
+// It looks for common timestamp formats at the beginning of the line
+func extractTimestamp(line []byte) (time.Time, bool) {
+	// Common timestamp formats to try
+	formats := []string{
+		"2006-01-02T15:04:05.999999999Z07:00", // RFC3339Nano
+		"2006-01-02T15:04:05Z07:00",           // RFC3339
+		"2006-01-02 15:04:05",                 // Common format
+		"2006/01/02 15:04:05",                 // Common format
+		"Jan 2 15:04:05",                      // Common syslog format
+		"Jan 02 15:04:05",                     // Common syslog format
+		"15:04:05",                            // Time only
+	}
+
+	// Convert to string for parsing
+	lineStr := string(line)
+
+	// Try to find a timestamp at the beginning of the line
+	for _, format := range formats {
+		// Look for timestamps with brackets
+		if len(lineStr) > 2 && lineStr[0] == '[' {
+			closeBracket := strings.IndexByte(lineStr, ']')
+			if closeBracket > 0 {
+				potentialTimestamp := lineStr[1:closeBracket]
+				timestamp, err := time.Parse(format, potentialTimestamp)
+				if err == nil {
+					return timestamp, true
+				}
+			}
+		}
+
+		// Try without brackets - directly at the beginning of the line
+		if len(lineStr) >= len(format) {
+			potentialTimestamp := lineStr
+			if len(potentialTimestamp) > len(format) {
+				potentialTimestamp = potentialTimestamp[:len(format)]
+			}
+			timestamp, err := time.Parse(format, potentialTimestamp)
+			if err == nil {
+				return timestamp, true
+			}
+		}
+	}
+
+	// Try to match timestamps anywhere in the string with common patterns
+	timePatterns := []string{
+		`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})`, // RFC3339/ISO8601
+		`\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`,                             // Common format
+		`\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}`,                             // Common format
+		`[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}:\d{2}`,                         // Syslog format
+		`\d{2}:\d{2}:\d{2}`,                                               // Time only
+	}
+
+	for _, pattern := range timePatterns {
+		matches := regexp.MustCompile(pattern).FindAllStringSubmatch(lineStr, 1)
+		if len(matches) > 0 && len(matches[0]) > 0 {
+			match := matches[0][0]
+			// Try to parse the matched time string with all formats
+			for _, format := range formats {
+				timestamp, err := time.Parse(format, match)
+				if err == nil {
+					return timestamp, true
+				}
+			}
+		}
+	}
+
+	// Couldn't extract a timestamp
+	return time.Time{}, false
+}
+
+// min returns the smaller of x or y
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
 
 // Status retrieves the current status of a process instance

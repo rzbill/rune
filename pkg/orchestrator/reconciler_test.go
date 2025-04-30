@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"io"
 	"testing"
 
 	"github.com/rzbill/rune/pkg/log"
@@ -11,42 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
-
-// MockInstanceController implements a minimal InstanceController for testing
-type MockInstanceController struct {
-	mock.Mock
-}
-
-func (m *MockInstanceController) CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error) {
-	args := m.Called(ctx, service, instanceName)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*types.Instance), args.Error(1)
-}
-
-func (m *MockInstanceController) UpdateInstance(ctx context.Context, service *types.Service, instance *types.Instance) error {
-	args := m.Called(ctx, service, instance)
-	return args.Error(0)
-}
-
-func (m *MockInstanceController) DeleteInstance(ctx context.Context, instance *types.Instance) error {
-	args := m.Called(ctx, instance)
-	return args.Error(0)
-}
-
-// Add stubs for the remaining methods to satisfy the interface
-func (m *MockInstanceController) GetInstanceStatus(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error) {
-	return nil, nil
-}
-
-func (m *MockInstanceController) GetInstanceLogs(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error) {
-	return nil, nil
-}
-
-func (m *MockInstanceController) RestartInstance(ctx context.Context, instance *types.Instance, reason string) error {
-	return nil
-}
 
 // MockHealthController implements a minimal HealthController for testing
 type MockHealthController struct {
@@ -97,14 +60,14 @@ func setupStore(t *testing.T) *store.TestStore {
 func TestReconcileScaleUp(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	mockInstanceController := new(MockInstanceController)
+	instanceController := NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 
 	// Create a simple reconciler for testing the scale-up logic only
 	reconciler := &reconciler{
 		store:              testStore,
-		instanceController: mockInstanceController,
+		instanceController: instanceController,
 		healthController:   mockHealthController,
 		logger:             logger.WithComponent("reconciler"),
 	}
@@ -124,7 +87,7 @@ func TestReconcileScaleUp(t *testing.T) {
 	err := testStore.Create(context.Background(), "services", "default", "service1", service)
 	assert.NoError(t, err)
 
-	// Create instances to be returned by the mock
+	// Create instances to be returned
 	instance1 := &types.Instance{
 		ID:        "service1-0",
 		Name:      "service1-0",
@@ -140,16 +103,22 @@ func TestReconcileScaleUp(t *testing.T) {
 		Status:    types.InstanceStatusRunning,
 	}
 
-	// Set up expectations for instance creation only
-	mockInstanceController.On("CreateInstance", mock.Anything, service, "service1-0").Return(instance1, nil).Run(func(args mock.Arguments) {
-		// Put the instance in the store on creation to simulate what would happen in a real scenario
-		testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "service1-0", instance1)
-	})
+	// Set up the instance controller to return our test instances
+	instanceController.CreateInstanceFunc = func(ctx context.Context, svc *types.Service, instanceName string) (*types.Instance, error) {
+		var instance *types.Instance
+		if instanceName == "service1-0" {
+			instance = instance1
+		} else if instanceName == "service1-1" {
+			instance = instance2
+		}
 
-	mockInstanceController.On("CreateInstance", mock.Anything, service, "service1-1").Return(instance2, nil).Run(func(args mock.Arguments) {
-		// Put the instance in the store on creation to simulate what would happen in a real scenario
-		testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "service1-1", instance2)
-	})
+		// Put the instance in the store to simulate what would happen in a real scenario
+		if instance != nil {
+			testStore.Create(context.Background(), types.ResourceTypeInstance, "default", instance.ID, instance)
+		}
+
+		return instance, nil
+	}
 
 	// Expect health checks to be added
 	mockHealthController.On("AddInstance", instance1).Return(nil)
@@ -167,8 +136,12 @@ func TestReconcileScaleUp(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify the expectations
-	mockInstanceController.AssertExpectations(t)
 	mockHealthController.AssertExpectations(t)
+
+	// Verify the test controller was called correctly
+	assert.Equal(t, 2, len(instanceController.CreateInstanceCalls))
+	assert.Equal(t, "service1-0", instanceController.CreateInstanceCalls[0].InstanceName)
+	assert.Equal(t, "service1-1", instanceController.CreateInstanceCalls[1].InstanceName)
 
 	// Verify service status
 	updatedService := &types.Service{}
@@ -192,14 +165,14 @@ func TestReconcileScaleUp(t *testing.T) {
 func TestReconcileScaleDown(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	mockInstanceController := new(MockInstanceController)
+	instanceController := NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 
 	// Create a simple reconciler for testing the scale-down logic only
 	reconciler := &reconciler{
 		store:              testStore,
-		instanceController: mockInstanceController,
+		instanceController: instanceController,
 		healthController:   mockHealthController,
 		logger:             logger.WithComponent("reconciler"),
 	}
@@ -241,18 +214,16 @@ func TestReconcileScaleDown(t *testing.T) {
 	err = testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "service1-1", instance2)
 	assert.NoError(t, err)
 
-	// Set expectations for the update on existing instances
-	mockInstanceController.On("UpdateInstance", mock.Anything, service, mock.MatchedBy(func(inst *types.Instance) bool {
-		return inst.ID == "service1-0"
-	})).Return(nil)
+	// Add instances to the test controller so it knows about them
+	instanceController.AddInstance(instance1)
+	instanceController.AddInstance(instance2)
 
-	// Set expectations for deleting the excess instance
-	mockInstanceController.On("DeleteInstance", mock.Anything, mock.MatchedBy(func(inst *types.Instance) bool {
-		return inst.ID == "service1-1"
-	})).Return(nil).Run(func(args mock.Arguments) {
+	// Set up the delete behavior to remove from store
+	instanceController.DeleteInstanceFunc = func(ctx context.Context, instance *types.Instance) error {
 		// Remove the instance from the store on deletion
-		testStore.Delete(context.Background(), types.ResourceTypeInstance, "default", "service1-1")
-	})
+		testStore.Delete(context.Background(), types.ResourceTypeInstance, "default", instance.ID)
+		return nil
+	}
 
 	mockHealthController.On("RemoveInstance", "service1-1").Return(nil)
 
@@ -263,8 +234,14 @@ func TestReconcileScaleDown(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify expectations
-	mockInstanceController.AssertExpectations(t)
 	mockHealthController.AssertExpectations(t)
+
+	// Verify correct calls to the test controller
+	assert.Equal(t, 1, len(instanceController.UpdateInstanceCalls))
+	assert.Equal(t, "service1-0", instanceController.UpdateInstanceCalls[0].Instance.ID)
+
+	assert.Equal(t, 1, len(instanceController.DeleteInstanceCalls))
+	assert.Equal(t, "service1-1", instanceController.DeleteInstanceCalls[0].Instance.ID)
 
 	// Instead of using testStore.List which might not work as expected in tests,
 	// we'll directly check if instance2 was deleted by trying to get it
@@ -281,9 +258,9 @@ func TestReconcileScaleDown(t *testing.T) {
 	assert.Equal(t, "service1-0", remainingInstance.ID, "The remaining instance should be service1-0")
 }
 
-func TestInstanceController(t *testing.T) {
-	// Create a mock instance controller
-	mockCtrl := new(MockInstanceController)
+func TestTestInstanceController(t *testing.T) {
+	// Create a test instance controller
+	instanceCtrl := NewFakeInstanceController()
 
 	// Test CreateInstance
 	service := &types.Service{
@@ -293,24 +270,20 @@ func TestInstanceController(t *testing.T) {
 		Image:     "test-image",
 	}
 
-	instance := &types.Instance{
-		ID:        "instance1",
-		Name:      "instance1",
-		ServiceID: "service1",
-		Status:    types.InstanceStatusRunning,
-	}
-
-	// Set up the expectation
-	mockCtrl.On("CreateInstance", mock.Anything, service, "instance1").Return(instance, nil)
-
 	// Call the method
 	ctx := context.Background()
-	result, err := mockCtrl.CreateInstance(ctx, service, "instance1")
+	result, err := instanceCtrl.CreateInstance(ctx, service, "instance1")
 
 	// Verify results
 	assert.NoError(t, err)
-	assert.Equal(t, instance, result)
-	mockCtrl.AssertExpectations(t)
+	assert.Equal(t, "instance1", result.ID)
+	assert.Equal(t, "service1", result.ServiceID)
+	assert.Equal(t, types.InstanceStatusRunning, result.Status)
+
+	// Check the call was recorded
+	assert.Equal(t, 1, len(instanceCtrl.CreateInstanceCalls))
+	assert.Equal(t, "instance1", instanceCtrl.CreateInstanceCalls[0].InstanceName)
+	assert.Equal(t, service, instanceCtrl.CreateInstanceCalls[0].Service)
 }
 
 func TestHealthController(t *testing.T) {
@@ -337,8 +310,8 @@ func TestHealthController(t *testing.T) {
 }
 
 func TestDeleteInstanceFunction(t *testing.T) {
-	// Create a mock instance controller
-	mockCtrl := new(MockInstanceController)
+	// Create a test instance controller
+	instanceCtrl := NewFakeInstanceController()
 
 	// Create test instance
 	instance := &types.Instance{
@@ -348,21 +321,28 @@ func TestDeleteInstanceFunction(t *testing.T) {
 		Status:    types.InstanceStatusRunning,
 	}
 
-	// Set up the expectation
-	mockCtrl.On("DeleteInstance", mock.Anything, instance).Return(nil)
+	// Add the instance to the controller
+	instanceCtrl.AddInstance(instance)
 
 	// Call the method
 	ctx := context.Background()
-	err := mockCtrl.DeleteInstance(ctx, instance)
+	err := instanceCtrl.DeleteInstance(ctx, instance)
 
 	// Verify results
 	assert.NoError(t, err)
-	mockCtrl.AssertExpectations(t)
+
+	// Check the call was recorded
+	assert.Equal(t, 1, len(instanceCtrl.DeleteInstanceCalls))
+	assert.Equal(t, instance, instanceCtrl.DeleteInstanceCalls[0].Instance)
+
+	// Verify the instance was removed
+	_, exists := instanceCtrl.GetInstance("instance1")
+	assert.False(t, exists, "Instance should be deleted after DeleteInstance call")
 }
 
 func TestReconcilerCreateInstance(t *testing.T) {
-	// Create a minimal reconciler with mocks but without starting it
-	mockInstanceController := new(MockInstanceController)
+	// Create a test instance controller
+	instanceController := NewFakeInstanceController()
 
 	// Test data
 	service := &types.Service{
@@ -372,27 +352,31 @@ func TestReconcilerCreateInstance(t *testing.T) {
 		Image:     "test-image",
 	}
 
-	instance := &types.Instance{
+	// Set up custom behavior if needed
+	createdInstance := &types.Instance{
 		ID:        "instance1",
 		Name:      "instance1",
 		ServiceID: "service1",
 		Status:    types.InstanceStatusRunning,
 	}
 
-	// Set up the expectation
-	mockInstanceController.On("CreateInstance", mock.Anything, service, "instance1").Return(instance, nil)
+	instanceController.CreateInstanceFunc = func(ctx context.Context, svc *types.Service, instanceName string) (*types.Instance, error) {
+		return createdInstance, nil
+	}
 
 	// Directly test the behavior that the reconciler would use
 	ctx := context.Background()
-	result, err := mockInstanceController.CreateInstance(ctx, service, "instance1")
+	result, err := instanceController.CreateInstance(ctx, service, "instance1")
 
 	// Verify results
 	assert.NoError(t, err)
-	assert.Equal(t, instance, result)
+	assert.Equal(t, createdInstance, result)
 	assert.Equal(t, "instance1", result.ID)
 	assert.Equal(t, "service1", result.ServiceID)
 	assert.Equal(t, types.InstanceStatusRunning, result.Status)
 
-	// Verify mock expectations were met
-	mockInstanceController.AssertExpectations(t)
+	// Check the call was recorded
+	assert.Equal(t, 1, len(instanceController.CreateInstanceCalls))
+	assert.Equal(t, "instance1", instanceController.CreateInstanceCalls[0].InstanceName)
+	assert.Equal(t, service, instanceController.CreateInstanceCalls[0].Service)
 }

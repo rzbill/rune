@@ -44,7 +44,7 @@ scale: 1
 		retrievedSvc, err := helper.GetService(ctx, "default", "nginx-test")
 		require.NoError(t, err)
 		assert.Equal(t, "nginx-test", retrievedSvc.Name)
-		assert.Equal(t, types.RuntimeContainer, retrievedSvc.Runtime)
+		assert.Equal(t, types.RuntimeTypeContainer, retrievedSvc.Runtime)
 		assert.Equal(t, "nginx:latest", retrievedSvc.Image)
 	})
 
@@ -67,7 +67,7 @@ scale: 1
 		retrievedSvc, err := helper.GetService(ctx, "default", "echo-test")
 		require.NoError(t, err)
 		assert.Equal(t, "echo-test", retrievedSvc.Name)
-		assert.Equal(t, types.RuntimeProcess, retrievedSvc.Runtime)
+		assert.Equal(t, types.RuntimeTypeProcess, retrievedSvc.Runtime)
 	})
 
 	t.Run("cast with namespace", func(t *testing.T) {
@@ -89,7 +89,7 @@ scale: 1
 		svc := &types.Service{
 			Name:      "redis-test",
 			Namespace: "test",
-			Runtime:   types.RuntimeContainer,
+			Runtime:   types.RuntimeTypeContainer,
 			Image:     "redis:latest",
 			Scale:     1,
 			Status:    types.ServiceStatusRunning,

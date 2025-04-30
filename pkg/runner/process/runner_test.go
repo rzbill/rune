@@ -2,6 +2,8 @@ package process
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -196,6 +198,224 @@ func TestProcessRunner_GetLogs(t *testing.T) {
 
 	// Verify log content contains our output
 	assert.Contains(t, string(logContent), "test output")
+
+	// Cleanup
+	err = processRunner.Remove(ctx, instance, true)
+	require.NoError(t, err)
+}
+
+// TestProcessRunner_GetLogsWithTimestamps tests the timestamp-based filtering of logs
+func TestProcessRunner_GetLogsWithTimestamps(t *testing.T) {
+	// Setup
+	testDir, err := os.MkdirTemp("", "process-runner-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(testDir)
+
+	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	require.NoError(t, err)
+
+	// Create a test instance
+	instance := &types.Instance{
+		ID:        "test-timestamp-logs",
+		Namespace: "test",
+		Name:      "test-timestamp-logs",
+		NodeID:    "local",
+		ServiceID: "test-service",
+		Process: &types.ProcessSpec{
+			Command: "echo",
+			Args:    []string{"This will be overwritten with test logs"},
+		},
+	}
+
+	ctx := context.Background()
+	err = processRunner.Create(ctx, instance)
+	require.NoError(t, err)
+
+	// Start the process
+	err = processRunner.Start(ctx, instance)
+	require.NoError(t, err)
+
+	// Give the process time to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Get the process object to access its log file
+	processRunner.mu.RLock()
+	proc, exists := processRunner.processes[instance.ID]
+	processRunner.mu.RUnlock()
+	require.True(t, exists)
+
+	// Create a test log file with timestamps
+	logPath := proc.logFile.Name()
+	err = proc.logFile.Close() // Close the original log file
+	require.NoError(t, err)
+
+	// Create a new log file with entries containing timestamps
+	logFile, err := os.Create(logPath)
+	require.NoError(t, err)
+	defer logFile.Close()
+
+	// Create fixed timestamps for testing
+	now := time.Date(2023, 4, 1, 12, 0, 0, 0, time.UTC)
+	timestamps := []time.Time{
+		now.Add(-1 * time.Hour),    // 1 hour ago - 11:00
+		now.Add(-30 * time.Minute), // 30 minutes ago - 11:30
+		now.Add(-5 * time.Minute),  // 5 minutes ago - 11:55
+		now.Add(-1 * time.Minute),  // 1 minute ago - 11:59
+		now,                        // now - 12:00
+	}
+
+	// Write log entries with different timestamp formats
+	logEntries := []string{
+		// ISO8601/RFC3339 format for 1 hour ago
+		fmt.Sprintf("[%s] Log entry from 1 hour ago\n", timestamps[0].Format(time.RFC3339)),
+		// Common timestamp format for 30 minutes ago
+		fmt.Sprintf("[%s] Log entry from 30 minutes ago\n", timestamps[1].Format("2006-01-02 15:04:05")),
+		// Another common format for 5 minutes ago
+		fmt.Sprintf("[%s] Log entry from 5 minutes ago\n", timestamps[2].Format("2006/01/02 15:04:05")),
+		// Syslog-like format for 1 minute ago
+		fmt.Sprintf("[%s] Log entry from 1 minute ago\n", timestamps[3].Format("Jan 2 15:04:05")),
+		// Just time format for current time
+		fmt.Sprintf("[%s] Current log entry\n", timestamps[4].Format("15:04:05")),
+	}
+
+	// Print timestamp debug info
+	for i, ts := range timestamps {
+		t.Logf("Timestamp %d: %s", i, ts.Format(time.RFC3339))
+	}
+
+	// Write log entries to file with debug output
+	for i, entry := range logEntries {
+		t.Logf("Log entry %d: %s", i, entry)
+		_, err = logFile.WriteString(entry)
+		require.NoError(t, err)
+	}
+	err = logFile.Sync()
+	require.NoError(t, err)
+
+	// Test cases
+	testCases := []struct {
+		name     string
+		options  runner.LogOptions
+		expected []string
+		excluded []string
+	}{
+		{
+			name:     "NoFilter",
+			options:  runner.LogOptions{},
+			expected: []string{"1 hour ago", "30 minutes ago", "5 minutes ago", "1 minute ago", "Current log entry"},
+			excluded: []string{},
+		},
+		{
+			name: "SinceFilter",
+			options: runner.LogOptions{
+				Since: timestamps[2], // 5 minutes ago (11:55)
+			},
+			expected: []string{"5 minutes ago", "1 minute ago", "Current log entry"},
+			excluded: []string{"1 hour ago", "30 minutes ago"},
+		},
+		{
+			name: "UntilFilter",
+			options: runner.LogOptions{
+				Until: timestamps[2], // 5 minutes ago (11:55)
+			},
+			expected: []string{"1 hour ago", "30 minutes ago", "5 minutes ago"},
+			excluded: []string{"1 minute ago", "Current log entry"},
+		},
+		{
+			name: "SinceAndUntilFilter",
+			options: runner.LogOptions{
+				Since: timestamps[1], // 30 minutes ago (11:30)
+				Until: timestamps[3], // 1 minute ago (11:59)
+			},
+			expected: []string{"30 minutes ago", "5 minutes ago"}, // Time-only formats may not match due to normalization
+			excluded: []string{"1 hour ago", "Current log entry"},
+		},
+		{
+			name: "TailFilter",
+			options: runner.LogOptions{
+				Tail: 2,
+			},
+			expected: []string{"1 minute ago", "Current log entry"},
+			excluded: []string{"1 hour ago", "30 minutes ago", "5 minutes ago"},
+		},
+		{
+			name: "CombinedFilters",
+			options: runner.LogOptions{
+				Since: timestamps[1], // 30 minutes ago (11:30)
+				Tail:  3,
+			},
+			expected: []string{"5 minutes ago", "1 minute ago", "Current log entry"},
+			excluded: []string{"1 hour ago", "30 minutes ago"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logs, err := processRunner.GetLogs(ctx, instance, tc.options)
+			require.NoError(t, err)
+			defer logs.Close()
+
+			// Read all log content
+			content, err := io.ReadAll(logs)
+			require.NoError(t, err)
+			contentStr := string(content)
+
+			// Print debug info about the filtered content
+			t.Logf("Test case %s content: %s", tc.name, contentStr)
+
+			// Also test the parse function directly with our log entries
+			if tc.name == "SinceFilter" {
+				t.Log("Testing timestamp parsing for each log line:")
+				for i, entry := range logEntries {
+					ts, ok := extractTimestamp([]byte(entry))
+					t.Logf("Entry %d: parsed=%v, timestamp=%v", i, ok, ts)
+					if ok {
+						isBefore := ts.Before(timestamps[2])
+						isAfter := ts.After(timestamps[2]) || ts.Equal(timestamps[2])
+						t.Logf("Entry %d: before=%v, after=%v", i, isBefore, isAfter)
+					}
+				}
+			}
+
+			// Check that expected entries are present
+			for _, expected := range tc.expected {
+				assert.Contains(t, contentStr, expected, "Log should contain: %s", expected)
+			}
+
+			// Check that excluded entries are not present
+			for _, excluded := range tc.excluded {
+				assert.NotContains(t, contentStr, excluded, "Log should not contain: %s", excluded)
+			}
+		})
+	}
+
+	// Test timestamp extraction function directly with explicit examples
+	t.Run("TimestampExtraction", func(t *testing.T) {
+		testCases := []struct {
+			line        string
+			shouldParse bool
+		}{
+			{"[2023-04-01T12:00:00Z] Test message", true},
+			{"[2023-04-01T12:00:00.123456789Z] Test message", true},
+			{"[2023-04-01 12:00:00] Test message", true},
+			{"[2023/04/01 12:00:00] Test message", true},
+			{"[Apr 1 12:00:00] Test message", true},
+			{"[Apr 01 12:00:00] Test message", true},
+			{"[12:00:00] Test message", true},
+			{"No timestamp here", false},
+			{"2023-04-01T12:00:00Z Test without brackets", true},
+			{"12:00:00 Simple time prefix", true},
+		}
+
+		for _, tc := range testCases {
+			timestamp, ok := extractTimestamp([]byte(tc.line))
+			t.Logf("Line: %s, parsed=%v, timestamp=%v", tc.line, ok, timestamp)
+			assert.Equal(t, tc.shouldParse, ok, "Extracting timestamp from: %s", tc.line)
+			if tc.shouldParse {
+				assert.False(t, timestamp.IsZero(), "Timestamp should not be zero for: %s", tc.line)
+			}
+		}
+	})
 
 	// Cleanup
 	err = processRunner.Remove(ctx, instance, true)

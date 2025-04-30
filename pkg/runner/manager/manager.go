@@ -127,27 +127,42 @@ func (m *RunnerManager) Close() error {
 
 // GetInstanceRunner returns the appropriate runner to use for the given instance.
 func (m *RunnerManager) GetInstanceRunner(instance *types.Instance) (runner.Runner, error) {
-	var runnerToUse runner.Runner
-	if instance.ContainerID != "" {
+	switch instance.Runner {
+	case types.RunnerTypeDocker:
 		dockerRunner, err := m.GetDockerRunner()
 		if err != nil {
 			return nil, status.Error(codes.Unavailable, "docker runner not available")
 		}
-		runnerToUse = dockerRunner
-	} else {
+		return dockerRunner, nil
+
+	case types.RunnerTypeProcess:
 		processRunner, err := m.GetProcessRunner()
 		if err != nil {
 			return nil, status.Error(codes.Unavailable, "process runner not available")
 		}
-		runnerToUse = processRunner
-	}
+		return processRunner, nil
 
-	return runnerToUse, nil
+	default:
+		// Fallback to existing heuristic for backward compatibility
+		if instance.ContainerID != "" {
+			dockerRunner, err := m.GetDockerRunner()
+			if err != nil {
+				return nil, status.Error(codes.Unavailable, "docker runner not available")
+			}
+			return dockerRunner, nil
+		} else {
+			processRunner, err := m.GetProcessRunner()
+			if err != nil {
+				return nil, status.Error(codes.Unavailable, "process runner not available")
+			}
+			return processRunner, nil
+		}
+	}
 }
 
 // GetServiceRunner returns the appropriate runner to use for the given service.
 func (m *RunnerManager) GetServiceRunner(service *types.Service) (runner.Runner, error) {
-	if service.Runtime == "process" {
+	if service.Runtime == types.RuntimeTypeProcess {
 		processRunner, err := m.GetProcessRunner()
 		if err != nil {
 			return nil, status.Error(codes.Unavailable, "process runner not available")
