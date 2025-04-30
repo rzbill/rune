@@ -146,8 +146,6 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 }
 
 // RenderInstances renders a table of instances
-// Note: This is a placeholder implementation that will need to be updated
-// once the Instance type is fully defined
 func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 	if len(instances) == 0 {
 		fmt.Println("No instances found")
@@ -163,9 +161,48 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 		}
 	}
 
-	// Placeholder message
-	fmt.Println("Instance rendering not yet implemented")
-	return nil
+	// Create rows
+	rows := [][]string{t.Headers} // Start with headers
+
+	// Generate data rows
+	for _, instance := range instances {
+		// Format status using PTermStatusLabel
+		status := format.PTermStatusLabel(string(instance.Status))
+
+		// Format restarts (currently a placeholder as we don't track this yet)
+		restarts := "0" // Placeholder
+
+		// Calculate age
+		age := formatAgeTable(instance.CreatedAt)
+
+		// Create the row
+		var row []string
+		if t.AllNamespaces {
+			row = []string{
+				instance.Namespace,
+				instance.Name,
+				fmt.Sprintf("%s(%s)", instance.ServiceName, instance.ServiceID),
+				instance.NodeID,
+				status,
+				restarts,
+				age,
+			}
+		} else {
+			row = []string{
+				instance.Name,
+				fmt.Sprintf("%s(%s)", instance.ServiceName, instance.ServiceID),
+				instance.NodeID,
+				status,
+				restarts,
+				age,
+			}
+		}
+
+		rows = append(rows, row)
+	}
+
+	// Render the table with pterm
+	return t.tableRenderer.WithData(rows).Render()
 }
 
 // RenderNamespaces renders a table of namespaces

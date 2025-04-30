@@ -238,7 +238,6 @@ func (r *DockerRunner) List(ctx context.Context, namespace string) ([]*runetypes
 	// Convert Docker API types to Rune types
 	instances := make([]*runetypes.Instance, 0, len(containers))
 
-	r.logger.Info("listing containers", log.Int("count", len(containers)), log.Json("containers", containers))
 	for _, c := range containers {
 		// Extract instance information from container labels
 		instanceID := c.Labels["rune.instance.id"]

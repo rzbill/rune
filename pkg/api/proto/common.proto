@@ -29,6 +29,15 @@ enum ResourceType {
   RESOURCE_TYPE_CONFIG = 5;
 }
 
+// EventType represents the type of event in a watch stream
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_ADDED = 1;       // Resource was added
+  EVENT_TYPE_MODIFIED = 2;    // Resource was modified
+  EVENT_TYPE_DELETED = 3;     // Resource was deleted
+}
+
+
 // Common paging parameters for list operations
 message PagingParams {
   // Maximum number of items to return

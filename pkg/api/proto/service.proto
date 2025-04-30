@@ -15,14 +15,6 @@ enum ServiceStatus {
   SERVICE_STATUS_FAILED = 4;      // Service failed to deploy or run
 }
 
-// EventType represents the type of event in a watch stream
-enum EventType {
-  EVENT_TYPE_UNSPECIFIED = 0;
-  EVENT_TYPE_ADDED = 1;       // Resource was added
-  EVENT_TYPE_MODIFIED = 2;    // Resource was modified
-  EVENT_TYPE_DELETED = 3;     // Resource was deleted
-}
-
 // Service represents a deployable application or workload.
 message Service {
   // Unique identifier for the service

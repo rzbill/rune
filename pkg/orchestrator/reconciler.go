@@ -186,8 +186,6 @@ func (r *reconciler) reconcileServices(ctx context.Context) error {
 func (r *reconciler) collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
 	instances := make(map[string]*RunningInstance)
 
-	r.logger.Info("collecting running instances")
-
 	// Collect instances from docker runner
 	dockerRunner, err := r.runnerManager.GetDockerRunner()
 	if err != nil {

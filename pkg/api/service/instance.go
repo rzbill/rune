@@ -368,8 +368,11 @@ func (s *InstanceService) instanceModelToProto(instance *types.Instance) (*gener
 
 	protoInstance := &generated.Instance{
 		Id:            instance.ID,
+		Runner:        string(instance.Runner),
+		Namespace:     instance.Namespace,
 		Name:          instance.Name,
 		ServiceId:     instance.ServiceID,
+		ServiceName:   instance.ServiceName,
 		NodeId:        instance.NodeID,
 		Ip:            instance.IP,
 		StatusMessage: instance.StatusMessage,

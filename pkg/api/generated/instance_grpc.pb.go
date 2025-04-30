@@ -32,6 +32,8 @@ type InstanceServiceClient interface {
 	StopInstance(ctx context.Context, in *InstanceActionRequest, opts ...grpc.CallOption) (*InstanceResponse, error)
 	// RestartInstance restarts an instance.
 	RestartInstance(ctx context.Context, in *InstanceActionRequest, opts ...grpc.CallOption) (*InstanceResponse, error)
+	// WatchInstances watches instances for changes.
+	WatchInstances(ctx context.Context, in *WatchInstancesRequest, opts ...grpc.CallOption) (InstanceService_WatchInstancesClient, error)
 }
 
 type instanceServiceClient struct {
@@ -87,6 +89,38 @@ func (c *instanceServiceClient) RestartInstance(ctx context.Context, in *Instanc
 	return out, nil
 }
 
+func (c *instanceServiceClient) WatchInstances(ctx context.Context, in *WatchInstancesRequest, opts ...grpc.CallOption) (InstanceService_WatchInstancesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &InstanceService_ServiceDesc.Streams[0], "/rune.api.InstanceService/WatchInstances", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &instanceServiceWatchInstancesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type InstanceService_WatchInstancesClient interface {
+	Recv() (*WatchInstancesResponse, error)
+	grpc.ClientStream
+}
+
+type instanceServiceWatchInstancesClient struct {
+	grpc.ClientStream
+}
+
+func (x *instanceServiceWatchInstancesClient) Recv() (*WatchInstancesResponse, error) {
+	m := new(WatchInstancesResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // InstanceServiceServer is the server API for InstanceService service.
 // All implementations must embed UnimplementedInstanceServiceServer
 // for forward compatibility
@@ -101,6 +135,8 @@ type InstanceServiceServer interface {
 	StopInstance(context.Context, *InstanceActionRequest) (*InstanceResponse, error)
 	// RestartInstance restarts an instance.
 	RestartInstance(context.Context, *InstanceActionRequest) (*InstanceResponse, error)
+	// WatchInstances watches instances for changes.
+	WatchInstances(*WatchInstancesRequest, InstanceService_WatchInstancesServer) error
 	mustEmbedUnimplementedInstanceServiceServer()
 }
 
@@ -122,6 +158,9 @@ func (UnimplementedInstanceServiceServer) StopInstance(context.Context, *Instanc
 }
 func (UnimplementedInstanceServiceServer) RestartInstance(context.Context, *InstanceActionRequest) (*InstanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RestartInstance not implemented")
+}
+func (UnimplementedInstanceServiceServer) WatchInstances(*WatchInstancesRequest, InstanceService_WatchInstancesServer) error {
+	return status.Errorf(codes.Unimplemented, "method WatchInstances not implemented")
 }
 func (UnimplementedInstanceServiceServer) mustEmbedUnimplementedInstanceServiceServer() {}
 
@@ -226,6 +265,27 @@ func _InstanceService_RestartInstance_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InstanceService_WatchInstances_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchInstancesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(InstanceServiceServer).WatchInstances(m, &instanceServiceWatchInstancesServer{stream})
+}
+
+type InstanceService_WatchInstancesServer interface {
+	Send(*WatchInstancesResponse) error
+	grpc.ServerStream
+}
+
+type instanceServiceWatchInstancesServer struct {
+	grpc.ServerStream
+}
+
+func (x *instanceServiceWatchInstancesServer) Send(m *WatchInstancesResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // InstanceService_ServiceDesc is the grpc.ServiceDesc for InstanceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -254,6 +314,12 @@ var InstanceService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _InstanceService_RestartInstance_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchInstances",
+			Handler:       _InstanceService_WatchInstances_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "pkg/api/proto/instance.proto",
 }

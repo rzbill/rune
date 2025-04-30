@@ -78,14 +78,15 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 
 	// Create instance object
 	instance := &types.Instance{
-		ID:        uuid.New().String(),
-		Name:      instanceName,
-		Namespace: service.Namespace,
-		ServiceID: service.ID,
-		NodeID:    "local",
-		Status:    types.InstanceStatusPending,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:          uuid.New().String(),
+		Name:        instanceName,
+		Namespace:   service.Namespace,
+		ServiceName: service.Name,
+		ServiceID:   service.ID,
+		NodeID:      "local",
+		Status:      types.InstanceStatusPending,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// Save instance to store

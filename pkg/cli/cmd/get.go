@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/rzbill/rune/pkg/api/client"
+	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -29,6 +30,7 @@ var (
 	getClientAPIKey string
 	getClientAddr   string
 	watchTimeout    string
+	getServiceName  string
 )
 
 // Resource type abbreviations
@@ -56,6 +58,11 @@ var resourceAliases = map[string]string{
 // ServiceWatcher defines the interface for watching services
 type ServiceWatcher interface {
 	WatchServices(namespace, labelSelector, fieldSelector string) (<-chan client.WatchEvent, error)
+}
+
+// InstanceWatcher defines the interface for watching instances
+type InstanceWatcher interface {
+	WatchInstances(namespace, serviceId, labelSelector, fieldSelector string) (<-chan client.InstanceWatchEvent, error)
 }
 
 // getCmd represents the get command
@@ -103,6 +110,7 @@ func init() {
 	getCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Don't print headers for table output")
 	getCmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of resources to list (0 for unlimited)")
 	getCmd.Flags().StringVar(&watchTimeout, "timeout", "", "Timeout for watch operations (e.g., 30s, 5m, 1h) - default is no timeout")
+	getCmd.Flags().StringVar(&getServiceName, "service-name", "", "Filter instances by service name")
 
 	// API client flags
 	getCmd.Flags().StringVar(&getClientAPIKey, "api-key", "", "API key for authentication")
@@ -206,8 +214,51 @@ func handleServiceGet(ctx context.Context, cmd *cobra.Command, apiClient *client
 
 // handleInstanceGet handles get operations for instances
 func handleInstanceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
-	// TODO: Implement instance listing when API client supports it
-	return fmt.Errorf("instance listing not yet implemented")
+	instanceClient := client.NewInstanceClient(apiClient)
+
+	// If watch mode is enabled, handle watching
+	if watchResources {
+		return watchInstances(ctx, instanceClient, resourceName)
+	}
+
+	// If a specific instance name is provided, get that instance
+	if resourceName != "" {
+		namespace := getNamespace
+		instance, err := instanceClient.GetInstance(namespace, resourceName)
+		if err != nil {
+			return fmt.Errorf("failed to get instance: %w", err)
+		}
+
+		// Render a single instance
+		if getOutputFormat == "" {
+			// Create table for a single instance
+			table := NewResourceTable()
+			table.RenderInstances([]*types.Instance{instance})
+			return nil
+		}
+
+		// Handle JSON/YAML output for a single instance
+		return outputResource([]*types.Instance{instance}, cmd)
+	}
+
+	// Get all instances with optional filtering
+	instances, err := instanceClient.ListInstances(getNamespace, getServiceName, labelSelector, fieldSelector)
+	if err != nil {
+		return fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	// Render the instances
+	if getOutputFormat == "" {
+		// Create table with configured options
+		table := NewResourceTable()
+		table.AllNamespaces = allNamespaces
+		table.ShowLabels = showLabels
+		table.RenderInstances(instances)
+		return nil
+	}
+
+	// Handle JSON/YAML output
+	return outputResource(instances, cmd)
 }
 
 // handleNamespaceGet handles get operations for namespaces
@@ -240,6 +291,35 @@ func watchServices(ctx context.Context, serviceClient ServiceWatcher, resourceNa
 
 	// Create adapter to convert ServiceWatcher to ResourceToWatch
 	adapter := &ServiceWatcherAdapter{ServiceWatcher: serviceClient}
+
+	// Start watching
+	return watcher.Watch(ctx, adapter)
+}
+
+// watchInstances watches instances for changes
+func watchInstances(ctx context.Context, instanceClient InstanceWatcher, resourceName string) error {
+	// Create and configure the resource watcher
+	watcher := NewResourceWatcher()
+	watcher.Namespace = getNamespace
+	watcher.AllNamespaces = allNamespaces
+	watcher.ResourceName = resourceName
+	watcher.LabelSelector = labelSelector
+	watcher.FieldSelector = fieldSelector
+	watcher.ShowHeaders = !noHeaders
+
+	// Set timeout if specified
+	if watchTimeout != "" {
+		if err := watcher.SetTimeout(watchTimeout); err != nil {
+			return err
+		}
+	}
+
+	// Use default renderers for instances
+	watcher.SetResourceToRowsRenderer(DefaultInstanceResourceToRows)
+	watcher.SetEventRenderer(DefaultInstanceEventRenderer)
+
+	// Create adapter to convert InstanceWatcher to ResourceToWatch
+	adapter := &InstanceWatcherAdapter{InstanceWatcher: instanceClient}
 
 	// Start watching
 	return watcher.Watch(ctx, adapter)
@@ -377,6 +457,37 @@ func sortServices(services []*types.Service, sortField string) {
 	}
 }
 
+// sortInstances sorts a list of instances based on the sort criteria
+func sortInstances(instances []*types.Instance, sortBy string) {
+	switch sortBy {
+	case "name":
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].Name < instances[j].Name
+		})
+	case "age":
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].CreatedAt.Before(instances[j].CreatedAt)
+		})
+	case "status":
+		sort.Slice(instances, func(i, j int) bool {
+			return string(instances[i].Status) < string(instances[j].Status)
+		})
+	case "service":
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].ServiceID < instances[j].ServiceID
+		})
+	case "node":
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].NodeID < instances[j].NodeID
+		})
+	default:
+		// Default to sorting by name
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].Name < instances[j].Name
+		})
+	}
+}
+
 // createGetAPIClient creates an API client with the configured options.
 func createGetAPIClient() (*client.Client, error) {
 	options := client.DefaultClientOptions()
@@ -397,4 +508,201 @@ func createGetAPIClient() (*client.Client, error) {
 
 	// Create the client
 	return client.NewClient(options)
+}
+
+// InstanceResource is a wrapper around types.Instance that implements the Resource interface
+type InstanceResource struct {
+	*types.Instance
+}
+
+// GetKey returns a unique identifier for the instance
+func (i InstanceResource) GetKey() string {
+	return fmt.Sprintf("%s/%s", i.Namespace, i.ID)
+}
+
+// Equals checks if two instances are functionally equivalent for watch purposes
+func (i InstanceResource) Equals(other Resource) bool {
+	otherInstance, ok := other.(InstanceResource)
+	if !ok {
+		return false
+	}
+
+	// Check key fields that would make an instance visibly different in the table
+	return i.ID == otherInstance.ID &&
+		i.Name == otherInstance.Name &&
+		i.Namespace == otherInstance.Namespace &&
+		i.ServiceID == otherInstance.ServiceID &&
+		i.NodeID == otherInstance.NodeID &&
+		i.Status == otherInstance.Status
+}
+
+// InstanceWatcherAdapter adapts the InstanceWatcher interface to ResourceToWatch
+type InstanceWatcherAdapter struct {
+	InstanceWatcher
+}
+
+// Watch implements the ResourceToWatch interface
+func (a InstanceWatcherAdapter) Watch(ctx context.Context, namespace, labelSelector, fieldSelector string) (<-chan WatchEvent, error) {
+	// Parse any service filter from fieldSelector
+	serviceID := ""
+	fieldSelectorMap, err := parseSelector(fieldSelector)
+	if err == nil {
+		if svc, exists := fieldSelectorMap["service"]; exists {
+			serviceID = svc
+			// Remove from field selector to avoid double filtering
+			delete(fieldSelectorMap, "service")
+			// Rebuild field selector string
+			var pairs []string
+			for k, v := range fieldSelectorMap {
+				pairs = append(pairs, fmt.Sprintf("%s=%s", k, v))
+			}
+			fieldSelector = strings.Join(pairs, ",")
+		}
+	}
+
+	instCh, err := a.WatchInstances(namespace, serviceID, labelSelector, fieldSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a new channel and adapt the events
+	eventCh := make(chan WatchEvent)
+	go func() {
+		defer close(eventCh)
+
+		for event := range instCh {
+			if event.Error != nil {
+				eventCh <- WatchEvent{
+					Error: event.Error,
+				}
+				continue
+			}
+
+			// Convert instance to InstanceResource
+			instResource := InstanceResource{event.Instance}
+
+			eventCh <- WatchEvent{
+				Resource:  instResource,
+				EventType: event.EventType,
+				Error:     nil,
+			}
+		}
+	}()
+
+	return eventCh, nil
+}
+
+// DefaultInstanceResourceToRows returns a default row renderer for instances
+func DefaultInstanceResourceToRows(resources []Resource) [][]string {
+	// First create a list of just the instances
+	instances := make([]*types.Instance, 0, len(resources))
+	for _, res := range resources {
+		instRes, ok := res.(InstanceResource)
+		if !ok {
+			continue
+		}
+		instances = append(instances, instRes.Instance)
+	}
+
+	// Sort instances by name
+	sort.Slice(instances, func(i, j int) bool {
+		return instances[i].Name < instances[j].Name
+	})
+
+	// Build rows
+	var rows [][]string
+
+	// Add header row - but first check if we have any instances
+	allNamespaces := false
+	if len(instances) > 0 {
+		for _, inst := range instances {
+			if inst.Namespace != instances[0].Namespace {
+				allNamespaces = true
+				break
+			}
+		}
+	}
+
+	// Add header row
+	if allNamespaces {
+		rows = append(rows, []string{"NAMESPACE", "NAME", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"})
+	} else {
+		rows = append(rows, []string{"NAME", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"})
+	}
+
+	// Add instance rows
+	for _, instance := range instances {
+		// Format status using the same colorizeStatus function from table.go
+		status := format.PTermStatusLabel(string(instance.Status))
+
+		// Format restarts (currently a placeholder as we don't track this yet)
+		restarts := "0" // Placeholder
+
+		// Calculate age
+		age := formatAge(instance.CreatedAt)
+
+		// Create the row
+		var row []string
+		if allNamespaces {
+			row = []string{
+				instance.Namespace,
+				instance.Name,
+				instance.ServiceID,
+				instance.NodeID,
+				status,
+				restarts,
+				age,
+			}
+		} else {
+			row = []string{
+				instance.Name,
+				instance.ServiceID,
+				instance.NodeID,
+				status,
+				restarts,
+				age,
+			}
+		}
+
+		rows = append(rows, row)
+	}
+
+	return rows
+}
+
+// DefaultInstanceEventRenderer returns a default renderer for instance events
+func DefaultInstanceEventRenderer(events []Event) []string {
+	var lines []string
+	for _, event := range events {
+		var symbol, color string
+		var eventPrefix string
+
+		switch event.EventType {
+		case "ADDED":
+			symbol = "+"
+			color = format.Green
+			eventPrefix = "ADDED"
+		case "MODIFIED":
+			symbol = "~"
+			color = format.Yellow
+			eventPrefix = "MODIFIED"
+		case "DELETED":
+			symbol = "-"
+			color = format.Red
+			eventPrefix = "DELETED"
+		}
+
+		instRes, ok := event.Resource.(InstanceResource)
+		if !ok {
+			continue
+		}
+
+		eventText := fmt.Sprintf("[%s] %s instance \"%s\"",
+			format.Colorize(color, symbol),
+			eventPrefix,
+			format.Colorize(format.Bold, instRes.Name))
+
+		lines = append(lines, eventText)
+	}
+	return lines
 }

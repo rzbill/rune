@@ -2,7 +2,7 @@ service:
   name: echo
   namespace: default
   image: busybox
-  scale: 0
+  scale: 1
   labels:
     app: echo
   command: "echo"
