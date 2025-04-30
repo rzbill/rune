@@ -304,83 +304,161 @@ func TestRestartInstance(t *testing.T) {
 		Status:    types.InstanceStatusRunning,
 	}
 
-	// Create test service with Always restart policy
-	serviceAlways := &types.Service{
-		ID:            "test-service",
-		Name:          "test-service",
-		Namespace:     "default",
-		RestartPolicy: types.RestartPolicyAlways,
-		Runtime:       "container",
-	}
-
-	// Add service to store
 	ctx := context.Background()
-	err := testStore.CreateService(ctx, serviceAlways)
-	assert.NoError(t, err)
 
-	// Add instance to store
-	err = testStore.CreateInstance(ctx, instance)
-	assert.NoError(t, err)
+	t.Run("RestartPolicy=Always", func(t *testing.T) {
+		// Create test service with Always restart policy
+		serviceAlways := &types.Service{
+			ID:            "test-service",
+			Name:          "test-service",
+			Namespace:     "default",
+			RestartPolicy: types.RestartPolicyAlways,
+			Runtime:       "container",
+		}
 
-	// Call the method
-	err = controller.(interface {
-		RestartInstance(context.Context, *types.Instance, string) error
-	}).
-		RestartInstance(context.Background(), instance, "test-restart")
+		// Add service to store
+		err := testStore.CreateService(ctx, serviceAlways)
+		assert.NoError(t, err)
 
-	// Verify results
-	assert.NoError(t, err)
-	assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped")
-	assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created")
-	assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started")
+		// Add instance to store
+		err = testStore.CreateInstance(ctx, instance)
+		assert.NoError(t, err)
+
+		// Call the method
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonManual)
+
+		// Verify results
+		assert.NoError(t, err)
+		assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped")
+		assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created")
+		assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started")
+	})
 
 	// Test with OnFailure restart policy
-	serviceOnFailure := &types.Service{
-		ID:            "test-service",
-		Name:          "test-service",
-		Namespace:     "default",
-		RestartPolicy: types.RestartPolicyOnFailure,
-		Runtime:       "container",
-	}
+	t.Run("RestartPolicy=OnFailure", func(t *testing.T) {
+		serviceOnFailure := &types.Service{
+			ID:            "test-service",
+			Name:          "test-service",
+			Namespace:     "default",
+			RestartPolicy: types.RestartPolicyOnFailure,
+			Runtime:       "container",
+		}
 
-	// Reset between tests
-	testStore.Reset()
-	testRunner = runner.NewTestRunner() // Create a fresh runner
-	testRunnerMgr = manager.NewTestRunnerManager(nil)
-	testRunnerMgr.SetDockerRunner(testRunner)
-	testRunnerMgr.SetProcessRunner(testRunner)
-	controller = NewInstanceController(testStore, testRunnerMgr, testLogger)
+		// Reset between tests
+		testStore.Reset()
+		testRunner = runner.NewTestRunner() // Create a fresh runner
+		testRunnerMgr = manager.NewTestRunnerManager(nil)
+		testRunnerMgr.SetDockerRunner(testRunner)
+		testRunnerMgr.SetProcessRunner(testRunner)
+		controller = NewInstanceController(testStore, testRunnerMgr, testLogger)
 
-	// Set up test data for OnFailure policy
-	err = testStore.CreateService(ctx, serviceOnFailure)
-	assert.NoError(t, err)
+		// Set up test data for OnFailure policy
+		err := testStore.CreateService(ctx, serviceOnFailure)
+		assert.NoError(t, err)
 
-	err = testStore.CreateInstance(ctx, instance)
-	assert.NoError(t, err)
+		err = testStore.CreateInstance(ctx, instance)
+		assert.NoError(t, err)
 
-	// Call with non-failure reason - should skip restart
-	err = controller.(interface {
-		RestartInstance(context.Context, *types.Instance, string) error
-	}).
-		RestartInstance(context.Background(), instance, "manual-restart")
+		// Call with non-failure reason - should skip restart
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonUpdate)
 
-	// Should not have any operations performed
-	assert.NoError(t, err)
-	assert.Empty(t, testRunner.StoppedInstances, "Instance should not have been stopped")
-	assert.Empty(t, testRunner.CreatedInstances, "Instance should not have been created")
-	assert.Empty(t, testRunner.StartedInstances, "Instance should not have been started")
+		// Should not have any operations performed
+		assert.NoError(t, err)
+		assert.Empty(t, testRunner.StoppedInstances, "Instance should not have been stopped with update reason")
+		assert.Empty(t, testRunner.CreatedInstances, "Instance should not have been created with update reason")
+		assert.Empty(t, testRunner.StartedInstances, "Instance should not have been started with update reason")
 
-	// Now call with failure reason - should restart
-	err = controller.(interface {
-		RestartInstance(context.Context, *types.Instance, string) error
-	}).
-		RestartInstance(context.Background(), instance, "failure")
+		// Now call with failure reason - should restart
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonFailure)
 
-	// Verify that operations were performed
-	assert.NoError(t, err)
-	assert.Len(t, testRunner.StoppedInstances, 1, "Instance should have been stopped once")
-	assert.Len(t, testRunner.CreatedInstances, 1, "Instance should have been created once")
-	assert.Len(t, testRunner.StartedInstances, 1, "Instance should have been started once")
+		// Verify that operations were performed
+		assert.NoError(t, err)
+		assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped with failure reason")
+		assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created with failure reason")
+		assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started with failure reason")
+
+		// Reset runner for next test
+		testRunner = runner.NewTestRunner()
+		testRunnerMgr.SetDockerRunner(testRunner)
+		testRunnerMgr.SetProcessRunner(testRunner)
+
+		// Call with health check failure reason - should restart
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonHealthCheckFailure)
+
+		// Verify that operations were performed for health check failure
+		assert.NoError(t, err)
+		assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped with health check failure reason")
+		assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created with health check failure reason")
+		assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started with health check failure reason")
+
+		// Reset runner for next test
+		testRunner = runner.NewTestRunner()
+		testRunnerMgr.SetDockerRunner(testRunner)
+		testRunnerMgr.SetProcessRunner(testRunner)
+
+		// Now call with manual restart - should always restart regardless of policy
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonManual)
+		assert.NoError(t, err)
+		assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped with manual reason")
+		assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created with manual reason")
+		assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started with manual reason")
+	})
+
+	// Test with Never restart policy
+	t.Run("RestartPolicy=Never", func(t *testing.T) {
+		serviceOnNever := &types.Service{
+			ID:            "test-service",
+			Name:          "test-service",
+			Namespace:     "default",
+			RestartPolicy: types.RestartPolicyNever,
+			Runtime:       "container",
+		}
+
+		// Reset between tests
+		testStore.Reset()
+		testRunner = runner.NewTestRunner() // Create a fresh runner
+		testRunnerMgr = manager.NewTestRunnerManager(nil)
+		testRunnerMgr.SetDockerRunner(testRunner)
+		testRunnerMgr.SetProcessRunner(testRunner)
+		controller = NewInstanceController(testStore, testRunnerMgr, testLogger)
+
+		err := testStore.CreateService(ctx, serviceOnNever)
+		assert.NoError(t, err)
+
+		err = testStore.CreateInstance(ctx, instance)
+		assert.NoError(t, err)
+
+		// Call with automatic restart reasons - should not restart
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonFailure)
+		assert.NoError(t, err)
+		assert.Empty(t, testRunner.StoppedInstances, "Instance should not have been stopped with failure reason")
+		assert.Empty(t, testRunner.CreatedInstances, "Instance should not have been created with failure reason")
+		assert.Empty(t, testRunner.StartedInstances, "Instance should not have been started with failure reason")
+
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonHealthCheckFailure)
+		assert.NoError(t, err)
+		assert.Empty(t, testRunner.StoppedInstances, "Instance should not have been stopped with health check failure reason")
+		assert.Empty(t, testRunner.CreatedInstances, "Instance should not have been created with health check failure reason")
+		assert.Empty(t, testRunner.StartedInstances, "Instance should not have been started with health check failure reason")
+
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonUpdate)
+		assert.NoError(t, err)
+		assert.Empty(t, testRunner.StoppedInstances, "Instance should not have been stopped with update reason")
+		assert.Empty(t, testRunner.CreatedInstances, "Instance should not have been created with update reason")
+		assert.Empty(t, testRunner.StartedInstances, "Instance should not have been started with update reason")
+
+		// Reset runner for next test
+		testRunner = runner.NewTestRunner()
+		testRunnerMgr.SetDockerRunner(testRunner)
+		testRunnerMgr.SetProcessRunner(testRunner)
+
+		// Call with manual restart - should restart even with Never policy
+		err = controller.RestartInstance(context.Background(), instance, InstanceRestartReasonManual)
+		assert.NoError(t, err)
+		assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Instance should have been stopped with manual reason")
+		assert.Contains(t, testRunner.CreatedInstances, instance, "Instance should have been created with manual reason")
+		assert.Contains(t, testRunner.StartedInstances, instance.ID, "Instance should have been started with manual reason")
+	})
 }
 
 // TestUpdateInstance tests the UpdateInstance method

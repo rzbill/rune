@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
@@ -27,6 +28,8 @@ type FakeOrchestrator struct {
 	GetInstanceLogsCalls   []GetInstanceLogsCall
 	ExecInServiceCalls     []ExecInServiceCall
 	ExecInInstanceCalls    []ExecInInstanceCall
+	RestartServiceCalls    []RestartServiceCall
+	RestartInstanceCalls   []OrchestratorRestartInstanceCall
 
 	// Custom behavior options
 	StartFunc             func(ctx context.Context) error
@@ -37,6 +40,8 @@ type FakeOrchestrator struct {
 	GetInstanceLogsFunc   func(ctx context.Context, namespace, serviceName, instanceID string, opts LogOptions) (io.ReadCloser, error)
 	ExecInServiceFunc     func(ctx context.Context, namespace, serviceName string, options ExecOptions) (ExecStream, error)
 	ExecInInstanceFunc    func(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error)
+	RestartServiceFunc    func(ctx context.Context, namespace, serviceName string) error
+	RestartInstanceFunc   func(ctx context.Context, namespace, serviceName, instanceID string) error
 
 	// Default error responses
 	StartError             error
@@ -47,6 +52,8 @@ type FakeOrchestrator struct {
 	GetInstanceLogsError   error
 	ExecInServiceError     error
 	ExecInInstanceError    error
+	RestartServiceError    error
+	RestartInstanceError   error
 
 	// Mock responses
 	LogsOutput   []byte
@@ -91,6 +98,17 @@ type ExecInInstanceCall struct {
 	ServiceName string
 	InstanceID  string
 	Options     ExecOptions
+}
+
+type RestartServiceCall struct {
+	Namespace   string
+	ServiceName string
+}
+
+type OrchestratorRestartInstanceCall struct {
+	Namespace   string
+	ServiceName string
+	InstanceID  string
 }
 
 // NewFakeOrchestrator creates a new fake orchestrator for testing
@@ -529,4 +547,97 @@ func (o *FakeOrchestrator) Reset() {
 	o.GetInstanceLogsCalls = nil
 	o.ExecInServiceCalls = nil
 	o.ExecInInstanceCalls = nil
+	o.RestartServiceCalls = nil
+	o.RestartInstanceCalls = nil
+}
+
+// RestartService implementation for testing
+func (o *FakeOrchestrator) RestartService(ctx context.Context, namespace, serviceName string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.RestartServiceCalls = append(o.RestartServiceCalls, RestartServiceCall{
+		Namespace:   namespace,
+		ServiceName: serviceName,
+	})
+
+	if o.RestartServiceFunc != nil {
+		return o.RestartServiceFunc(ctx, namespace, serviceName)
+	}
+
+	if o.RestartServiceError != nil {
+		return o.RestartServiceError
+	}
+
+	// Default behavior - verify service exists first
+	nsServices, ok := o.services[namespace]
+	if !ok {
+		return fmt.Errorf("namespace %s not found", namespace)
+	}
+
+	_, ok = nsServices[serviceName]
+	if !ok {
+		return fmt.Errorf("service %s not found in namespace %s", serviceName, namespace)
+	}
+
+	// Find all instances for this service and set them as "restarted"
+	instanceCount := 0
+	for _, nsInstances := range o.instances {
+		for _, instance := range nsInstances {
+			if instance.Namespace == namespace && instance.ServiceID == serviceName {
+				instance.Status = types.InstanceStatusRunning
+				instance.StatusMessage = "Restarted by fake orchestrator"
+				instanceCount++
+			}
+		}
+	}
+
+	if instanceCount == 0 {
+		return fmt.Errorf("no instances found for service %s in namespace %s", serviceName, namespace)
+	}
+
+	return nil
+}
+
+// RestartInstance implementation for testing
+func (o *FakeOrchestrator) RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.RestartInstanceCalls = append(o.RestartInstanceCalls, OrchestratorRestartInstanceCall{
+		Namespace:   namespace,
+		ServiceName: serviceName,
+		InstanceID:  instanceID,
+	})
+
+	if o.RestartInstanceFunc != nil {
+		return o.RestartInstanceFunc(ctx, namespace, serviceName, instanceID)
+	}
+
+	if o.RestartInstanceError != nil {
+		return o.RestartInstanceError
+	}
+
+	// Default behavior - verify instance exists
+	nsInstances, ok := o.instances[namespace]
+	if !ok {
+		return fmt.Errorf("namespace %s not found", namespace)
+	}
+
+	instance, ok := nsInstances[instanceID]
+	if !ok {
+		return fmt.Errorf("instance %s not found in namespace %s", instanceID, namespace)
+	}
+
+	// Verify service association
+	if instance.ServiceID != serviceName {
+		return fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
+	}
+
+	// "Restart" the instance in our fake store
+	instance.Status = types.InstanceStatusRunning
+	instance.StatusMessage = "Restarted by fake orchestrator"
+	instance.UpdatedAt = time.Now()
+
+	return nil
 }

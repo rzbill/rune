@@ -39,6 +39,12 @@ type Orchestrator interface {
 
 	// ExecInInstance executes a command in a specific instance
 	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error)
+
+	// RestartService restarts all instances of a service
+	RestartService(ctx context.Context, namespace, serviceName string) error
+
+	// RestartInstance restarts a specific instance
+	RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error
 }
 
 // orchestrator implements the Orchestrator interface
@@ -510,4 +516,75 @@ func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager 
 
 	// Create and return the orchestrator
 	return NewOrchestrator(store, instanceController, healthController, runnerManager, logger), nil
+}
+
+// RestartService restarts all instances of a service
+func (o *orchestrator) RestartService(ctx context.Context, namespace, serviceName string) error {
+	o.logger.Info("Restarting service",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName))
+
+	// List instances for this service
+	instances, err := o.listInstancesForService(ctx, namespace, serviceName)
+	if err != nil {
+		return fmt.Errorf("failed to list instances for service: %w", err)
+	}
+
+	if len(instances) == 0 {
+		return fmt.Errorf("no instances found for service %s in namespace %s", serviceName, namespace)
+	}
+
+	// Restart each instance
+	var lastError error
+	for _, instance := range instances {
+		if err := o.RestartInstance(ctx, namespace, serviceName, instance.ID); err != nil {
+			o.logger.Error("Failed to restart instance",
+				log.Str("namespace", namespace),
+				log.Str("service", serviceName),
+				log.Str("instance", instance.ID),
+				log.Err(err))
+			lastError = err
+			// Continue with other instances even if one fails
+		}
+	}
+
+	// Return the last error encountered, if any
+	if lastError != nil {
+		return fmt.Errorf("one or more instances failed to restart: %w", lastError)
+	}
+
+	o.logger.Info("Successfully restarted service",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName))
+	return nil
+}
+
+// RestartInstance restarts a specific instance
+func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+	o.logger.Info("Restarting instance",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName),
+		log.Str("instance", instanceID))
+
+	// Get instance from store
+	var instance types.Instance
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		return fmt.Errorf("failed to get instance: %w", err)
+	}
+
+	// Verify instance belongs to the specified service
+	if instance.ServiceID != serviceName {
+		return fmt.Errorf("instance does not belong to service %s", serviceName)
+	}
+
+	// Restart the instance through instance controller
+	if err := o.instanceController.RestartInstance(ctx, &instance, InstanceRestartReasonManual); err != nil {
+		return fmt.Errorf("failed to restart instance: %w", err)
+	}
+
+	o.logger.Info("Successfully restarted instance",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName),
+		log.Str("instance", instanceID))
+	return nil
 }

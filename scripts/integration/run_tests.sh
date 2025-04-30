@@ -7,6 +7,8 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
+COVERAGE_FILE="coverage_integration.out"
+
 # Print header
 echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN}   Rune Integration Tests Runner        ${NC}"
@@ -56,7 +58,7 @@ echo -e "  - Go version: $(go version)"
 
 # Run integration tests with the integration build tag
 echo -e "${YELLOW}Running integration tests...${NC}"
-go test -tags=integration ./test/integration/... -v
+go test -tags=integration ./test/integration/... -v -coverprofile=$COVERAGE_FILE
 
 TEST_EXIT_CODE=$?
 

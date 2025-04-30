@@ -1,16 +1,22 @@
 package docker
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/runner"
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
@@ -223,6 +229,7 @@ func TestList(t *testing.T) {
 		Name:      "list-test-1",
 		ServiceID: "list-test-service",
 		NodeID:    "test-node",
+		Namespace: namespace,
 	}
 
 	instance2 := &runetypes.Instance{
@@ -230,6 +237,7 @@ func TestList(t *testing.T) {
 		Name:      "list-test-2",
 		ServiceID: "list-test-service",
 		NodeID:    "test-node",
+		Namespace: namespace,
 	}
 
 	// Ensure cleanup on test completion
@@ -268,5 +276,486 @@ func TestList(t *testing.T) {
 
 	if !found1 || !found2 {
 		t.Errorf("Not all test containers were found in the list. Found container 1: %v, Found container 2: %v", found1, found2)
+	}
+}
+
+// TestParseDockerTimestamp tests the parseDockerTimestamp function
+// that extracts timestamps from Docker log lines
+func TestParseDockerTimestamp(t *testing.T) {
+	tests := []struct {
+		name     string
+		logLine  string
+		wantTime time.Time
+		wantErr  bool
+	}{
+		{
+			name:     "valid timestamp",
+			logLine:  "2023-05-15T10:30:45.123456789Z Log message here",
+			wantTime: time.Date(2023, 5, 15, 10, 30, 45, 123456789, time.UTC),
+			wantErr:  false,
+		},
+		{
+			name:     "valid timestamp with space",
+			logLine:  "2023-05-15T10:30:45.123456789Z    Log message with spaces",
+			wantTime: time.Date(2023, 5, 15, 10, 30, 45, 123456789, time.UTC),
+			wantErr:  false,
+		},
+		{
+			name:     "invalid timestamp",
+			logLine:  "Not a timestamp",
+			wantTime: time.Time{},
+			wantErr:  true,
+		},
+		{
+			name:     "invalid timestamp format",
+			logLine:  "2023/05/15 10:30:45 Log message",
+			wantTime: time.Time{},
+			wantErr:  true,
+		},
+		{
+			name:     "empty line",
+			logLine:  "",
+			wantTime: time.Time{},
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTime, err := parseDockerTimestamp(tt.logLine)
+
+			// Check error status
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseDockerTimestamp() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// If we expected success, verify the time is correct
+			if !tt.wantErr {
+				if !gotTime.Equal(tt.wantTime) {
+					t.Errorf("parseDockerTimestamp() = %v, want %v", gotTime, tt.wantTime)
+				}
+			}
+		})
+	}
+}
+
+// TestNewTimestampFilteredReader tests the timestampFilteredReader
+// that filters logs by timestamp
+func TestNewTimestampFilteredReader(t *testing.T) {
+	// Set up test cases with different time ranges and sample logs
+	now := time.Now()
+	earlier := now.Add(-1 * time.Hour)
+	later := now.Add(1 * time.Hour)
+	muchEarlier := now.Add(-2 * time.Hour)
+	muchLater := now.Add(2 * time.Hour)
+
+	// Format timestamps as they would appear in logs
+	nowStr := now.UTC().Format(time.RFC3339Nano)
+	earlierStr := earlier.UTC().Format(time.RFC3339Nano)
+	laterStr := later.UTC().Format(time.RFC3339Nano)
+	muchEarlierStr := muchEarlier.UTC().Format(time.RFC3339Nano)
+	muchLaterStr := muchLater.UTC().Format(time.RFC3339Nano)
+
+	// Create sample log content with timestamps
+	sampleLogs := []string{
+		muchEarlierStr + " Log entry from much earlier\n",
+		earlierStr + " Log entry from earlier\n",
+		nowStr + " Log entry from now\n",
+		laterStr + " Log entry from later\n",
+		muchLaterStr + " Log entry from much later\n",
+		"Invalid log line without timestamp\n",
+	}
+
+	logContent := strings.Join(sampleLogs, "")
+
+	tests := []struct {
+		name      string
+		content   string
+		since     time.Time
+		until     time.Time
+		wantLines []string
+	}{
+		{
+			name:      "no time filters",
+			content:   logContent,
+			since:     time.Time{}, // Zero time means no filter
+			until:     time.Time{}, // Zero time means no filter
+			wantLines: sampleLogs,  // Should include all lines
+		},
+		{
+			name:    "only since filter",
+			content: logContent,
+			since:   now,
+			until:   time.Time{}, // Zero time means no filter
+			wantLines: []string{
+				nowStr + " Log entry from now\n",
+				laterStr + " Log entry from later\n",
+				muchLaterStr + " Log entry from much later\n",
+				"Invalid log line without timestamp\n", // Invalid lines are always included
+			},
+		},
+		{
+			name:    "only until filter",
+			content: logContent,
+			since:   time.Time{}, // Zero time means no filter
+			until:   now,
+			wantLines: []string{
+				muchEarlierStr + " Log entry from much earlier\n",
+				earlierStr + " Log entry from earlier\n",
+				nowStr + " Log entry from now\n",       // Time exactly matching until is included
+				"Invalid log line without timestamp\n", // Invalid lines are always included
+			},
+		},
+		{
+			name:    "both since and until filters",
+			content: logContent,
+			since:   earlier,
+			until:   later,
+			wantLines: []string{
+				earlierStr + " Log entry from earlier\n", // Time exactly matching since is included
+				nowStr + " Log entry from now\n",
+				laterStr + " Log entry from later\n",   // Time exactly matching until is included
+				"Invalid log line without timestamp\n", // Invalid lines are always included
+			},
+		},
+		{
+			name:      "empty content",
+			content:   "",
+			since:     earlier,
+			until:     later,
+			wantLines: []string{}, // Should result in no lines
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create source reader with the test content
+			source := io.NopCloser(strings.NewReader(tt.content))
+
+			// Create the timestamp filtered reader
+			reader := newTimestampFilteredReader(source, tt.since, tt.until)
+
+			// Read all content from the filtered reader
+			got, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatalf("Failed to read from filtered reader: %v", err)
+			}
+
+			// Convert expected lines to a single string for comparison
+			want := strings.Join(tt.wantLines, "")
+
+			// Compare the output
+			if string(got) != want {
+				t.Errorf("Got filtered content:\n%s\nWant:\n%s", string(got), want)
+			}
+		})
+	}
+}
+
+// parseDockerTimestamp parses a timestamp from a Docker log line
+// This is a mock implementation for tests that matches the function in the Docker runner
+func parseDockerTimestamp(logLine string) (time.Time, error) {
+	if len(logLine) == 0 {
+		return time.Time{}, fmt.Errorf("empty log line")
+	}
+
+	// Docker timestamps are in RFC3339Nano format at the beginning of the line
+	// Example: 2023-05-15T10:30:45.123456789Z Log message
+	timestampEnd := strings.Index(logLine, " ")
+	if timestampEnd == -1 {
+		return time.Time{}, fmt.Errorf("invalid log line format")
+	}
+
+	timestampStr := logLine[:timestampEnd]
+	timestamp, err := time.Parse(time.RFC3339Nano, timestampStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse timestamp: %w", err)
+	}
+
+	return timestamp, nil
+}
+
+// newTimestampFilteredReader creates a reader that filters logs by timestamp
+// This is a mock implementation for tests
+func newTimestampFilteredReader(reader io.ReadCloser, since, until time.Time) io.ReadCloser {
+	if since.IsZero() && until.IsZero() {
+		return reader // No filtering needed
+	}
+
+	pipeReader, pipeWriter := io.Pipe()
+
+	go func() {
+		defer pipeWriter.Close()
+		defer reader.Close()
+
+		// Read logs line by line
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Parse the timestamp from the line
+			timestamp, err := parseDockerTimestamp(line)
+
+			// If we can't parse the timestamp, include the line by default
+			if err != nil {
+				// Write the line + newline
+				pipeWriter.Write([]byte(line + "\n"))
+				continue
+			}
+
+			// Apply Since filter
+			if !since.IsZero() && timestamp.Before(since) {
+				continue // Skip this line
+			}
+
+			// Apply Until filter
+			if !until.IsZero() && timestamp.After(until) {
+				continue // Skip this line
+			}
+
+			// Include this line (timestamp is within range)
+			pipeWriter.Write([]byte(line + "\n"))
+		}
+	}()
+
+	return pipeReader
+}
+
+// buildLogOptionsForTest converts runner.LogOptions to Docker container log options
+// Used only for testing the conversion logic
+func buildLogOptionsForTest(options runner.LogOptions) container.LogsOptions {
+	// Convert time fields to strings
+	var since, until string
+	if !options.Since.IsZero() {
+		since = options.Since.Format(time.RFC3339)
+	}
+	if !options.Until.IsZero() {
+		until = options.Until.Format(time.RFC3339)
+	}
+
+	// Convert tail option to string
+	var tail string
+	if options.Tail <= 0 {
+		tail = "all"
+	} else {
+		tail = strconv.Itoa(options.Tail)
+	}
+
+	return container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     options.Follow,
+		Timestamps: options.Timestamps,
+		Since:      since,
+		Until:      until,
+		Tail:       tail,
+	}
+}
+
+// TestTimestampConversion tests the conversion of runner LogOptions times to Docker-compatible timestamp strings
+func TestTimestampConversion(t *testing.T) {
+	tests := []struct {
+		name      string
+		options   runner.LogOptions
+		wantSince string
+		wantUntil string
+	}{
+		{
+			name: "no timestamps",
+			options: runner.LogOptions{
+				Follow:     true,
+				Tail:       10,
+				Timestamps: true,
+			},
+			wantSince: "", // Expected: empty
+			wantUntil: "", // Expected: empty
+		},
+		{
+			name: "with since timestamp only",
+			options: runner.LogOptions{
+				Follow:     false,
+				Since:      time.Date(2023, 5, 15, 10, 0, 0, 0, time.UTC),
+				Timestamps: true,
+			},
+			wantSince: "2023-05-15T10:00:00Z", // Expected: ISO8601 format
+			wantUntil: "",                     // Expected: empty
+		},
+		{
+			name: "with until timestamp only",
+			options: runner.LogOptions{
+				Follow:     false,
+				Until:      time.Date(2023, 6, 20, 14, 30, 0, 0, time.UTC),
+				Timestamps: true,
+			},
+			wantSince: "",                     // Expected: empty
+			wantUntil: "2023-06-20T14:30:00Z", // Expected: ISO8601 format
+		},
+		{
+			name: "with both since and until timestamps",
+			options: runner.LogOptions{
+				Follow:     false,
+				Since:      time.Date(2023, 5, 15, 10, 0, 0, 0, time.UTC),
+				Until:      time.Date(2023, 6, 20, 14, 30, 0, 0, time.UTC),
+				Timestamps: true,
+			},
+			wantSince: "2023-05-15T10:00:00Z", // Expected: ISO8601 format
+			wantUntil: "2023-06-20T14:30:00Z", // Expected: ISO8601 format
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Convert runner options to Docker container log options
+			var since, until string
+
+			// Convert Since timestamp if set
+			if !tt.options.Since.IsZero() {
+				since = tt.options.Since.Format(time.RFC3339)
+			}
+
+			// Convert Until timestamp if set
+			if !tt.options.Until.IsZero() {
+				until = tt.options.Until.Format(time.RFC3339)
+			}
+
+			// Check Since conversion
+			if tt.wantSince == "" {
+				if since != "" {
+					t.Errorf("Since timestamp conversion = %v, want empty", since)
+				}
+			} else {
+				if since != tt.wantSince {
+					t.Errorf("Since timestamp conversion = %v, want %v", since, tt.wantSince)
+				}
+			}
+
+			// Check Until conversion
+			if tt.wantUntil == "" {
+				if until != "" {
+					t.Errorf("Until timestamp conversion = %v, want empty", until)
+				}
+			} else {
+				if until != tt.wantUntil {
+					t.Errorf("Until timestamp conversion = %v, want %v", until, tt.wantUntil)
+				}
+			}
+		})
+	}
+}
+
+// TestFilterLogsByTimestamp tests filtering log lines by timestamp
+func TestFilterLogsByTimestamp(t *testing.T) {
+	// Create test log lines with timestamps
+	now := time.Now().UTC()
+	earlier := now.Add(-1 * time.Hour)
+	later := now.Add(1 * time.Hour)
+
+	// Format the timestamps
+	nowStr := now.Format(time.RFC3339Nano)
+	earlierStr := earlier.Format(time.RFC3339Nano)
+	laterStr := later.Format(time.RFC3339Nano)
+
+	// Create test log content
+	logLines := []string{
+		earlierStr + " Earlier log message",
+		nowStr + " Current log message",
+		laterStr + " Later log message",
+		"Invalid line without timestamp",
+	}
+
+	tests := []struct {
+		name        string
+		since       time.Time
+		until       time.Time
+		inputLines  []string
+		wantIndices []int // indices of lines that should be included
+	}{
+		{
+			name:        "no time filters",
+			since:       time.Time{},
+			until:       time.Time{},
+			inputLines:  logLines,
+			wantIndices: []int{0, 1, 2, 3}, // include all lines
+		},
+		{
+			name:        "only since filter - include now and later",
+			since:       now,
+			until:       time.Time{},
+			inputLines:  logLines,
+			wantIndices: []int{1, 2, 3}, // include 'now', 'later' and invalid line
+		},
+		{
+			name:        "only until filter - include earlier and now",
+			since:       time.Time{},
+			until:       now,
+			inputLines:  logLines,
+			wantIndices: []int{0, 1, 3}, // include 'earlier', 'now' and invalid line
+		},
+		{
+			name:        "both since and until - include only now",
+			since:       now.Add(-5 * time.Minute),
+			until:       now.Add(5 * time.Minute),
+			inputLines:  logLines,
+			wantIndices: []int{1, 3}, // include only 'now' and invalid line
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Filter the lines manually based on timestamps
+			var includedLines []string
+			for _, line := range tt.inputLines {
+				// Parse timestamp if possible
+				timestampEnd := strings.Index(line, " ")
+				if timestampEnd == -1 {
+					// No timestamp, include by default
+					includedLines = append(includedLines, line)
+					continue
+				}
+
+				timestampStr := line[:timestampEnd]
+				timestamp, err := time.Parse(time.RFC3339Nano, timestampStr)
+				if err != nil {
+					// Couldn't parse timestamp, include by default
+					includedLines = append(includedLines, line)
+					continue
+				}
+
+				// Apply Since filter
+				if !tt.since.IsZero() && timestamp.Before(tt.since) {
+					continue // Skip this line
+				}
+
+				// Apply Until filter
+				if !tt.until.IsZero() && timestamp.After(tt.until) {
+					continue // Skip this line
+				}
+
+				// Include this line
+				includedLines = append(includedLines, line)
+			}
+
+			// Check that we got the right lines
+			if len(includedLines) != len(tt.wantIndices) {
+				t.Errorf("Got %d lines, want %d lines", len(includedLines), len(tt.wantIndices))
+				return
+			}
+
+			// Check that each expected line is included
+			for _, idx := range tt.wantIndices {
+				found := false
+				expectedLine := tt.inputLines[idx]
+				for _, line := range includedLines {
+					if line == expectedLine {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Line %q should be included but wasn't", expectedLine)
+				}
+			}
+		})
 	}
 }

@@ -570,7 +570,7 @@ func (c *healthController) restartInstanceWithBackoff(instanceID string, ih *ins
 	}
 
 	// Use the instance controller to handle the restart
-	if err := c.instanceController.RestartInstance(c.ctx, instance, "health-check-failure"); err != nil {
+	if err := c.instanceController.RestartInstance(c.ctx, instance, InstanceRestartReasonHealthCheckFailure); err != nil {
 		return fmt.Errorf("failed to restart instance: %w", err)
 	}
 

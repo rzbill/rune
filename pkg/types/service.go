@@ -260,7 +260,7 @@ const (
 	// RestartPolicyOnFailure means only restart on failure
 	RestartPolicyOnFailure RestartPolicy = "OnFailure"
 
-	// RestartPolicyNever means never restart automatically
+	// RestartPolicyNever means never restart automatically, only manual restarts are allowed
 	RestartPolicyNever RestartPolicy = "Never"
 )
 

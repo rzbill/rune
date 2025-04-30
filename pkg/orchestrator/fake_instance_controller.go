@@ -32,7 +32,7 @@ type FakeInstanceController struct {
 	RecreateInstanceFunc func(ctx context.Context, service *types.Service, instance *types.Instance) (*types.Instance, error)
 	UpdateInstanceFunc   func(ctx context.Context, service *types.Service, instance *types.Instance) error
 	DeleteInstanceFunc   func(ctx context.Context, instance *types.Instance) error
-	RestartInstanceFunc  func(ctx context.Context, instance *types.Instance, reason string) error
+	RestartInstanceFunc  func(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 	GetStatusFunc        func(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error)
 	GetLogsFunc          func(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error)
 	ExecFunc             func(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
@@ -79,7 +79,7 @@ type DeleteInstanceCall struct {
 // RestartInstanceCall records the parameters of a RestartInstance call
 type RestartInstanceCall struct {
 	Instance *types.Instance
-	Reason   string
+	Reason   InstanceRestartReason
 }
 
 // ExecCall records the parameters of an Exec call
@@ -318,7 +318,7 @@ func (c *FakeInstanceController) Exec(ctx context.Context, instance *types.Insta
 }
 
 // RestartInstance records a call to restart an instance
-func (c *FakeInstanceController) RestartInstance(ctx context.Context, instance *types.Instance, reason string) error {
+func (c *FakeInstanceController) RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

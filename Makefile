@@ -1,139 +1,146 @@
-.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test test-unit test-integration
+.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test-unit test-integration unit-coverage integration-coverage coverage help
 
-# Project variables
-BINARY_NAME=rune
-VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
-BUILD_TIME=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS=-X github.com/rzbill/rune/pkg/version.Version=$(VERSION) \
-       -X github.com/rzbill/rune/pkg/version.BuildTime=$(BUILD_TIME)
+# Tools and paths
+GO ?= go
+BIN_DIR ?= bin
 
-# Build targets
+# Project metadata
+BINARY_NAME = rune
+VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
+BUILD_TIME = $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS = -X github.com/rzbill/rune/pkg/version.Version=$(VERSION) \
+          -X github.com/rzbill/rune/pkg/version.BuildTime=$(BUILD_TIME)
+
+# Coverage files
+UNIT_COVERAGE = coverage_unit.out
+INTEGRATION_COVERAGE = coverage_integration.out
+
+# Default goal
+.DEFAULT_GOAL := build
+
+## Build binaries
 build:
 	@echo "Building $(BINARY_NAME)..."
 	@echo "LDFLAGS: $(LDFLAGS)"
-	@go build -x -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME) ./cmd/rune
-	@go build -x -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME)d ./cmd/runed
+	@$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) ./cmd/rune
+	@$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME)d ./cmd/runed
 	@echo "Build completed!"
 
-# Install target
+## Install binaries to GOPATH/bin
 install: build
 	@echo "Installing $(BINARY_NAME)..."
-	@install -m 755 bin/$(BINARY_NAME) $(GOPATH)/bin/$(BINARY_NAME)
-	@install -m 755 bin/$(BINARY_NAME)d $(GOPATH)/bin/$(BINARY_NAME)d
-	@echo "Installation completed! Binaries installed to $(GOPATH)/bin"
+	@install -m 755 $(BIN_DIR)/$(BINARY_NAME) $(GOPATH)/bin/
+	@install -m 755 $(BIN_DIR)/$(BINARY_NAME)d $(GOPATH)/bin/
+	@echo "Installation completed!"
 
-# Test targets
-test:
-	@echo "Running tests..."
-	@go test -v ./...
+## Run all tests
+test: test-unit test-integration
 
+## Run unit tests via script
 test-unit:
-	@echo "Running unit tests..."
-	@go test -tags=unit -v ./...
+	@bash scripts/run_unit_tests.sh
 
+## Run integration tests via script
 test-integration:
-	@echo "Running integration tests..."
-	@scripts/integration/run_tests.sh
+	@bash scripts/integration/run_tests.sh
 
-test-coverage:
-	@echo "Running tests with coverage..."
-	@go test -coverprofile=coverage.out ./...
-	@go tool cover -html=coverage.out
+## Open unit test coverage report
+unit-coverage:
+	@$(GO) tool cover -html=$(UNIT_COVERAGE) -o $(UNIT_COVERAGE).html && open $(UNIT_COVERAGE).html
 
-# Display coverage report from existing coverage.out file
+## Open integration test coverage report
+integration-coverage:
+	@$(GO) tool cover -html=$(INTEGRATION_COVERAGE) -o $(INTEGRATION_COVERAGE).html && open $(INTEGRATION_COVERAGE).html
+
+## View combined coverage report if coverage.out exists
 coverage-report:
-	@if [ ! -f coverage.out ]; then \
-		echo "Error: coverage.out file not found. Run 'make test-coverage' first."; \
-		exit 1; \
-	fi
-	$(GO) tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated at coverage.html"
+	@if [ -f $(UNIT_COVERAGE) ]; then $(GO) tool cover -html=$(UNIT_COVERAGE) -o unit_coverage.html && echo "Opened unit coverage report."; fi
+	@if [ -f $(INTEGRATION_COVERAGE) ]; then $(GO) tool cover -html=$(INTEGRATION_COVERAGE) -o integration_coverage.html && echo "Opened integration coverage report."; fi
 
-# Just show coverage summary without regenerating the report
+## Show coverage summary from available reports
 coverage-summary:
-	@if [ ! -f coverage.out ]; then \
-		echo "Error: coverage.out file not found. Run 'make test-coverage' first."; \
-		exit 1; \
-	fi
-	@echo "───────────────────────────────────────────────────"
-	@$(GO) tool cover -func=coverage.out | grep total | awk '{print "Total coverage: " $$3}'
-	@echo "───────────────────────────────────────────────────"
+	@if [ -f $(UNIT_COVERAGE) ]; then \
+		echo "─ Unit Test Coverage ─"; \
+		$(GO) tool cover -func=$(UNIT_COVERAGE) | grep total; fi
+	@if [ -f $(INTEGRATION_COVERAGE) ]; then \
+		echo "─ Integration Test Coverage ─"; \
+		$(GO) tool cover -func=$(INTEGRATION_COVERAGE) | grep total; fi
 
-# Lint targets
+coverage: unit-coverage integration-coverage
+
+## Lint the project
 lint:
 	@echo "Running linters..."
 	@golangci-lint run ./...
 
-# Clean targets
+## Clean build and coverage artifacts
 clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf bin/
-	@rm -f coverage.out
+	@echo "Cleaning..."
+	@rm -rf $(BIN_DIR) *.out *.html
 	@echo "Clean completed!"
 
-# Setup targets
+## Setup development environment
 setup:
-	@echo "Setting up development environment..."
-	@go mod tidy
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	@go install github.com/golang/mock/mockgen@latest
-	@go install golang.org/x/tools/cmd/godoc@latest
+	@echo "Setting up development tools..."
+	@$(GO) mod tidy
+	@$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@$(GO) install github.com/golang/mock/mockgen@latest
+	@$(GO) install golang.org/x/tools/cmd/godoc@latest
 	@echo "Setup completed!"
 
-# Development targets
+## Start development environment
 dev:
-	@echo "Starting development environment..."
+	@echo "Starting dev environment..."
 	@docker-compose up -d
-	@echo "Development environment started!"
 
-# Generate targets
+## Run code generation
 generate:
-	@echo "Running code generation..."
-	@go generate ./...
-	@echo "Code generation completed!"
+	@echo "Running go generate..."
+	@$(GO) generate ./...
 
-# Protocol Buffer targets
+## Generate protobuf files
 proto:
-	@echo "Generating Protocol Buffer code..."
 	@bash scripts/generate-proto.sh
-	@echo "Protocol Buffer code generation completed!"
 
+## Install protobuf tools
 proto-tools:
-	@echo "Installing Protocol Buffer tools..."
 	@bash scripts/install-proto-tools.sh
-	@echo "Protocol Buffer tools installation completed!"
 
-# Documentation targets
+## Run documentation server
 docs:
-	@echo "Generating documentation..."
 	@godoc -http=:6060 &
-	@echo "Documentation server started at http://localhost:6060"
+	@echo "Docs available at http://localhost:6060"
 
-# Docker targets
+## Build docker image
 docker:
-	@echo "Building Docker image..."
 	@docker build -t razorbill/$(BINARY_NAME):$(VERSION) .
-	@echo "Docker image built!"
 
-# Help target
+## Show help
 help:
-	@echo "Available targets:"
-	@echo "  build          - Build the project binaries"
-	@echo "  install        - Build and install binaries to GOPATH/bin"
-	@echo "  test           - Run tests"
-	@echo "  test-coverage  - Run tests with coverage report"
-	@echo "  coverage-report    Generate HTML coverage report from existing coverage.out"
-	@echo "  coverage-summary   Display coverage summary from existing coverage.out"
-	@echo "  lint           - Run linters"
-	@echo "  clean          - Clean build artifacts"
-	@echo "  setup          - Set up development environment"
-	@echo "  dev            - Start development environment"
-	@echo "  generate       - Run code generation"
-	@echo "  proto          - Generate Protocol Buffer code"
-	@echo "  proto-tools    - Install Protocol Buffer tools"
-	@echo "  docs           - Generate and serve documentation"
-	@echo "  docker         - Build Docker image"
-	@echo "  help           - Show this help message"
-
-# Default target
-.DEFAULT_GOAL := build 
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Build:"
+	@echo "  build             Build binaries"
+	@echo "  install           Build and install to GOPATH/bin"
+	@echo ""
+	@echo "Testing:"
+	@echo "  test              Run all tests"
+	@echo "  test-unit         Run unit tests"
+	@echo "  test-integration  Run integration tests"
+	@echo "  coverage          Open coverage reports"
+	@echo "  coverage-summary  Show text-based summaries"
+	@echo ""
+	@echo "Dev Tools:"
+	@echo "  lint              Run linters"
+	@echo "  clean             Clean all artifacts"
+	@echo "  setup             Install dev tools"
+	@echo "  dev               Start dev environment (Docker)"
+	@echo "  generate          Run go generate"
+	@echo ""
+	@echo "Protobuf:"
+	@echo "  proto             Generate Protobuf code"
+	@echo "  proto-tools       Install Protobuf tools"
+	@echo ""
+	@echo "Docs & Docker:"
+	@echo "  docs              Serve documentation"
+	@echo "  docker            Build Docker image"

@@ -15,6 +15,15 @@ import (
 	"github.com/rzbill/rune/pkg/types"
 )
 
+type InstanceRestartReason string
+
+const (
+	InstanceRestartReasonManual             InstanceRestartReason = "manual"
+	InstanceRestartReasonHealthCheckFailure InstanceRestartReason = "health-check-failure"
+	InstanceRestartReasonUpdate             InstanceRestartReason = "update"
+	InstanceRestartReasonFailure            InstanceRestartReason = "failure"
+)
+
 // InstanceController manages instance lifecycle
 type InstanceController interface {
 	// CreateInstance creates a new instance for a service
@@ -36,7 +45,7 @@ type InstanceController interface {
 	GetInstanceLogs(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error)
 
 	// RestartInstance restarts an instance with respect to the service's restart policy
-	RestartInstance(ctx context.Context, instance *types.Instance, reason string) error
+	RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 
 	// Exec executes a command in a running instance
 	// Returns an ExecStream for bidirectional communication
@@ -425,10 +434,10 @@ func buildEnvVars(service *types.Service, instance *types.Instance) map[string]s
 }
 
 // RestartInstance restarts an instance with respect to the service's restart policy
-func (c *instanceController) RestartInstance(ctx context.Context, instance *types.Instance, reason string) error {
+func (c *instanceController) RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error {
 	c.logger.Info("Restarting instance",
 		log.Str("instance", instance.ID),
-		log.Str("reason", reason))
+		log.Str("reason", string(reason)))
 
 	// Get the service to check its restart policy
 	var service types.Service
@@ -436,26 +445,35 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 		return fmt.Errorf("failed to get service for restart policy: %w", err)
 	}
 
-	// Check restart policy
-	restartPolicy := types.RestartPolicyAlways // Default to Always
-	if service.RestartPolicy != "" {
-		restartPolicy = service.RestartPolicy
-	}
-
-	// Implement restart policy
-	switch restartPolicy {
-	case types.RestartPolicyNever:
-		c.logger.Info("Skipping restart due to 'Never' policy",
+	// Manual restarts always override any policy
+	if reason == InstanceRestartReasonManual {
+		c.logger.Info("Manual restart requested, overriding restart policy",
 			log.Str("instance", instance.ID))
-		return nil
+	} else {
+		// Check restart policy for non-manual restarts
+		restartPolicy := types.RestartPolicyAlways // Default to Always
+		if service.RestartPolicy != "" {
+			restartPolicy = service.RestartPolicy
+		}
 
-	case types.RestartPolicyOnFailure:
-		// Only restart if the reason is a failure
-		if reason != "failure" && reason != "health-check-failure" {
-			c.logger.Info("Skipping restart due to 'OnFailure' policy with non-failure reason",
+		// Implement restart policy
+		switch restartPolicy {
+		case types.RestartPolicyNever:
+			// No automatic restarts allowed
+			c.logger.Info("Skipping restart due to 'Never' policy",
 				log.Str("instance", instance.ID),
-				log.Str("reason", reason))
+				log.Str("reason", string(reason)))
 			return nil
+
+		case types.RestartPolicyOnFailure:
+			// Only restart if the reason is a failure or health check issue
+			isFailureRelated := reason == InstanceRestartReasonFailure || reason == InstanceRestartReasonHealthCheckFailure
+			if !isFailureRelated {
+				c.logger.Info("Skipping restart due to 'OnFailure' policy with non-failure reason",
+					log.Str("instance", instance.ID),
+					log.Str("reason", string(reason)))
+				return nil
+			}
 		}
 	}
 
