@@ -14,11 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const (
-	// ResourceTypeInstance is the resource type for instances.
-	ResourceTypeInstance = "instances"
-)
-
 // InstanceService implements the gRPC InstanceService.
 type InstanceService struct {
 	generated.UnimplementedInstanceServiceServer
@@ -50,7 +45,7 @@ func (s *InstanceService) GetInstance(ctx context.Context, req *generated.GetIns
 	}
 
 	var instance *types.Instance
-	err := s.store.Get(ctx, ResourceTypeInstance, req.Namespace, req.Id, &instance)
+	err := s.store.Get(ctx, types.ResourceTypeInstance, req.Namespace, req.Id, &instance)
 	if err != nil {
 		// Handle error case
 		return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
@@ -101,7 +96,7 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 
 	// Get instances from the store
 	var storeInstances []types.Instance
-	err := s.store.List(ctx, ResourceTypeInstance, namespace, &storeInstances)
+	err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &storeInstances)
 	if err != nil {
 		s.logger.Error("Failed to list instances", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
@@ -276,10 +271,13 @@ func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.
 		Name:          protoInstance.Name,
 		Namespace:     protoInstance.Namespace,
 		ServiceID:     protoInstance.ServiceId,
+		ServiceName:   protoInstance.ServiceName,
 		NodeID:        protoInstance.NodeId,
 		IP:            protoInstance.Ip,
 		StatusMessage: protoInstance.StatusMessage,
 		ContainerID:   protoInstance.ContainerId,
+		Environment:   protoInstance.Environment,
+		Metadata:      protoInstance.Metadata,
 	}
 
 	// Convert PID (int32 -> int)
@@ -378,6 +376,8 @@ func (s *InstanceService) instanceModelToProto(instance *types.Instance) (*gener
 		StatusMessage: instance.StatusMessage,
 		ContainerId:   instance.ContainerID,
 		Pid:           int32(instance.PID),
+		Environment:   instance.Environment,
+		Metadata:      instance.Metadata,
 		CreatedAt:     instance.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     instance.UpdatedAt.Format(time.RFC3339),
 	}
@@ -419,6 +419,8 @@ func (s *InstanceService) instanceStatusToProto(status types.InstanceStatus) gen
 		return generated.InstanceStatus_INSTANCE_STATUS_FAILED
 	case types.InstanceStatusExited:
 		return generated.InstanceStatus_INSTANCE_STATUS_EXITED
+	case types.InstanceStatusDeleted:
+		return generated.InstanceStatus_INSTANCE_STATUS_DELETED
 	default:
 		return generated.InstanceStatus_INSTANCE_STATUS_UNSPECIFIED
 	}

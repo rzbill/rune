@@ -143,7 +143,7 @@ func StatusLabel(status string) string {
 		return Colorize(BoldGreen, status)
 	case "pending", "waiting", "starting", "initializing":
 		return Colorize(BoldYellow, status)
-	case "failed", "error", "unhealthy", "terminated":
+	case "failed", "error", "unhealthy", "terminated", "deleted":
 		return Colorize(BoldRed, status)
 	default:
 		return Colorize(White, status)
@@ -160,7 +160,7 @@ func PTermStatusLabel(status string) string {
 		return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint(status)
 	case "pending", "waiting", "starting", "initializing", "updating", "deploying":
 		return pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprint(status)
-	case "failed", "error", "unhealthy", "terminated":
+	case "failed", "error", "unhealthy", "terminated", "deleted":
 		return pterm.NewStyle(pterm.FgRed, pterm.Bold).Sprint(status)
 	default:
 		return pterm.NewStyle(pterm.FgWhite).Sprint(status)

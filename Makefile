@@ -1,4 +1,4 @@
-.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test-unit test-integration unit-coverage integration-coverage coverage help
+.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test-unit test-integration coverage-unit coverage-integration coverage help
 
 # Tools and paths
 GO ?= go
@@ -45,11 +45,11 @@ test-integration:
 	@bash scripts/integration/run_tests.sh
 
 ## Open unit test coverage report
-unit-coverage:
+coverage-unit:
 	@$(GO) tool cover -html=$(UNIT_COVERAGE) -o $(UNIT_COVERAGE).html && open $(UNIT_COVERAGE).html
 
 ## Open integration test coverage report
-integration-coverage:
+coverage-integration:
 	@$(GO) tool cover -html=$(INTEGRATION_COVERAGE) -o $(INTEGRATION_COVERAGE).html && open $(INTEGRATION_COVERAGE).html
 
 ## View combined coverage report if coverage.out exists

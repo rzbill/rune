@@ -45,6 +45,12 @@ type Orchestrator interface {
 
 	// RestartInstance restarts a specific instance
 	RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error
+
+	// StopService stops all instances of a service but keeps them in the store
+	StopService(ctx context.Context, namespace, serviceName string) error
+
+	// StopInstance stops a specific instance but keeps it in the store
+	StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error
 }
 
 // orchestrator implements the Orchestrator interface
@@ -86,6 +92,25 @@ func NewOrchestrator(store store.Store, instanceController InstanceController, h
 	}
 }
 
+// NewDefaultOrchestrator creates a new orchestrator with default components
+func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager manager.IRunnerManager) (Orchestrator, error) {
+	// Create the instance controller
+	instanceController := NewInstanceController(store, runnerManager, logger)
+
+	// Create the health controller
+	healthController := NewHealthController(logger, store, runnerManager)
+
+	// Setup the instance controller reference for health controller
+	if hc, ok := healthController.(interface{ SetInstanceController(InstanceController) }); ok {
+		hc.SetInstanceController(instanceController)
+	} else {
+		logger.Warn("Health controller does not support SetInstanceController method")
+	}
+
+	// Create and return the orchestrator
+	return NewOrchestrator(store, instanceController, healthController, runnerManager, logger), nil
+}
+
 // Start the orchestrator
 func (o *orchestrator) Start(ctx context.Context) error {
 	o.logger.Info("Starting orchestrator")
@@ -104,7 +129,7 @@ func (o *orchestrator) Start(ctx context.Context) error {
 	}
 
 	// Start watching services
-	watchCh, err := o.store.Watch(o.ctx, "services", "")
+	watchCh, err := o.store.Watch(o.ctx, types.ResourceTypeService, "")
 	if err != nil {
 		return fmt.Errorf("failed to watch services: %w", err)
 	}
@@ -220,6 +245,9 @@ func (o *orchestrator) handleServiceCreated(ctx context.Context, service *types.
 	// Set initial service state
 	service.Status = types.ServiceStatusPending
 
+	o.logger.Info("========== Should run handleServiceCreated ==========",
+		log.Json("service", service))
+
 	// Update service status in store
 	if err := o.store.Update(ctx, types.ResourceTypeService, service.Namespace, service.Name, service); err != nil {
 		o.logger.Error("Failed to update service status",
@@ -253,6 +281,9 @@ func (o *orchestrator) handleServiceCreated(ctx context.Context, service *types.
 
 // handleServiceUpdated handles service update events
 func (o *orchestrator) handleServiceUpdated(ctx context.Context, service *types.Service) {
+	o.logger.Info("========== Should run handleServiceUpdated ==========",
+		log.Json("service", service))
+
 	// Schedule reconciliation for this service using the reconciler
 	go func() {
 		// Collect running instances for reconciliation
@@ -342,15 +373,15 @@ func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name str
 }
 
 // GetInstanceStatus returns the current status of an instance
-func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceName string) (*InstanceStatusInfo, error) {
+func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*InstanceStatusInfo, error) {
 	// Get instance from store
 	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceName, &instance); err != nil {
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Verify instance belongs to the specified service
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
 	}
 
@@ -407,15 +438,15 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 }
 
 // GetInstanceLogs returns a stream of logs for an instance
-func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceName string, opts LogOptions) (io.ReadCloser, error) {
+func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts LogOptions) (io.ReadCloser, error) {
 	// Get instance from store
 	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceName, &instance); err != nil {
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Verify instance belongs to the specified service
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
 	}
 
@@ -461,7 +492,7 @@ func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceNam
 	}
 
 	// Verify instance belongs to the specified service
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
 	}
 
@@ -497,25 +528,6 @@ func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, s
 // GetInstanceController returns the instance controller for testing purposes
 func (o *orchestrator) GetInstanceController() InstanceController {
 	return o.instanceController
-}
-
-// NewDefaultOrchestrator creates a new orchestrator with default components
-func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager manager.IRunnerManager) (Orchestrator, error) {
-	// Create the instance controller
-	instanceController := NewInstanceController(store, runnerManager, logger)
-
-	// Create the health controller
-	healthController := NewHealthController(logger, store, runnerManager)
-
-	// Setup the instance controller reference for health controller
-	if hc, ok := healthController.(interface{ SetInstanceController(InstanceController) }); ok {
-		hc.SetInstanceController(instanceController)
-	} else {
-		logger.Warn("Health controller does not support SetInstanceController method")
-	}
-
-	// Create and return the orchestrator
-	return NewOrchestrator(store, instanceController, healthController, runnerManager, logger), nil
 }
 
 // RestartService restarts all instances of a service
@@ -573,7 +585,7 @@ func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceNa
 	}
 
 	// Verify instance belongs to the specified service
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return fmt.Errorf("instance does not belong to service %s", serviceName)
 	}
 
@@ -583,6 +595,86 @@ func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceNa
 	}
 
 	o.logger.Info("Successfully restarted instance",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName),
+		log.Str("instance", instanceID))
+	return nil
+}
+
+// StopService stops all instances of a service but keeps them in the store
+func (o *orchestrator) StopService(ctx context.Context, namespace, serviceName string) error {
+	o.logger.Info("Stopping service",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName))
+
+	// List instances for this service
+	instances, err := o.listInstancesForService(ctx, namespace, serviceName)
+	if err != nil {
+		return fmt.Errorf("failed to list instances for service: %w", err)
+	}
+
+	if len(instances) == 0 {
+		// No instances to stop
+		o.logger.Info("No instances found to stop for service",
+			log.Str("namespace", namespace),
+			log.Str("service", serviceName))
+		return nil
+	}
+
+	// Stop each instance
+	var lastError error
+	successCount := 0
+	for _, instance := range instances {
+		if err := o.instanceController.StopInstance(ctx, instance); err != nil {
+			o.logger.Error("Failed to stop instance",
+				log.Str("namespace", namespace),
+				log.Str("service", serviceName),
+				log.Str("instance", instance.ID),
+				log.Err(err))
+			lastError = err
+			// Continue with other instances even if one fails
+		} else {
+			successCount++
+		}
+	}
+
+	// Return the last error encountered, if any
+	if lastError != nil {
+		return fmt.Errorf("failed to stop all instances of service %s: %d of %d stopped: %w",
+			serviceName, successCount, len(instances), lastError)
+	}
+
+	o.logger.Info("Successfully stopped all instances of service",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName),
+		log.Int("instances", len(instances)))
+	return nil
+}
+
+// StopInstance stops a specific instance but keeps it in the store
+func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+	o.logger.Info("Stopping instance",
+		log.Str("namespace", namespace),
+		log.Str("service", serviceName),
+		log.Str("instance", instanceID))
+
+	// Get instance from store
+	var instance types.Instance
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		return fmt.Errorf("failed to get instance: %w", err)
+	}
+
+	// Verify instance belongs to the specified service
+	if instance.ServiceName != serviceName {
+		return fmt.Errorf("instance does not belong to service %s", serviceName)
+	}
+
+	// Stop the instance through instance controller
+	if err := o.instanceController.StopInstance(ctx, &instance); err != nil {
+		return fmt.Errorf("failed to stop instance: %w", err)
+	}
+
+	o.logger.Info("Successfully stopped instance",
 		log.Str("namespace", namespace),
 		log.Str("service", serviceName),
 		log.Str("instance", instanceID))

@@ -66,10 +66,11 @@ echo "Arguments: $@"
 	logger.Info("Example 1: Using command from PATH")
 
 	instance1 := &types.Instance{
-		ID:        "path-example-1",
-		Name:      "echo-from-path",
-		NodeID:    "local",
-		ServiceID: "example-service",
+		ID:          "path-example-1",
+		Name:        "echo-from-path",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
 		Process: &types.ProcessSpec{
 			Command: "echo", // Using command from PATH
 			Args:    []string{"This command is found in the system PATH"},
@@ -85,10 +86,11 @@ echo "Arguments: $@"
 	logger.Info("Example 2: Using absolute path to executable")
 
 	instance2 := &types.Instance{
-		ID:        "path-example-2",
-		Name:      "script-with-absolute-path",
-		NodeID:    "local",
-		ServiceID: "example-service",
+		ID:          "path-example-2",
+		Name:        "script-with-absolute-path",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
 		Process: &types.ProcessSpec{
 			Command: scriptPath, // Using absolute path to our test script
 			Args:    []string{"arg1", "arg2", "arg3"},
@@ -106,10 +108,11 @@ echo "Arguments: $@"
 	// Create instance with security context
 	// Note: This example will only work properly when running as root
 	instance3 := &types.Instance{
-		ID:        "path-example-3",
-		Name:      "with-security-context",
-		NodeID:    "local",
-		ServiceID: "example-service",
+		ID:          "path-example-3",
+		Name:        "with-security-context",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
 		Process: &types.ProcessSpec{
 			Command: scriptPath,
 			Args:    []string{"with security context"},
@@ -175,10 +178,11 @@ echo "Arguments: $@"
 	logger.Info("Example 4: Invalid path (should fail with validation error)")
 
 	instance4 := &types.Instance{
-		ID:        "path-example-4",
-		Name:      "invalid-path",
-		NodeID:    "local",
-		ServiceID: "example-service",
+		ID:          "path-example-4",
+		Name:        "invalid-path",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
 		Process: &types.ProcessSpec{
 			Command: "/path/to/nonexistent/executable",
 			Args:    []string{},
@@ -205,10 +209,11 @@ echo "Arguments: $@"
 		logger.Error("Failed to create non-executable file", log.Err(err))
 	} else {
 		instance5 := &types.Instance{
-			ID:        "path-example-5",
-			Name:      "non-executable-file",
-			NodeID:    "local",
-			ServiceID: "example-service",
+			ID:          "path-example-5",
+			Name:        "non-executable-file",
+			NodeID:      "local",
+			ServiceID:   "example-service-id",
+			ServiceName: "example-service-name",
 			Process: &types.ProcessSpec{
 				Command: nonExecPath,
 				Args:    []string{},

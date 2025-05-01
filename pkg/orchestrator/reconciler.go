@@ -14,6 +14,9 @@ import (
 	"github.com/rzbill/rune/pkg/types"
 )
 
+// The amount of time to keep deleted instances before removing them from store
+const deletedInstanceRetentionTime = 1 * time.Hour
+
 // reconciler is responsible for ensuring the actual state of instances
 // matches the desired state defined in the services
 type reconciler struct {
@@ -76,6 +79,11 @@ func (r *reconciler) Start(ctx context.Context) error {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
+
+		// Track the last time we ran garbage collection
+		// Initially run after 5 minutes to ensure system is stable
+		lastGC := time.Now().Add(-55 * time.Minute)
+
 		for {
 			select {
 			case <-r.ctx.Done():
@@ -91,6 +99,14 @@ func (r *reconciler) Start(ctx context.Context) error {
 				// Clean up deleted services
 				if err := r.handleDeletedServices(r.ctx); err != nil {
 					r.logger.Error("Failed to clean up deleted services", log.Err(err))
+				}
+
+				// Run garbage collection roughly once per hour
+				if time.Since(lastGC) > time.Hour {
+					if err := r.runGarbageCollection(r.ctx); err != nil {
+						r.logger.Error("Garbage collection failed", log.Err(err))
+					}
+					lastGC = time.Now()
 				}
 			}
 		}
@@ -287,10 +303,11 @@ func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Ser
 		log.Str("service", service.Name),
 		log.Int("count", len(storeInstances)))
 
-	// Filter instances for this service
+	// Filter instances for this service, skipping deleted ones
 	var serviceInstances []types.Instance
 	for _, instance := range storeInstances {
-		if instance.ServiceID == service.ID {
+
+		if instance.ServiceID == service.ID && instance.Status != types.InstanceStatusDeleted {
 			serviceInstances = append(serviceInstances, instance)
 
 			// Mark running instances that belong to this service as not orphaned
@@ -322,14 +339,6 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 	// For now we'll use a simple approach removing from the end
 	for i := service.Scale; i < len(instances); i++ {
 		instance := instances[i]
-
-		// Skip stopped instances
-		if instance.Status == types.InstanceStatusStopped {
-			r.logger.Info("Skipping stopped instance",
-				log.Str("service", service.Name),
-				log.Str("instance", instance.ID))
-			continue
-		}
 
 		r.logger.Info("Removing excess instance",
 			log.Str("service", service.Name),
@@ -623,4 +632,63 @@ func (r *reconciler) isRecreationRequired(err error) bool {
 	return strings.Contains(err.Error(), "requires recreation") ||
 		strings.Contains(err.Error(), "incompatible") ||
 		strings.Contains(err.Error(), "cannot be updated in-place")
+}
+
+// runGarbageCollection removes instances that have been marked as deleted
+// after a specified retention period has passed
+func (r *reconciler) runGarbageCollection(ctx context.Context) error {
+	r.logger.Debug("Running garbage collection")
+
+	// Get all instances
+	var instances []types.Instance
+	err := r.store.List(ctx, types.ResourceTypeInstance, "", &instances)
+	if err != nil {
+		return fmt.Errorf("failed to list instances for garbage collection: %w", err)
+	}
+
+	// Filter for deleted instances
+	for _, instance := range instances {
+		if instance.Status == types.InstanceStatusDeleted && instance.Metadata != nil {
+			// Check if retention period has passed
+			deletionTimestamp, exists := instance.Metadata["deletionTimestamp"]
+			if !exists {
+				// No timestamp, keep it for now and log the issue
+				r.logger.Warn("Found deleted instance without deletion timestamp",
+					log.Str("instance", instance.ID),
+					log.Str("namespace", instance.Namespace))
+				continue
+			}
+
+			// Parse the timestamp
+			deletedAt, err := time.Parse(time.RFC3339, deletionTimestamp)
+			if err != nil {
+				r.logger.Warn("Failed to parse deletion timestamp",
+					log.Str("instance", instance.ID),
+					log.Str("timestamp", deletionTimestamp),
+					log.Err(err))
+				continue
+			}
+
+			// Check if retention period has passed
+			if time.Since(deletedAt) > deletedInstanceRetentionTime {
+				r.logger.Info("Garbage collecting deleted instance",
+					log.Str("instance", instance.ID),
+					log.Str("namespace", instance.Namespace),
+					log.Str("deletedAt", deletedAt.Format(time.RFC3339)),
+					log.Str("age", time.Since(deletedAt).String()))
+
+				// Remove from store
+				if err := r.store.Delete(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID); err != nil {
+					r.logger.Error("Failed to garbage collect instance",
+						log.Str("instance", instance.ID),
+						log.Err(err))
+				} else {
+					r.logger.Info("Successfully garbage collected instance",
+						log.Str("instance", instance.ID))
+				}
+			}
+		}
+	}
+
+	return nil
 }

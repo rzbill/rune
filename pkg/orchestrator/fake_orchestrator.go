@@ -30,6 +30,8 @@ type FakeOrchestrator struct {
 	ExecInInstanceCalls    []ExecInInstanceCall
 	RestartServiceCalls    []RestartServiceCall
 	RestartInstanceCalls   []OrchestratorRestartInstanceCall
+	StopServiceCalls       []StopServiceCall
+	StopInstanceCalls      []OrchestratorStopInstanceCall
 
 	// Custom behavior options
 	StartFunc             func(ctx context.Context) error
@@ -42,6 +44,8 @@ type FakeOrchestrator struct {
 	ExecInInstanceFunc    func(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error)
 	RestartServiceFunc    func(ctx context.Context, namespace, serviceName string) error
 	RestartInstanceFunc   func(ctx context.Context, namespace, serviceName, instanceID string) error
+	StopServiceFunc       func(ctx context.Context, namespace, serviceName string) error
+	StopInstanceFunc      func(ctx context.Context, namespace, serviceName, instanceID string) error
 
 	// Default error responses
 	StartError             error
@@ -54,6 +58,8 @@ type FakeOrchestrator struct {
 	ExecInInstanceError    error
 	RestartServiceError    error
 	RestartInstanceError   error
+	StopServiceError       error
+	StopInstanceError      error
 
 	// Mock responses
 	LogsOutput   []byte
@@ -106,6 +112,19 @@ type RestartServiceCall struct {
 }
 
 type OrchestratorRestartInstanceCall struct {
+	Namespace   string
+	ServiceName string
+	InstanceID  string
+}
+
+// Add these new call tracking structs after OrchestratorRestartInstanceCall
+
+type StopServiceCall struct {
+	Namespace   string
+	ServiceName string
+}
+
+type OrchestratorStopInstanceCall struct {
 	Namespace   string
 	ServiceName string
 	InstanceID  string
@@ -239,7 +258,7 @@ func (o *FakeOrchestrator) GetInstanceStatus(ctx context.Context, namespace, ser
 	}
 
 	// Verify service association
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
 	}
 
@@ -322,7 +341,7 @@ func (o *FakeOrchestrator) GetInstanceLogs(ctx context.Context, namespace, servi
 	}
 
 	// Verify service association
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
 	}
 
@@ -419,7 +438,7 @@ func (o *FakeOrchestrator) ExecInInstance(ctx context.Context, namespace, servic
 	}
 
 	// Verify service association
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return nil, fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
 	}
 
@@ -530,7 +549,102 @@ func (o *FakeOrchestrator) DeleteInstance(namespace, id string) {
 	delete(nsInstances, id)
 }
 
-// Reset resets the fake orchestrator's state
+// StopService implementation for testing
+func (o *FakeOrchestrator) StopService(ctx context.Context, namespace, serviceName string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.StopServiceCalls = append(o.StopServiceCalls, StopServiceCall{
+		Namespace:   namespace,
+		ServiceName: serviceName,
+	})
+
+	if o.StopServiceFunc != nil {
+		return o.StopServiceFunc(ctx, namespace, serviceName)
+	}
+
+	if o.StopServiceError != nil {
+		return o.StopServiceError
+	}
+
+	// Default behavior - verify service exists first
+	nsServices, ok := o.services[namespace]
+	if !ok {
+		return fmt.Errorf("namespace %s not found", namespace)
+	}
+
+	_, ok = nsServices[serviceName]
+	if !ok {
+		return fmt.Errorf("service %s not found in namespace %s", serviceName, namespace)
+	}
+
+	// Find all instances for this service and set them as "stopped"
+	instanceCount := 0
+	for _, nsInstances := range o.instances {
+		for _, instance := range nsInstances {
+			if instance.Namespace == namespace && instance.ServiceID == serviceName {
+				instance.Status = types.InstanceStatusStopped
+				instance.StatusMessage = "Stopped by fake orchestrator"
+				instance.UpdatedAt = time.Now()
+				instanceCount++
+			}
+		}
+	}
+
+	if instanceCount == 0 {
+		o.logger.Info("No instances found to stop for service",
+			log.Str("namespace", namespace),
+			log.Str("service", serviceName))
+		return nil
+	}
+
+	return nil
+}
+
+// StopInstance implementation for testing
+func (o *FakeOrchestrator) StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.StopInstanceCalls = append(o.StopInstanceCalls, OrchestratorStopInstanceCall{
+		Namespace:   namespace,
+		ServiceName: serviceName,
+		InstanceID:  instanceID,
+	})
+
+	if o.StopInstanceFunc != nil {
+		return o.StopInstanceFunc(ctx, namespace, serviceName, instanceID)
+	}
+
+	if o.StopInstanceError != nil {
+		return o.StopInstanceError
+	}
+
+	// Default behavior - verify instance exists
+	nsInstances, ok := o.instances[namespace]
+	if !ok {
+		return fmt.Errorf("namespace %s not found", namespace)
+	}
+
+	instance, ok := nsInstances[instanceID]
+	if !ok {
+		return fmt.Errorf("instance %s not found in namespace %s", instanceID, namespace)
+	}
+
+	// Verify service association
+	if instance.ServiceName != serviceName {
+		return fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
+	}
+
+	// "Stop" the instance in our fake store
+	instance.Status = types.InstanceStatusStopped
+	instance.StatusMessage = "Stopped by fake orchestrator"
+	instance.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// Reset clears all recorded calls and stored instances
 func (o *FakeOrchestrator) Reset() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -549,6 +663,8 @@ func (o *FakeOrchestrator) Reset() {
 	o.ExecInInstanceCalls = nil
 	o.RestartServiceCalls = nil
 	o.RestartInstanceCalls = nil
+	o.StopServiceCalls = nil
+	o.StopInstanceCalls = nil
 }
 
 // RestartService implementation for testing
@@ -630,7 +746,7 @@ func (o *FakeOrchestrator) RestartInstance(ctx context.Context, namespace, servi
 	}
 
 	// Verify service association
-	if instance.ServiceID != serviceName {
+	if instance.ServiceName != serviceName {
 		return fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
 	}
 

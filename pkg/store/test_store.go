@@ -73,10 +73,13 @@ func (s *TestStore) Create(ctx context.Context, resourceType string, namespace s
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	fmt.Println("Create", resourceType, namespace, name, resource)
+
 	if !s.opened {
 		return errors.New("store is not opened")
 	}
 
+	fmt.Println("Before Create", resourceType, s.data[resourceType])
 	// Initialize maps if they don't exist
 	if _, exists := s.data[resourceType]; !exists {
 		s.data[resourceType] = make(map[string]map[string]interface{})
@@ -105,6 +108,8 @@ func (s *TestStore) Create(ctx context.Context, resourceType string, namespace s
 			Resource:  resource,
 		},
 	}
+
+	fmt.Println("After Create", s.data[resourceType])
 
 	// Send watch event
 	s.sendWatchEvent(resourceType, namespace, WatchEventCreated, name, resource)
@@ -189,6 +194,8 @@ func (s *TestStore) Get(ctx context.Context, resourceType string, namespace stri
 func (s *TestStore) List(ctx context.Context, resourceType string, namespace string, resource interface{}) error {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
+
+	fmt.Println("Before List", resourceType, s.data[resourceType])
 
 	if !s.opened {
 		return errors.New("store is not opened")

@@ -41,10 +41,11 @@ func main() {
 
 	// Create an instance running a simple interval counter script
 	instance := &types.Instance{
-		ID:        "counter-process",
-		Name:      "counter",
-		NodeID:    "local",
-		ServiceID: "example-service",
+		ID:          "counter-process",
+		Name:        "counter",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
 		Process: &types.ProcessSpec{
 			// Run a shell script that counts to 30 with 1-second intervals
 			Command: "sh",

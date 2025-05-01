@@ -35,7 +35,11 @@ type InstanceController interface {
 	// UpdateInstance updates an existing instance
 	UpdateInstance(ctx context.Context, service *types.Service, instance *types.Instance) error
 
-	// DeleteInstance removes an instance
+	// StopInstance stops an instance temporarily but keeps it in the store
+	StopInstance(ctx context.Context, instance *types.Instance) error
+
+	// DeleteInstance marks an instance for deletion and cleans up runner resources
+	// The instance will remain in the store with Deleted status until garbage collection
 	DeleteInstance(ctx context.Context, instance *types.Instance) error
 
 	// GetInstanceStatus gets the current status of an instance
@@ -90,7 +94,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	}
 
 	// Save instance to store
-	if err := c.store.Create(ctx, types.ResourceTypeInstance, service.Namespace, instance.Name, instance); err != nil {
+	if err := c.store.Create(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID, instance); err != nil {
 		return nil, fmt.Errorf("failed to create instance in store: %w", err)
 	}
 
@@ -122,7 +126,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 
 	// Update instance with pending status
 	instance.Status = types.InstanceStatusStarting
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, service.Namespace, instanceName, instance); err != nil {
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID, instance); err != nil {
 		c.logger.Error("Failed to update instance status",
 			log.Str("instance", instance.ID),
 			log.Err(err))
@@ -131,7 +135,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	// Create the instance using the runner
 	if err := serviceRunner.Create(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
-		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
+		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after create failure",
 				log.Str("instance", instance.ID),
 				log.Err(updateErr))
@@ -142,7 +146,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	// Start the instance
 	if err := serviceRunner.Start(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
-		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
+		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after start failure",
 				log.Str("instance", instance.ID),
 				log.Err(updateErr))
@@ -153,7 +157,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	// Update instance with running status
 	instance.Status = types.InstanceStatusRunning
 	instance.StatusMessage = "Created successfully"
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, service.Namespace, instanceName, instance); err != nil {
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID, instance); err != nil {
 		c.logger.Error("Failed to update instance status",
 			log.Str("instance", instance.ID),
 			log.Err(err))
@@ -260,7 +264,7 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 
 	// If we've made any updates to the instance object, save it back to the store
 	if instanceUpdated {
-		if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); err != nil {
+		if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
 			return fmt.Errorf("failed to update instance in store: %w", err)
 		}
 		c.logger.Info("Instance updated successfully",
@@ -274,13 +278,53 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 	return nil
 }
 
-// DeleteInstance removes an instance
-func (c *instanceController) DeleteInstance(ctx context.Context, instance *types.Instance) error {
-	c.logger.Info("Deleting instance",
+// StopInstance stops an instance but keeps it in the store
+func (c *instanceController) StopInstance(ctx context.Context, instance *types.Instance) error {
+	c.logger.Info("Stopping instance",
 		log.Str("instance", instance.ID))
 
-	c.logger.Info("deleting instance", log.Json("instance", instance))
+	// Get the runner for this instance
+	runner, err := c.runnerManager.GetInstanceRunner(instance)
+	if err != nil {
+		return fmt.Errorf("failed to get runner for instance: %w", err)
+	}
 
+	// Stop the instance with the runner
+	if err := runner.Stop(ctx, instance, 10*time.Second); err != nil {
+		c.logger.Error("Failed to stop instance with runner",
+			log.Str("instance", instance.ID),
+			log.Err(err))
+		return fmt.Errorf("failed to stop instance: %w", err)
+	}
+
+	// Update instance status to stopped
+	originalStatus := instance.Status
+	instance.Status = types.InstanceStatusStopped
+	instance.UpdatedAt = time.Now()
+	instance.StatusMessage = "Stopped by user"
+
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
+		c.logger.Error("Failed to update instance status",
+			log.Str("instance", instance.ID),
+			log.Str("from", string(originalStatus)),
+			log.Str("to", string(instance.Status)),
+			log.Err(err))
+		return fmt.Errorf("failed to update instance status: %w", err)
+	}
+
+	c.logger.Info("Instance stopped successfully",
+		log.Str("instance", instance.ID))
+	return nil
+}
+
+// DeleteInstance marks an instance for deletion and cleans up runner resources
+func (c *instanceController) DeleteInstance(ctx context.Context, instance *types.Instance) error {
+	c.logger.Info("Marking instance for deletion",
+		log.Str("instance", instance.ID),
+		log.Str("namespace", instance.Namespace),
+		log.Str("service", instance.ServiceName))
+
+	// Get the runner for this instance
 	runner, err := c.runnerManager.GetInstanceRunner(instance)
 	if err != nil {
 		return fmt.Errorf("failed to get runner for instance: %w", err)
@@ -305,27 +349,41 @@ func (c *instanceController) DeleteInstance(ctx context.Context, instance *types
 		failedToRemove = true
 	}
 
-	// If both operations failed, return a more descriptive error
+	// Mark the instance as deleted in the store
+	originalStatus := instance.Status
+	instance.Status = types.InstanceStatusDeleted
+	instance.StatusMessage = "Marked for deletion"
+	instance.UpdatedAt = time.Now()
+
+	// Store the deletion timestamp for garbage collection
+	if instance.Metadata == nil {
+		instance.Metadata = make(map[string]string)
+	}
+	instance.Metadata["deletionTimestamp"] = time.Now().Format(time.RFC3339)
+
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
+		c.logger.Error("Failed to mark instance as deleted",
+			log.Str("instance", instance.ID),
+			log.Str("from", string(originalStatus)),
+			log.Str("to", string(instance.Status)),
+			log.Err(err))
+	} else {
+		c.logger.Info("Instance marked as deleted successfully",
+			log.Json("instance", instance))
+
+	}
+
+	// Report any runner errors
 	if failedToStop && failedToRemove {
-		return fmt.Errorf("failed to both stop and remove instance")
+		return fmt.Errorf("failed to both stop and remove instance; instance marked as deleted but resources may remain")
 	}
 
 	if failedToStop {
-		return fmt.Errorf("failed to stop instance")
+		return fmt.Errorf("failed to stop instance; instance marked as deleted but may still be running")
 	}
 
 	if failedToRemove {
-		return fmt.Errorf("failed to remove instance")
-	}
-
-	c.logger.Info("instance deleted successfully", log.Json("instance", instance))
-
-	// Update instance status in store
-	instance.Status = types.InstanceStatusStopped
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); err != nil {
-		c.logger.Error("Failed to update instance status",
-			log.Str("instance", instance.ID),
-			log.Err(err))
+		return fmt.Errorf("failed to remove instance; instance marked as deleted but resources may remain")
 	}
 
 	return nil
@@ -489,7 +547,7 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 	instance.StatusMessage = fmt.Sprintf("Restarting due to: %s", reason)
 	instance.UpdatedAt = time.Now()
 
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); err != nil {
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
 		c.logger.Error("Failed to update instance status before restart",
 			log.Str("instance", instance.ID),
 			log.Err(err))
@@ -516,7 +574,7 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 	if err := runner.Create(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
 		instance.StatusMessage = fmt.Sprintf("Failed to recreate: %v", err)
-		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
+		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after create failure",
 				log.Str("instance", instance.ID),
 				log.Err(updateErr))
@@ -528,7 +586,7 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 	if err := runner.Start(ctx, instance); err != nil {
 		instance.Status = types.InstanceStatusFailed
 		instance.StatusMessage = fmt.Sprintf("Failed to start: %v", err)
-		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); updateErr != nil {
+		if updateErr := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); updateErr != nil {
 			c.logger.Error("Failed to update instance status after start failure",
 				log.Str("instance", instance.ID),
 				log.Err(updateErr))
@@ -541,7 +599,7 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 	instance.StatusMessage = "Restarted successfully"
 	instance.UpdatedAt = time.Now()
 
-	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.Name, instance); err != nil {
+	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
 		c.logger.Error("Failed to update instance status after restart",
 			log.Str("instance", instance.ID),
 			log.Err(err))

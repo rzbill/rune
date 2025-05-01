@@ -19,9 +19,6 @@ import (
 const (
 	// DefaultNamespace is the default namespace for services.
 	DefaultNamespace = "default"
-
-	// ResourceTypeService is the resource type for services.
-	ResourceTypeService = "services"
 )
 
 // ServiceService implements the gRPC ServiceService.
@@ -73,7 +70,7 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	service.Status = types.ServiceStatusPending
 
 	// Store the service
-	if err := s.store.Create(ctx, ResourceTypeService, service.Namespace, service.Name, service); err != nil {
+	if err := s.store.Create(ctx, types.ResourceTypeService, service.Namespace, service.Name, service); err != nil {
 		s.logger.Error("Failed to create service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to create service: %v", err)
 	}
@@ -108,7 +105,7 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 
 	// Get the service from the store
 	var service types.Service
-	if err := s.store.Get(ctx, ResourceTypeService, namespace, req.Name, &service); err != nil {
+	if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
 		}
@@ -149,10 +146,10 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 		// Get all namespaces first (this would typically come from a namespace store)
 		// TODO: For now, we'll just query all resources directly without namespace filtering
 		s.logger.Debug("Listing services across all namespaces")
-		err = s.store.List(ctx, ResourceTypeService, "", &services)
+		err = s.store.List(ctx, types.ResourceTypeService, "", &services)
 	} else {
 		// Get services from the store for a specific namespace
-		err = s.store.List(ctx, ResourceTypeService, namespace, &services)
+		err = s.store.List(ctx, types.ResourceTypeService, namespace, &services)
 	}
 
 	s.logger.Debug("======client requested========Found services", log.Json("services", services))
@@ -258,7 +255,7 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 
 	// Check if the service exists
 	var existingService types.Service
-	err := s.store.Get(ctx, ResourceTypeService, namespace, req.Service.Name, &existingService)
+	err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Service.Name, &existingService)
 	if err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Service.Name)
@@ -280,7 +277,7 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 	updatedService.Status = types.ServiceStatusDeploying
 
 	// Store the updated service
-	if err := s.store.Update(ctx, ResourceTypeService, namespace, req.Service.Name, updatedService); err != nil {
+	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Service.Name, updatedService); err != nil {
 		s.logger.Error("Failed to update service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update service: %v", err)
 	}
@@ -315,7 +312,7 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 
 	// Check if the service exists
 	var existingService types.Service
-	err := s.store.Get(ctx, ResourceTypeService, namespace, req.Name, &existingService)
+	err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &existingService)
 	if err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
@@ -327,7 +324,7 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 	// TODO: Check if service has instances and force parameter is provided
 
 	// Delete the service
-	if err := s.store.Delete(ctx, ResourceTypeService, namespace, req.Name); err != nil {
+	if err := s.store.Delete(ctx, types.ResourceTypeService, namespace, req.Name); err != nil {
 		s.logger.Error("Failed to delete service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to delete service: %v", err)
 	}
@@ -359,7 +356,7 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 
 	// Get the service from the store
 	var service types.Service
-	if err := s.store.Get(ctx, ResourceTypeService, namespace, req.Name, &service); err != nil {
+	if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
 		}
@@ -372,7 +369,7 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	service.UpdatedAt = time.Now()
 
 	// Store the updated service
-	if err := s.store.Update(ctx, ResourceTypeService, namespace, req.Name, &service); err != nil {
+	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
 		s.logger.Error("Failed to update service scale", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update service scale: %v", err)
 	}
@@ -679,7 +676,7 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 	}
 
 	// Start watching for service changes from the store
-	watchCh, err := s.store.Watch(ctx, ResourceTypeService, namespace)
+	watchCh, err := s.store.Watch(ctx, types.ResourceTypeService, namespace)
 	if err != nil {
 		s.logger.Error("Failed to watch services", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to watch services: %v", err)
@@ -687,7 +684,7 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 
 	// Initialize with current services (simulating ADDED events for all existing services)
 	var services []types.Service
-	err = s.store.List(ctx, ResourceTypeService, namespace, &services)
+	err = s.store.List(ctx, types.ResourceTypeService, namespace, &services)
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to list initial services: %v", err)
@@ -734,7 +731,7 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 			}
 
 			// Only handle events for services
-			if event.ResourceType != ResourceTypeService {
+			if event.ResourceType != types.ResourceTypeService {
 				continue
 			}
 

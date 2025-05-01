@@ -46,7 +46,7 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 
 		// Get the service from the store
 		var service types.Service
-		if err := s.store.Get(ctx, ResourceTypeService, namespace, serviceName, &service); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeService, namespace, serviceName, &service); err != nil {
 			if IsNotFound(err) {
 				return nil, status.Errorf(codes.NotFound, "service not found: %s", serviceName)
 			}
@@ -56,7 +56,7 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 
 		// Get all instances for the service
 		var instances []types.Instance
-		err := s.store.List(ctx, ResourceTypeInstance, namespace, &instances)
+		err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
 		if err != nil {
 			s.logger.Error("Failed to list instances", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
@@ -83,7 +83,7 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 
 		// Get the full instance details
 		var instance types.Instance
-		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 			s.logger.Error("Failed to get instance", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
 		}
@@ -95,7 +95,7 @@ func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.
 
 		// Get the instance details
 		var instance types.Instance
-		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 			if IsNotFound(err) {
 				return nil, status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
 			}
@@ -172,7 +172,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 
 		// Need to determine service ID for the instance
 		var instance types.Instance
-		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 			if IsNotFound(err) {
 				return status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
 			}
@@ -180,8 +180,10 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 			return status.Errorf(codes.Internal, "failed to get instance: %v", err)
 		}
 
-		serviceName := instance.ServiceID
+		serviceName := instance.ServiceName
+		fmt.Printf("Before====>>>>>>ExecInInstance %+v", instance)
 		execStream, err = s.orchestrator.ExecInInstance(ctx, namespace, serviceName, instanceID, execOptions)
+		fmt.Printf("\nAfter====>>>>>>ExecInInstance %+v", err)
 		if err != nil {
 			s.logger.Error("Failed to exec in instance",
 				log.Str("instance", instanceID),

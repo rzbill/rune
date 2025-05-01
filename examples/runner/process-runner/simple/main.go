@@ -51,11 +51,12 @@ func main() {
 	}
 
 	instance := &types.Instance{
-		ID:        "example-echo",
-		Name:      "example-echo",
-		NodeID:    "local",
-		ServiceID: "example-service", // Add required ServiceID
-		Resources: resources,
+		ID:          "example-echo",
+		Name:        "example-echo",
+		NodeID:      "local",
+		ServiceID:   "example-service-id",
+		ServiceName: "example-service-name",
+		Resources:   resources,
 		Process: &types.ProcessSpec{
 			Command: "echo",
 			Args:    []string{"Hello from process runner!"},

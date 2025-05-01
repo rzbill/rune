@@ -101,7 +101,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 
 		// Verify service exists
 		var service types.Service
-		if err := s.store.Get(ctx, ResourceTypeService, namespace, serviceName, &service); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeService, namespace, serviceName, &service); err != nil {
 			if IsNotFound(err) {
 				return status.Errorf(codes.NotFound, "service not found: %s", serviceName)
 			}
@@ -123,7 +123,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 
 		// Get the instance to determine its service
 		var instance types.Instance
-		if err := s.store.Get(ctx, ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
 			if IsNotFound(err) {
 				return status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
 			}

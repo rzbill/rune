@@ -17,6 +17,7 @@ enum InstanceStatus {
   INSTANCE_STATUS_STOPPED = 6;      // Instance has stopped
   INSTANCE_STATUS_FAILED = 7;       // Instance failed to start or crashed
   INSTANCE_STATUS_EXITED = 8;       // Instance exited
+  INSTANCE_STATUS_DELETED = 9;      // Instance is deleted
 }
 
 // Instance represents a running copy of a service.
@@ -65,6 +66,12 @@ message Instance {
   
   // Resource usage
   Resources resources = 15;
+
+  // Environment variables
+  map<string, string> environment = 16;
+
+  // Metadata
+  map<string, string> metadata = 17;
 }
 
 // GetInstanceRequest requests a specific instance.

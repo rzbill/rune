@@ -59,6 +59,10 @@ type Instance struct {
 
 	// Environment variables for the instance
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
+
+	// Metadata contains additional information about the instance
+	// Use for storing system properties that aren't part of the core spec
+	Metadata map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 // Exec represents execution configuration for a command
@@ -85,6 +89,10 @@ const (
 
 	// InstanceStatusFailed indicates the instance failed to start or crashed.
 	InstanceStatusFailed InstanceStatus = "Failed"
+
+	// InstanceStatusDeleted indicates the instance has been marked for deletion
+	// but is retained in the store for a period before garbage collection.
+	InstanceStatusDeleted InstanceStatus = "Deleted"
 
 	// Process runner specific statuses
 	InstanceStatusCreated  InstanceStatus = "Created"

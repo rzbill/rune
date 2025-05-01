@@ -47,10 +47,11 @@ func main() {
 
 	// Create instance object
 	instance := &types.Instance{
-		ID:        instanceID,
-		Name:      instanceName,
-		ServiceID: "example-service",
-		NodeID:    "local",
+		ID:          instanceID,
+		Name:        instanceName,
+		ServiceID:   "example-service",
+		ServiceName: "example-service",
+		NodeID:      "local",
 	}
 
 	// Create the instance

@@ -393,6 +393,8 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 		StatusMessage: proto.StatusMessage,
 		ContainerID:   proto.ContainerId,
 		PID:           int(proto.Pid),
+		Environment:   proto.Environment,
+		Metadata:      proto.Metadata,
 	}
 
 	// Parse timestamps
@@ -432,6 +434,8 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 		instance.Status = types.InstanceStatusFailed
 	case generated.InstanceStatus_INSTANCE_STATUS_EXITED:
 		instance.Status = types.InstanceStatusExited
+	case generated.InstanceStatus_INSTANCE_STATUS_DELETED:
+		instance.Status = types.InstanceStatusDeleted
 	default:
 		instance.Status = types.InstanceStatusPending // Default to pending if unspecified
 	}

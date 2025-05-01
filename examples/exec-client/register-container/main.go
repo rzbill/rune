@@ -47,6 +47,7 @@ func main() {
 		ID:          instanceID,
 		Name:        "test-instance",
 		ServiceID:   "test-service",
+		ServiceName: "test-service",
 		ContainerID: containerID,
 		Status:      types.InstanceStatusCreated,
 		CreatedAt:   time.Now(),

@@ -59,15 +59,15 @@ func TestCreateInstance(t *testing.T) {
 	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Test creating an instance for the service
-	instance, err := controller.CreateInstance(ctx, service, "test-instance")
+	instance, err := controller.CreateInstance(ctx, service, "test-instance-0")
 	require.NoError(t, err, "CreateInstance should not return an error")
 	assert.NotNil(t, instance, "Instance should not be nil")
-	assert.Equal(t, "test-instance", instance.Name, "Instance Name should match")
+	assert.Equal(t, "test-instance-0", instance.Name, "Instance Name should match")
 	assert.Equal(t, service.ID, instance.ServiceID, "Instance should reference the service")
 	assert.Equal(t, types.InstanceStatusRunning, instance.Status, "Instance should be running")
 
 	// Verify instance was stored
-	storedInstance, err := testStore.GetInstance(ctx, "default", instance.Name)
+	storedInstance, err := testStore.GetInstance(ctx, "default", instance.ID)
 	require.NoError(t, err, "Instance should be in the store")
 	assert.Equal(t, instance.ID, storedInstance.ID, "Stored instance ID should match")
 
@@ -113,11 +113,50 @@ func TestDeleteInstance(t *testing.T) {
 	// Verify instance status was updated
 	storedInstance, err := testStore.GetInstance(ctx, "default", "test-instance")
 	require.NoError(t, err, "Instance should still be in store")
-	assert.Equal(t, types.InstanceStatusStopped, storedInstance.Status, "Instance status should be stopped")
+	assert.Equal(t, types.InstanceStatusDeleted, storedInstance.Status, "Instance status should be deleted")
 
 	// Verify runner calls were made
 	assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Runner should have stopped the instance")
 	assert.Contains(t, testRunner.RemovedInstances, instance.ID, "Runner should have removed the instance")
+}
+
+// TestStopInstance tests the StopInstance method
+func TestStopInstance(t *testing.T) {
+	ctx, testStore, testRunner, controller := setupTestController(t)
+
+	// Create a test service and instance
+	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+
+	// Create instance directly in store and runner
+	instance := &types.Instance{
+		ID:        "test-instance-stop",
+		Name:      "test-instance-stop",
+		Namespace: "default",
+		ServiceID: service.ID,
+		Status:    types.InstanceStatusRunning,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err := testStore.CreateInstance(ctx, instance)
+	require.NoError(t, err, "Failed to create test instance")
+
+	// Add to test runner's tracked instances
+	err = testRunner.Create(ctx, instance)
+	require.NoError(t, err, "Failed to add instance to runner")
+
+	// Test stopping the instance
+	err = controller.StopInstance(ctx, instance)
+	require.NoError(t, err, "StopInstance should not return an error")
+
+	// Verify instance status was updated to stopped
+	storedInstance, err := testStore.GetInstance(ctx, "default", "test-instance-stop")
+	require.NoError(t, err, "Instance should still be in store")
+	assert.Equal(t, types.InstanceStatusStopped, storedInstance.Status, "Instance status should be stopped")
+	assert.Equal(t, "Stopped by user", storedInstance.StatusMessage, "Status message should indicate stopped by user")
+
+	// Verify runner stop call was made
+	assert.Contains(t, testRunner.StoppedInstances, instance.ID, "Runner should have stopped the instance")
 }
 
 // TestGetInstanceStatus tests the GetInstanceStatus method

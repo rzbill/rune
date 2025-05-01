@@ -65,7 +65,7 @@ func (s *HealthService) getServiceHealth(ctx context.Context, req *generated.Get
 	if req.Name != "" {
 		// Get health for a specific service
 		var service types.Service
-		if err := s.store.Get(ctx, ResourceTypeService, namespace, req.Name, &service); err != nil {
+		if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
 			if IsNotFound(err) {
 				return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
 			}
@@ -96,7 +96,7 @@ func (s *HealthService) getServiceHealth(ctx context.Context, req *generated.Get
 	} else {
 		// Get health for all services in the namespace
 		var services []types.Service
-		err := s.store.List(ctx, ResourceTypeService, namespace, &services)
+		err := s.store.List(ctx, types.ResourceTypeService, namespace, &services)
 		if err != nil {
 			s.logger.Error("Failed to list services", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to list services: %v", err)
@@ -260,7 +260,7 @@ func (s *HealthService) getAPIServerHealth(ctx context.Context, req *generated.G
 func (s *HealthService) computeServiceHealthFromInstances(ctx context.Context, serviceName, namespace string) (generated.HealthStatus, string) {
 	// Get all instances for the service
 	var instances []types.Instance
-	err := s.store.List(ctx, ResourceTypeInstance, namespace, &instances)
+	err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
 	if err != nil {
 		s.logger.Error("Failed to list instances", log.Err(err))
 		return generated.HealthStatus_HEALTH_STATUS_UNKNOWN, "Failed to retrieve instance data"

@@ -21,6 +21,7 @@ type FakeInstanceController struct {
 	CreateInstanceCalls   []CreateInstanceCall
 	RecreateInstanceCalls []RecreateInstanceCall
 	UpdateInstanceCalls   []UpdateInstanceCall
+	StopInstanceCalls     []StopInstanceCall
 	DeleteInstanceCalls   []DeleteInstanceCall
 	RestartInstanceCalls  []RestartInstanceCall
 	GetStatusCalls        []string // Instance IDs
@@ -31,6 +32,7 @@ type FakeInstanceController struct {
 	CreateInstanceFunc   func(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error)
 	RecreateInstanceFunc func(ctx context.Context, service *types.Service, instance *types.Instance) (*types.Instance, error)
 	UpdateInstanceFunc   func(ctx context.Context, service *types.Service, instance *types.Instance) error
+	StopInstanceFunc     func(ctx context.Context, instance *types.Instance) error
 	DeleteInstanceFunc   func(ctx context.Context, instance *types.Instance) error
 	RestartInstanceFunc  func(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 	GetStatusFunc        func(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error)
@@ -41,6 +43,7 @@ type FakeInstanceController struct {
 	CreateInstanceError   error
 	RecreateInstanceError error
 	UpdateInstanceError   error
+	StopInstanceError     error
 	DeleteInstanceError   error
 	RestartInstanceError  error
 	GetStatusError        error
@@ -88,6 +91,11 @@ type ExecCall struct {
 	Options  ExecOptions
 }
 
+// StopInstanceCall records the parameters of a StopInstance call
+type StopInstanceCall struct {
+	Instance *types.Instance
+}
+
 // NewFakeInstanceController creates a new test instance controller
 func NewFakeInstanceController() *FakeInstanceController {
 	return &FakeInstanceController{
@@ -123,6 +131,7 @@ func (c *FakeInstanceController) CreateInstance(ctx context.Context, service *ty
 		Name:        instanceName,
 		Namespace:   service.Namespace,
 		ServiceID:   service.ID,
+		ServiceName: service.Name,
 		Status:      types.InstanceStatusRunning,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -164,6 +173,7 @@ func (c *FakeInstanceController) RecreateInstance(ctx context.Context, service *
 		Name:        instance.Name,
 		Namespace:   service.Namespace,
 		ServiceID:   service.ID,
+		ServiceName: service.Name,
 		Status:      types.InstanceStatusRunning,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -348,6 +358,37 @@ func (c *FakeInstanceController) RestartInstance(ctx context.Context, instance *
 	return nil
 }
 
+// StopInstance records a call to stop an instance
+func (c *FakeInstanceController) StopInstance(ctx context.Context, instance *types.Instance) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Record the call
+	c.StopInstanceCalls = append(c.StopInstanceCalls, StopInstanceCall{
+		Instance: instance,
+	})
+
+	// If custom function is provided, use it
+	if c.StopInstanceFunc != nil {
+		return c.StopInstanceFunc(ctx, instance)
+	}
+
+	// If error is set, return it
+	if c.StopInstanceError != nil {
+		return c.StopInstanceError
+	}
+
+	// Default behavior
+	if storedInstance, exists := c.instances[instance.ID]; exists {
+		storedInstance.Status = types.InstanceStatusStopped
+		storedInstance.UpdatedAt = time.Now()
+		storedInstance.StatusMessage = "Stopped by user"
+		c.instances[instance.ID] = storedInstance
+	}
+
+	return nil
+}
+
 // AddInstance allows tests to add an instance directly to the controller's storage
 func (c *FakeInstanceController) AddInstance(instance *types.Instance) {
 	c.mu.Lock()
@@ -374,6 +415,7 @@ func (c *FakeInstanceController) Reset() {
 	c.CreateInstanceCalls = nil
 	c.RecreateInstanceCalls = nil
 	c.UpdateInstanceCalls = nil
+	c.StopInstanceCalls = nil
 	c.DeleteInstanceCalls = nil
 	c.RestartInstanceCalls = nil
 	c.GetStatusCalls = nil
