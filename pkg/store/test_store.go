@@ -10,6 +10,9 @@ import (
 	"github.com/rzbill/rune/pkg/types"
 )
 
+// Validate that TestStore implements the Store interface
+var _ Store = &TestStore{}
+
 // TestStore provides a simple in-memory implementation for testing purposes.
 // Unlike MockStore, it doesn't require setting up expectations and is more convenient
 // for basic tests that need a functional store.
@@ -66,6 +69,29 @@ func (s *TestStore) Close() error {
 
 	s.opened = false
 	return nil
+}
+
+func (s *TestStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+	// Special case for Namespace resources
+	if resourceType == types.ResourceTypeNamespace {
+		namespace, ok := resource.(*types.Namespace)
+		if !ok {
+			return fmt.Errorf("expected Namespace type for namespace resource")
+		}
+
+		// Use the namespace name as both namespace and name
+		// This effectively stores namespaces in a pseudo-namespace called "system"
+		return s.Create(ctx, resourceType, "system", namespace.Name, namespace)
+	}
+
+	// Normal handling for other resource types
+	namespacedResource, ok := resource.(types.NamespacedResource)
+	if !ok {
+		return fmt.Errorf("resource must implement NamespacedResource interface")
+	}
+
+	nn := namespacedResource.NamespacedName()
+	return s.Create(ctx, resourceType, nn.Namespace, nn.Name, resource)
 }
 
 // Create implements the Store interface.
@@ -202,7 +228,8 @@ func (s *TestStore) List(ctx context.Context, resourceType string, namespace str
 	}
 
 	if _, exists := s.data[resourceType]; !exists {
-		return fmt.Errorf("resource type %s not found", resourceType)
+		result := make([]interface{}, 0)
+		return UnmarshalResource(result, resource)
 	}
 
 	if _, exists := s.data[resourceType][namespace]; !exists {
@@ -217,10 +244,18 @@ func (s *TestStore) List(ctx context.Context, resourceType string, namespace str
 	return UnmarshalResource(result, resource)
 }
 
+// ListAll retrieves all resources of a given type in all namespaces.
+func (s *TestStore) ListAll(ctx context.Context, resourceType string, resource interface{}) error {
+	return s.List(ctx, resourceType, "", resource)
+}
+
 // Update implements the Store interface.
-func (s *TestStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *TestStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	// Parse update options
+	options := ParseUpdateOptions(opts...)
 
 	if !s.opened {
 		return errors.New("store is not opened")
@@ -249,8 +284,8 @@ func (s *TestStore) Update(ctx context.Context, resourceType string, namespace s
 		Resource:  resource,
 	})
 
-	// Send watch event
-	s.sendWatchEvent(resourceType, namespace, WatchEventUpdated, name, resource)
+	// Send watch event with source info
+	s.sendWatchEventWithSource(resourceType, namespace, WatchEventUpdated, name, resource, options.Source)
 
 	return nil
 }
@@ -403,8 +438,8 @@ func (s *TestStore) Transaction(ctx context.Context, fn func(tx Transaction) err
 	return fn(tx)
 }
 
-// Helper method to send watch events
-func (s *TestStore) sendWatchEvent(resourceType, namespace string, eventType WatchEventType, name string, resource interface{}) {
+// Helper method to send watch events with source info
+func (s *TestStore) sendWatchEventWithSource(resourceType, namespace string, eventType WatchEventType, name string, resource interface{}, source EventSource) {
 	s.watchMutex.RLock()
 	defer s.watchMutex.RUnlock()
 
@@ -416,6 +451,7 @@ func (s *TestStore) sendWatchEvent(resourceType, namespace string, eventType Wat
 		Namespace:    namespace,
 		Name:         name,
 		Resource:     resource,
+		Source:       source,
 	}
 
 	// Send the event to all watching channels
@@ -430,6 +466,11 @@ func (s *TestStore) sendWatchEvent(resourceType, namespace string, eventType Wat
 			}
 		}
 	}
+}
+
+// Helper method to send watch events
+func (s *TestStore) sendWatchEvent(resourceType, namespace string, eventType WatchEventType, name string, resource interface{}) {
+	s.sendWatchEventWithSource(resourceType, namespace, eventType, name, resource, "")
 }
 
 // testTransaction implements the Transaction interface

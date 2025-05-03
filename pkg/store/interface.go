@@ -17,14 +17,20 @@ type Store interface {
 	// Create creates a new resource.
 	Create(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
 
+	// CreateResource creates a new resource.
+	CreateResource(ctx context.Context, resourceType string, resource interface{}) error
+
 	// Get retrieves a resource by type, namespace, and name.
 	Get(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
 
 	// List retrieves all resources of a given type in a namespace.
 	List(ctx context.Context, resourceType string, namespace string, resource interface{}) error
 
+	// ListAll retrieves all resources of a given type in all namespaces.
+	ListAll(ctx context.Context, resourceType string, resource interface{}) error
+
 	// Update updates an existing resource.
-	Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
+	Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error
 
 	// Delete deletes a resource.
 	Delete(ctx context.Context, resourceType string, namespace string, name string) error
@@ -87,6 +93,9 @@ type WatchEvent struct {
 
 	// Resource is the resource data.
 	Resource interface{}
+
+	// Source identifies who triggered this change (empty for external changes)
+	Source EventSource
 }
 
 // HistoricalVersion represents a historical version of a resource.
@@ -99,4 +108,53 @@ type HistoricalVersion struct {
 
 	// Resource is the resource data for this version.
 	Resource interface{}
+}
+
+type EventSource string
+
+const (
+	EventSourceOrchestrator     EventSource = "orchestrator"
+	EventSourceAPI              EventSource = "api"
+	EventSourceReconciler       EventSource = "reconciler"
+	EventSourceHealthController EventSource = "health-controller"
+)
+
+// UpdateOption is a function that configures update options
+type UpdateOption func(*UpdateOptions)
+
+// UpdateOptions contains settings for update operations
+type UpdateOptions struct {
+	// Source identifies the origin of an update
+	Source EventSource
+}
+
+// WithSource adds a source identifier to an update operation
+func WithSource(source EventSource) UpdateOption {
+	return func(o *UpdateOptions) {
+		o.Source = source
+	}
+}
+
+// WithOrchestrator marks an update as originating from the orchestrator
+func WithOrchestrator() UpdateOption {
+	return WithSource(EventSourceOrchestrator)
+}
+
+// WithReconciler marks an update as originating from the reconciler
+func WithReconciler() UpdateOption {
+	return WithSource(EventSourceReconciler)
+}
+
+// WithHealthController marks an update as originating from the health controller
+func WithHealthController() UpdateOption {
+	return WithSource(EventSourceHealthController)
+}
+
+// ParseUpdateOptions builds an UpdateOptions struct from a list of option functions
+func ParseUpdateOptions(opts ...UpdateOption) UpdateOptions {
+	options := UpdateOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return options
 }

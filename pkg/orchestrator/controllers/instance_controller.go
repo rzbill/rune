@@ -1,4 +1,4 @@
-package orchestrator
+package controllers
 
 import (
 	"context"
@@ -24,6 +24,11 @@ const (
 	InstanceRestartReasonFailure            InstanceRestartReason = "failure"
 )
 
+// execStreamAdapter adapts runner.ExecStream to orchestrator.ExecStream
+type execStreamAdapter struct {
+	runner.ExecStream
+}
+
 // InstanceController manages instance lifecycle
 type InstanceController interface {
 	// CreateInstance creates a new instance for a service
@@ -43,17 +48,17 @@ type InstanceController interface {
 	DeleteInstance(ctx context.Context, instance *types.Instance) error
 
 	// GetInstanceStatus gets the current status of an instance
-	GetInstanceStatus(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error)
+	GetInstanceStatus(ctx context.Context, instance *types.Instance) (*types.InstanceStatusInfo, error)
 
 	// GetInstanceLogs gets logs for an instance
-	GetInstanceLogs(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error)
+	GetInstanceLogs(ctx context.Context, instance *types.Instance, opts types.LogOptions) (io.ReadCloser, error)
 
 	// RestartInstance restarts an instance with respect to the service's restart policy
 	RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 
 	// Exec executes a command in a running instance
 	// Returns an ExecStream for bidirectional communication
-	Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
+	Exec(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error)
 }
 
 // instanceController implements the InstanceController interface
@@ -108,7 +113,7 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	instance.Runner = serviceRunner.Type()
 
 	// Build environment variables using the proper function from envvar.go
-	envVars := buildEnvVars(service, instance)
+	envVars := prepareEnvVars(service, instance)
 	c.logger.Debug("Prepared environment variables",
 		log.Str("instance", instanceName),
 		log.Int("env_var_count", len(envVars)))
@@ -228,7 +233,7 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 
 	// Update environment variables (only adding/modifying, not removing)
 	envVarsUpdated := false
-	envVars := buildEnvVars(service, instance)
+	envVars := prepareEnvVars(service, instance)
 	for key, value := range envVars {
 		// Skip internal RUNE environment variables for comparison
 		if len(key) > 5 && key[:5] == "RUNE_" {
@@ -390,7 +395,7 @@ func (c *instanceController) DeleteInstance(ctx context.Context, instance *types
 }
 
 // GetInstanceStatus gets the current status of an instance
-func (c *instanceController) GetInstanceStatus(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error) {
+func (c *instanceController) GetInstanceStatus(ctx context.Context, instance *types.Instance) (*types.InstanceStatusInfo, error) {
 	// For now, we'll try to get status from both runners and use the first one that succeeds
 	runner, err := c.runnerManager.GetInstanceRunner(instance)
 	if err != nil {
@@ -400,8 +405,8 @@ func (c *instanceController) GetInstanceStatus(ctx context.Context, instance *ty
 	status, err := runner.Status(ctx, instance)
 	if err == nil {
 		// Assuming Status returns a string representing the state
-		return &InstanceStatusInfo{
-			State:      status,
+		return &types.InstanceStatusInfo{
+			Status:     status,
 			InstanceID: instance.ID,
 			NodeID:     instance.NodeID,
 			CreatedAt:  instance.CreatedAt,
@@ -409,8 +414,8 @@ func (c *instanceController) GetInstanceStatus(ctx context.Context, instance *ty
 	}
 
 	// If runner failed, return the instance status from the store
-	return &InstanceStatusInfo{
-		State:      instance.Status,
+	return &types.InstanceStatusInfo{
+		Status:     instance.Status,
 		InstanceID: instance.ID,
 		NodeID:     instance.NodeID,
 		CreatedAt:  instance.CreatedAt,
@@ -418,7 +423,7 @@ func (c *instanceController) GetInstanceStatus(ctx context.Context, instance *ty
 }
 
 // GetInstanceLogs gets logs for an instance
-func (c *instanceController) GetInstanceLogs(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error) {
+func (c *instanceController) GetInstanceLogs(ctx context.Context, instance *types.Instance, opts types.LogOptions) (io.ReadCloser, error) {
 	// Try to get logs from both runners and use the first one that succeeds
 	_runner, err := c.runnerManager.GetInstanceRunner(instance)
 	if err != nil {
@@ -440,7 +445,7 @@ func (c *instanceController) GetInstanceLogs(ctx context.Context, instance *type
 }
 
 // Exec executes a command in a running instance
-func (c *instanceController) Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error) {
+func (c *instanceController) Exec(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error) {
 	c.logger.Debug("Executing command in instance",
 		log.Str("instance", instance.ID),
 		log.Str("command", strings.Join(options.Command, " ")))
@@ -468,28 +473,6 @@ func (c *instanceController) Exec(ctx context.Context, instance *types.Instance,
 	}
 
 	return execStreamAdapter{execStream}, nil
-}
-
-// execStreamAdapter adapts runner.ExecStream to orchestrator.ExecStream
-type execStreamAdapter struct {
-	runner.ExecStream
-}
-
-// buildEnvVars prepares environment variables for an instance
-func buildEnvVars(service *types.Service, instance *types.Instance) map[string]string {
-	envVars := make(map[string]string)
-
-	// Add service-defined environment variables
-	for key, value := range service.Env {
-		envVars[key] = value
-	}
-
-	// Add built-in environment variables
-	envVars["RUNE_SERVICE_NAME"] = service.Name
-	envVars["RUNE_SERVICE_NAMESPACE"] = service.Namespace
-	envVars["RUNE_INSTANCE_ID"] = instance.ID
-
-	return envVars
 }
 
 // RestartInstance restarts an instance with respect to the service's restart policy
@@ -707,19 +690,4 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 
 	// If we get here, the instance is compatible
 	return true, ""
-}
-
-// areStringSlicesEqual checks if two string slices are equal
-func areStringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i, v := range a {
-		if v != b[i] {
-			return false
-		}
-	}
-
-	return true
 }

@@ -127,10 +127,36 @@ func (m *MemoryStore) Create(ctx context.Context, resourceType, namespace, name 
 	return nil
 }
 
+func (m *MemoryStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+	// Special case for Namespace resources
+	if resourceType == types.ResourceTypeNamespace {
+		namespace, ok := resource.(*types.Namespace)
+		if !ok {
+			return fmt.Errorf("expected Namespace type for namespace resource")
+		}
+
+		// Use the namespace name as both namespace and name
+		// This effectively stores namespaces in a pseudo-namespace called "system"
+		return m.Create(ctx, resourceType, "system", namespace.Name, namespace)
+	}
+
+	// Normal handling for other resource types
+	namespacedResource, ok := resource.(types.NamespacedResource)
+	if !ok {
+		return fmt.Errorf("resource must implement NamespacedResource interface")
+	}
+
+	nn := namespacedResource.NamespacedName()
+	return m.Create(ctx, resourceType, nn.Namespace, nn.Name, resource)
+}
+
 // Update updates an object in the memory store.
-func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name string, value interface{}) error {
+func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name string, value interface{}, opts ...UpdateOption) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	// Parse update options but we don't use them in memory store
+	_ = ParseUpdateOptions(opts...)
 
 	nsMap, ok := m.data[resourceType]
 	if !ok {
@@ -145,6 +171,14 @@ func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name 
 	_, exists := objMap[name]
 	if !exists {
 		return fmt.Errorf("object not found: %s", name)
+	}
+
+	// Increment generation for service resources
+	if resourceType == types.ResourceTypeService {
+		if service, ok := value.(*types.Service); ok {
+			// Increment the generation counter
+			service.Generation++
+		}
 	}
 
 	// For specific types, make sure we store a copy to prevent modification

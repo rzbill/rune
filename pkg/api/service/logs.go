@@ -63,7 +63,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	}
 
 	// Set up log options
-	logOptions := orchestrator.LogOptions{
+	logOptions := types.LogOptions{
 		Follow:     req.Follow,
 		Tail:       int(req.Tail),
 		Timestamps: req.Timestamps,

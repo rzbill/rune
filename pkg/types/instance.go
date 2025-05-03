@@ -101,6 +101,16 @@ const (
 	InstanceStatusUnknown  InstanceStatus = "Unknown"
 )
 
+// InstanceStatusInfo contains information about an instance's status
+type InstanceStatusInfo struct {
+	Status        InstanceStatus
+	StatusMessage string
+	InstanceID    string
+	NodeID        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 // Validate validates the instance configuration.
 func (i *Instance) Validate() error {
 	if i.ID == "" {

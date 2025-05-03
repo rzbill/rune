@@ -1,15 +1,14 @@
-package orchestrator
+package controllers
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/types"
 )
 
@@ -35,9 +34,9 @@ type FakeInstanceController struct {
 	StopInstanceFunc     func(ctx context.Context, instance *types.Instance) error
 	DeleteInstanceFunc   func(ctx context.Context, instance *types.Instance) error
 	RestartInstanceFunc  func(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
-	GetStatusFunc        func(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error)
-	GetLogsFunc          func(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error)
-	ExecFunc             func(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
+	GetStatusFunc        func(ctx context.Context, instance *types.Instance) (*types.InstanceStatusInfo, error)
+	GetLogsFunc          func(ctx context.Context, instance *types.Instance, opts types.LogOptions) (io.ReadCloser, error)
+	ExecFunc             func(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error)
 
 	// Default error responses
 	CreateInstanceError   error
@@ -88,7 +87,7 @@ type RestartInstanceCall struct {
 // ExecCall records the parameters of an Exec call
 type ExecCall struct {
 	Instance *types.Instance
-	Options  ExecOptions
+	Options  types.ExecOptions
 }
 
 // StopInstanceCall records the parameters of a StopInstance call
@@ -246,7 +245,7 @@ func (c *FakeInstanceController) DeleteInstance(ctx context.Context, instance *t
 }
 
 // GetInstanceStatus records a call to get instance status
-func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance *types.Instance) (*InstanceStatusInfo, error) {
+func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance *types.Instance) (*types.InstanceStatusInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -266,14 +265,14 @@ func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance
 	// Default behavior
 	storedInstance, exists := c.instances[instance.ID]
 	if !exists {
-		return &InstanceStatusInfo{
-			State:      types.InstanceStatusUnknown,
+		return &types.InstanceStatusInfo{
+			Status:     types.InstanceStatusUnknown,
 			InstanceID: instance.ID,
 		}, nil
 	}
 
-	return &InstanceStatusInfo{
-		State:      storedInstance.Status,
+	return &types.InstanceStatusInfo{
+		Status:     storedInstance.Status,
 		InstanceID: storedInstance.ID,
 		NodeID:     storedInstance.NodeID,
 		CreatedAt:  storedInstance.CreatedAt,
@@ -281,7 +280,7 @@ func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance
 }
 
 // GetInstanceLogs records a call to get instance logs
-func (c *FakeInstanceController) GetInstanceLogs(ctx context.Context, instance *types.Instance, opts LogOptions) (io.ReadCloser, error) {
+func (c *FakeInstanceController) GetInstanceLogs(ctx context.Context, instance *types.Instance, opts types.LogOptions) (io.ReadCloser, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -303,7 +302,7 @@ func (c *FakeInstanceController) GetInstanceLogs(ctx context.Context, instance *
 }
 
 // Exec records a call to execute a command in an instance
-func (c *FakeInstanceController) Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error) {
+func (c *FakeInstanceController) Exec(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -324,7 +323,7 @@ func (c *FakeInstanceController) Exec(ctx context.Context, instance *types.Insta
 	}
 
 	// Default behavior - return a fake exec stream
-	return NewFakeExecStream(c.ExecStdout, c.ExecStderr, c.ExecExitCode), nil
+	return runner.NewFakeExecStream(c.ExecStdout, c.ExecStderr, c.ExecExitCode), nil
 }
 
 // RestartInstance records a call to restart an instance
@@ -421,119 +420,4 @@ func (c *FakeInstanceController) Reset() {
 	c.GetStatusCalls = nil
 	c.GetLogsCalls = nil
 	c.ExecCalls = nil
-}
-
-// FakeExecStream implements ExecStream for testing
-type FakeExecStream struct {
-	StdoutContent []byte
-	StdoutPos     int
-	StderrContent []byte
-	StderrReader  io.Reader
-	ExitCodeVal   int
-	SignalsSent   []string
-	InputCapture  []byte
-	Closed        bool
-	mu            sync.Mutex
-}
-
-// NewFakeExecStream creates a new fake exec stream with predefined content
-func NewFakeExecStream(stdout, stderr []byte, exitCode int) *FakeExecStream {
-	return &FakeExecStream{
-		StdoutContent: stdout,
-		StderrContent: stderr,
-		ExitCodeVal:   exitCode,
-		StderrReader:  bytes.NewReader(stderr),
-		SignalsSent:   make([]string, 0),
-		InputCapture:  make([]byte, 0),
-		Closed:        false,
-	}
-}
-
-// Write captures input that would be sent to the exec process
-func (s *FakeExecStream) Write(p []byte) (n int, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Closed {
-		return 0, io.ErrClosedPipe
-	}
-
-	// Capture the input
-	s.InputCapture = append(s.InputCapture, p...)
-	return len(p), nil
-}
-
-// Read returns predefined output content in chunks
-func (s *FakeExecStream) Read(p []byte) (n int, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Closed {
-		return 0, io.ErrClosedPipe
-	}
-
-	// If we've read everything, return EOF
-	if s.StdoutPos >= len(s.StdoutContent) {
-		return 0, io.EOF
-	}
-
-	// Calculate how much to read
-	remaining := len(s.StdoutContent) - s.StdoutPos
-	toRead := len(p)
-	if toRead > remaining {
-		toRead = remaining
-	}
-
-	// Copy the data
-	copy(p, s.StdoutContent[s.StdoutPos:s.StdoutPos+toRead])
-	s.StdoutPos += toRead
-
-	return toRead, nil
-}
-
-// Stderr returns an io.Reader for the stderr stream
-func (s *FakeExecStream) Stderr() io.Reader {
-	return s.StderrReader
-}
-
-// ResizeTerminal records terminal resize events
-func (s *FakeExecStream) ResizeTerminal(width, height uint32) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Closed {
-		return fmt.Errorf("exec session closed")
-	}
-
-	return nil
-}
-
-// Signal records signals sent to the process
-func (s *FakeExecStream) Signal(sigName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.Closed {
-		return fmt.Errorf("exec session closed")
-	}
-
-	s.SignalsSent = append(s.SignalsSent, sigName)
-	return nil
-}
-
-// ExitCode returns the predefined exit code
-func (s *FakeExecStream) ExitCode() (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.ExitCodeVal, nil
-}
-
-// Close marks the stream as closed
-func (s *FakeExecStream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.Closed = true
-	return nil
 }

@@ -1,78 +1,41 @@
 package orchestrator
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
+	"strings"
 
+	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 )
+
+// WorkItemKey is a key for a work item
+type workItemKey struct {
+	ResourceType string
+	Namespace    string
+	Name         string
+	EventType    string
+}
 
 // generateInstanceName generates a unique instance name for a service
 func generateInstanceName(service *types.Service, index int) string {
 	return fmt.Sprintf("%s-%d", service.Name, index)
 }
 
-func PrettyPrint(v ...interface{}) {
-	prints := CapturePrettyPrint(v...)
-	fmt.Println(prints...)
+// buildWorkItemKey builds a key for a work item
+func buildWorkItemKey(event store.WatchEvent) string {
+	return fmt.Sprintf("%s/%s/%s/%s", event.ResourceType, event.Namespace, event.Name, event.Type)
 }
 
-func CapturePrettyPrint(v ...interface{}) []any {
-	prints := []any{}
-	for _, value := range v {
-		// if v is a string then print it directly
-		if str, ok := value.(string); ok {
-			prints = append(prints, str)
-			continue
-		}
-
-		if str, ok := value.(*string); ok {
-			prints = append(prints, *str)
-			continue
-		}
-
-		if intValue, ok := value.(int); ok {
-			prints = append(prints, strconv.Itoa(intValue))
-			continue
-		}
-
-		if intValue, ok := value.(*int); ok {
-			prints = append(prints, strconv.Itoa(*intValue))
-			continue
-		}
-
-		if intValue, ok := value.(int64); ok {
-			prints = append(prints, strconv.FormatInt(intValue, 10))
-			continue
-		}
-
-		if intValue, ok := value.(*int64); ok {
-			prints = append(prints, strconv.FormatInt(*intValue, 10))
-			continue
-		}
-
-		if floatValue, ok := value.(float64); ok {
-			prints = append(prints, strconv.FormatFloat(floatValue, 'f', -1, 64))
-			continue
-		}
-
-		if floatValue, ok := value.(*float64); ok {
-			prints = append(prints, strconv.FormatFloat(*floatValue, 'f', -1, 64))
-			continue
-		}
-
-		// default to pretty print
-		prints = append(prints, MapToPretty(value))
+// parseWorkItemKey parses a key for a work item
+func parseWorkItemKey(key string) (*workItemKey, error) {
+	parts := strings.Split(key, "/")
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("invalid work item key format: %s, expected at least 4 segments (resourceType/namespace/name/eventType)", key)
 	}
-
-	return prints
-}
-
-func MapToPretty(v interface{}) string {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return ""
-	}
-	return string(b)
+	return &workItemKey{
+		ResourceType: parts[0],
+		Namespace:    parts[1],
+		Name:         parts[2],
+		EventType:    parts[3],
+	}, nil
 }

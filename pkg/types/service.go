@@ -64,6 +64,9 @@ type Service struct {
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 
+	// Metadata fields for preventing reconciliation loops
+	Generation int64 `json:"generation,omitempty" yaml:"generation,omitempty"`
+
 	// Status of the service
 	Status ServiceStatus `json:"status" yaml:"status"`
 

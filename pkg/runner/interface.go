@@ -41,6 +41,12 @@ type Runner interface {
 	Exec(ctx context.Context, instance *types.Instance, options ExecOptions) (ExecStream, error)
 }
 
+// RunnerProvider defines a simplified interface for getting runners
+type RunnerProvider interface {
+	// GetInstanceRunner returns the appropriate runner for an instance
+	GetInstanceRunner(instance *types.Instance) (Runner, error)
+}
+
 // LogOptions defines options for retrieving logs.
 type LogOptions struct {
 	// Follow indicates whether to follow the log output (like tail -f).

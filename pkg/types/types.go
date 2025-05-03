@@ -1,10 +1,8 @@
-package orchestrator
+package types
 
 import (
 	"io"
 	"time"
-
-	"github.com/rzbill/rune/pkg/types"
 )
 
 // LogOptions defines options for retrieving logs
@@ -57,28 +55,18 @@ type InstanceHealthStatus struct {
 	LastChecked time.Time
 }
 
-// InstanceStatus represents the status of an instance.
-type InstanceStatus struct {
-	InstanceID    string
-	Status        string
-	StatusMessage string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
-// ServiceStatusInfo contains information about a service's status
+// ServiceStatusInfo contains a summary of a service's status
 type ServiceStatusInfo struct {
-	State              types.ServiceStatus
-	InstanceCount      int
-	ReadyInstanceCount int
-}
+	Status ServiceStatus
 
-// InstanceStatusInfo contains information about an instance's status
-type InstanceStatusInfo struct {
-	State      types.InstanceStatus
-	InstanceID string
-	NodeID     string
-	CreatedAt  time.Time
+	// ObservedGeneration tracks which generation was last processed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+
+	// DesiredInstances is the number of instances that should be running
+	DesiredInstances int
+
+	// RunningInstances is the number of instances that are currently running
+	RunningInstances int
 }
 
 // ExecOptions defines options for executing a command in a running instance

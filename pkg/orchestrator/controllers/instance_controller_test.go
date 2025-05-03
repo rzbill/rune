@@ -1,4 +1,4 @@
-package orchestrator
+package controllers
 
 import (
 	"context"
@@ -187,7 +187,7 @@ func TestGetInstanceStatus(t *testing.T) {
 	// Test getting the instance status
 	statusInfo, err := controller.GetInstanceStatus(ctx, instance)
 	require.NoError(t, err, "GetInstanceStatus should not return an error")
-	assert.Equal(t, types.InstanceStatusRunning, statusInfo.State, "Status should be running")
+	assert.Equal(t, types.InstanceStatusRunning, statusInfo.Status, "Status should be running")
 	assert.Equal(t, instance.ID, statusInfo.InstanceID, "Instance ID should match")
 	assert.Equal(t, instance.NodeID, statusInfo.NodeID, "Node ID should match")
 
@@ -221,7 +221,7 @@ func TestGetInstanceLogs(t *testing.T) {
 	testRunner.LogOutput = testLogContent
 
 	// Test getting the instance logs
-	logOpts := LogOptions{
+	logOpts := types.LogOptions{
 		Follow:     false,
 		Tail:       10,
 		Timestamps: false,
@@ -275,7 +275,7 @@ func TestExec(t *testing.T) {
 	testRunner.ExitCodeVal = testExitCode
 
 	// Create exec options
-	execOpts := ExecOptions{
+	execOpts := types.ExecOptions{
 		Command:        command,
 		Env:            map[string]string{"TEST_VAR": "test_value"},
 		WorkingDir:     "/app",

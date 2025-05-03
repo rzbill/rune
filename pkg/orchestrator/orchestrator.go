@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator/controllers"
+	"github.com/rzbill/rune/pkg/orchestrator/queue"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
@@ -22,23 +24,23 @@ type Orchestrator interface {
 	Stop() error
 
 	// GetServiceStatus returns the current status of a service
-	GetServiceStatus(ctx context.Context, namespace, name string) (*ServiceStatusInfo, error)
+	GetServiceStatus(ctx context.Context, namespace, name string) (*types.ServiceStatusInfo, error)
 
 	// GetInstanceStatus returns the current status of an instance
-	GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*InstanceStatusInfo, error)
+	GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error)
 
 	// GetServiceLogs returns a stream of logs for a service
-	GetServiceLogs(ctx context.Context, namespace, name string, opts LogOptions) (io.ReadCloser, error)
+	GetServiceLogs(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error)
 
 	// GetInstanceLogs returns a stream of logs for an instance
-	GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts LogOptions) (io.ReadCloser, error)
+	GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error)
 
 	// ExecInService executes a command in a running instance of the service
 	// If multiple instances exist, one will be chosen
-	ExecInService(ctx context.Context, namespace, serviceName string, options ExecOptions) (ExecStream, error)
+	ExecInService(ctx context.Context, namespace, serviceName string, options types.ExecOptions) (types.ExecStream, error)
 
 	// ExecInInstance executes a command in a specific instance
-	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error)
+	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error)
 
 	// RestartService restarts all instances of a service
 	RestartService(ctx context.Context, namespace, serviceName string) error
@@ -56,10 +58,11 @@ type Orchestrator interface {
 // orchestrator implements the Orchestrator interface
 type orchestrator struct {
 	store              store.Store
-	instanceController InstanceController
-	healthController   HealthController
+	instanceController controllers.InstanceController
+	healthController   controllers.HealthController
 	reconciler         *reconciler
 	logger             log.Logger
+	statusUpdater      StatusUpdater
 
 	// Context for background operations
 	ctx    context.Context
@@ -70,10 +73,20 @@ type orchestrator struct {
 
 	// Watch channel for services
 	watchCh <-chan store.WatchEvent
+
+	// Worker queue for processing service events
+	workerQueue *queue.WorkerQueue
+
+	// For tracking observed generations to prevent reconciliation loops
+	serviceObservedGenerations map[string]int64
+	serviceObservedLock        sync.RWMutex
+
+	// For tracking internal updates to prevent reconciliation loops
+	internalUpdates sync.Map
 }
 
 // NewOrchestrator creates a new orchestrator
-func NewOrchestrator(store store.Store, instanceController InstanceController, healthController HealthController, runnerManager manager.IRunnerManager, logger log.Logger) Orchestrator {
+func NewOrchestrator(store store.Store, instanceController controllers.InstanceController, healthController controllers.HealthController, runnerManager manager.IRunnerManager, logger log.Logger) Orchestrator {
 	// Create the reconciler
 	reconciler := newReconciler(
 		store,
@@ -83,29 +96,28 @@ func NewOrchestrator(store store.Store, instanceController InstanceController, h
 		logger,
 	)
 
+	// Create the status updater
+	statusUpdater := NewStatusUpdater(store, logger)
+
 	return &orchestrator{
-		store:              store,
-		instanceController: instanceController,
-		healthController:   healthController,
-		reconciler:         reconciler,
-		logger:             logger.WithComponent("orchestrator"),
+		store:                      store,
+		instanceController:         instanceController,
+		healthController:           healthController,
+		reconciler:                 reconciler,
+		logger:                     logger.WithComponent("orchestrator"),
+		statusUpdater:              statusUpdater,
+		serviceObservedGenerations: make(map[string]int64),
 	}
 }
 
 // NewDefaultOrchestrator creates a new orchestrator with default components
 func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager manager.IRunnerManager) (Orchestrator, error) {
 	// Create the instance controller
-	instanceController := NewInstanceController(store, runnerManager, logger)
+	instanceController := controllers.NewInstanceController(store, runnerManager, logger)
 
 	// Create the health controller
-	healthController := NewHealthController(logger, store, runnerManager)
-
-	// Setup the instance controller reference for health controller
-	if hc, ok := healthController.(interface{ SetInstanceController(InstanceController) }); ok {
-		hc.SetInstanceController(instanceController)
-	} else {
-		logger.Warn("Health controller does not support SetInstanceController method")
-	}
+	healthController := controllers.NewHealthController(logger, store, runnerManager)
+	healthController.SetInstanceController(instanceController)
 
 	// Create and return the orchestrator
 	return NewOrchestrator(store, instanceController, healthController, runnerManager, logger), nil
@@ -117,6 +129,21 @@ func (o *orchestrator) Start(ctx context.Context) error {
 
 	// Create a context with cancel for all background operations
 	o.ctx, o.cancel = context.WithCancel(ctx)
+
+	// Initialize the worker queue
+	o.workerQueue = queue.NewWorkerQueue(queue.WorkerQueueOptions{
+		Name:            "orchestrator",
+		Workers:         10, // Configurable worker count
+		ProcessFunc:     o.processWorkItem,
+		Logger:          o.logger,
+		RateLimiterType: queue.RateLimiterTypeDefault,
+		EnableMetrics:   true,
+	})
+
+	// Start the worker queue
+	if err := o.workerQueue.Start(o.ctx); err != nil {
+		return fmt.Errorf("failed to start worker queue: %w", err)
+	}
 
 	// Start the reconciler
 	if err := o.reconciler.Start(o.ctx); err != nil {
@@ -154,6 +181,11 @@ func (o *orchestrator) Stop() error {
 		o.cancel()
 	}
 
+	// Stop worker queue
+	if o.workerQueue != nil {
+		o.workerQueue.Stop()
+	}
+
 	// Stop reconciler
 	o.reconciler.Stop()
 
@@ -169,7 +201,7 @@ func (o *orchestrator) Stop() error {
 	return nil
 }
 
-// watchServices watches service events and processes them
+// watchServices watches service events and adds them to the worker queue
 func (o *orchestrator) watchServices() {
 	for {
 		select {
@@ -179,7 +211,7 @@ func (o *orchestrator) watchServices() {
 			if !ok {
 				o.logger.Error("Service watch channel closed, restarting watch")
 				// Try to restart the watch
-				watchCh, err := o.store.Watch(o.ctx, "services", "")
+				watchCh, err := o.store.Watch(o.ctx, types.ResourceTypeService, "")
 				if err != nil {
 					o.logger.Error("Failed to restart service watch", log.Err(err))
 					time.Sleep(5 * time.Second) // Backoff before retry
@@ -189,121 +221,228 @@ func (o *orchestrator) watchServices() {
 				continue
 			}
 
-			// Process the event
-			switch event.Type {
-			case store.WatchEventCreated:
-				o.logger.Info("Service created",
+			// Check if this is an internal update to avoid reconciliation loops
+			if o.isInternalUpdate(event) {
+				o.logger.Debug("Ignoring internally triggered update",
+					log.Str("resource_type", event.ResourceType),
+					log.Str("namespace", event.Namespace),
 					log.Str("name", event.Name),
-					log.Str("namespace", event.Namespace))
+					log.Str("source", string(event.Source)))
+				continue
+			}
 
-				// Type assert to *types.Service
-				service, ok := event.Resource.(*types.Service)
-				if !ok {
-					o.logger.Error("Failed to convert resource to Service",
-						log.Str("name", event.Name),
-						log.Str("namespace", event.Namespace))
-					continue
+			// Create a key for the work item
+			key := buildWorkItemKey(event)
+
+			// Add to worker queue
+			o.logger.Debug("Enqueuing service event",
+				log.Str("key", key),
+				log.Str("type", string(event.Type)),
+				log.Str("name", event.Name),
+				log.Str("namespace", event.Namespace))
+
+			// Add event to queue context
+			o.workerQueue.Enqueue(key)
+
+			// Record generation if this is a spec update
+			if event.Type == store.WatchEventUpdated && event.ResourceType == types.ResourceTypeService {
+				if service, ok := event.Resource.(*types.Service); ok {
+					o.recordObservedGeneration(service.Namespace, service.Name, service.Generation)
 				}
-				o.handleServiceCreated(o.ctx, service)
-
-			case store.WatchEventUpdated:
-				o.logger.Info("Service updated",
-					log.Str("name", event.Name),
-					log.Str("namespace", event.Namespace))
-
-				// Type assert to *types.Service
-				service, ok := event.Resource.(*types.Service)
-				if !ok {
-					o.logger.Error("Failed to convert resource to Service",
-						log.Str("name", event.Name),
-						log.Str("namespace", event.Namespace))
-					continue
-				}
-				o.handleServiceUpdated(o.ctx, service)
-
-			case store.WatchEventDeleted:
-				o.logger.Info("Service deleted",
-					log.Str("name", event.Name),
-					log.Str("namespace", event.Namespace))
-
-				// Type assert to *types.Service
-				service, ok := event.Resource.(*types.Service)
-				if !ok {
-					o.logger.Error("Failed to convert resource to Service",
-						log.Str("name", event.Name),
-						log.Str("namespace", event.Namespace))
-					continue
-				}
-				o.handleServiceDeleted(o.ctx, service)
 			}
 		}
 	}
 }
 
+// processWorkItem processes a single work item from the queue
+func (o *orchestrator) processWorkItem(key string) error {
+	// Parse the key to extract resource type, namespace, name, and event type
+	workItemKey, err := parseWorkItemKey(key)
+	if err != nil {
+		return fmt.Errorf("invalid work item key format: %s, error: %w", key, err)
+	}
+
+	o.logger.Debug("Processing work item",
+		log.Str("resourceType", workItemKey.ResourceType),
+		log.Str("namespace", workItemKey.Namespace),
+		log.Str("name", workItemKey.Name),
+		log.Str("eventType", workItemKey.EventType))
+
+	// Get the resource from the store
+	var service types.Service
+	if err := o.store.Get(o.ctx, workItemKey.ResourceType, workItemKey.Namespace, workItemKey.Name, &service); err != nil {
+		// If the resource doesn't exist and this is a delete event, that's ok
+		if workItemKey.EventType == string(store.WatchEventDeleted) {
+			return nil
+		}
+		return fmt.Errorf("failed to get resource %s/%s/%s: %w", workItemKey.ResourceType, workItemKey.Namespace, workItemKey.Name, err)
+	}
+
+	// Process based on event type
+	switch store.WatchEventType(workItemKey.EventType) {
+	case store.WatchEventCreated:
+		return o.handleServiceCreated(o.ctx, &service)
+	case store.WatchEventUpdated:
+		return o.handleServiceUpdated(o.ctx, &service)
+	case store.WatchEventDeleted:
+		o.handleServiceDeleted(o.ctx, &service)
+		return nil
+	default:
+		return fmt.Errorf("unknown event type: %s", workItemKey.EventType)
+	}
+}
+
+// isInternalUpdate checks if an event was triggered by the orchestrator itself
+func (o *orchestrator) isInternalUpdate(event store.WatchEvent) bool {
+	// Check if event has an orchestrator source
+	if event.Source == "orchestrator" {
+		return true
+	}
+
+	// Check if we have a record of this being an internal update
+	key := buildWorkItemKey(event)
+	_, exists := o.internalUpdates.Load(key)
+	return exists
+}
+
+// inProgressUpdate marks an update as being in progress to avoid reconciliation loops
+func (o *orchestrator) inProgressUpdate(resourceType, namespace, name string) {
+	key := fmt.Sprintf("%s/%s/%s", resourceType, namespace, name)
+	o.internalUpdates.Store(key, time.Now())
+}
+
+// clearInProgressUpdate clears an update marked as in progress
+func (o *orchestrator) clearInProgressUpdate(resourceType, namespace, name string) {
+	key := fmt.Sprintf("%s/%s/%s", resourceType, namespace, name)
+	o.internalUpdates.Delete(key)
+}
+
+// recordObservedGeneration records the observed generation for a service
+func (o *orchestrator) recordObservedGeneration(namespace, name string, generation int64) {
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	o.serviceObservedLock.Lock()
+	defer o.serviceObservedLock.Unlock()
+	o.serviceObservedGenerations[key] = generation
+}
+
+// getObservedGeneration gets the observed generation for a service
+func (o *orchestrator) getObservedGeneration(namespace, name string) (int64, bool) {
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	o.serviceObservedLock.RLock()
+	defer o.serviceObservedLock.RUnlock()
+	gen, exists := o.serviceObservedGenerations[key]
+	return gen, exists
+}
+
+// isStatusOnlyChange checks if only the status was updated (not the spec)
+func (o *orchestrator) isStatusOnlyChange(service *types.Service) bool {
+	// Check if we've observed this generation before
+	lastObserved, exists := o.getObservedGeneration(service.Namespace, service.Name)
+	if !exists {
+		return false // We haven't seen this service before
+	}
+
+	// If the generation hasn't changed, it's a status-only update
+	return lastObserved == service.Generation
+}
+
+// updateServiceStatus updates a service's status while preventing reconciliation loops
+func (o *orchestrator) updateServiceStatus(ctx context.Context, service *types.Service, status types.ServiceStatus) error {
+	// Mark this as an internal update
+	o.inProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+	defer o.clearInProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+
+	// Use the status updater to update the service status
+	err := o.statusUpdater.UpdateServiceStatus(ctx, service.Namespace, service.Name, service, status)
+	if err != nil {
+		return fmt.Errorf("failed to update service status: %w", err)
+	}
+
+	return nil
+}
+
 // handleServiceCreated handles service creation events
-func (o *orchestrator) handleServiceCreated(ctx context.Context, service *types.Service) {
+func (o *orchestrator) handleServiceCreated(ctx context.Context, service *types.Service) error {
 	// Set initial service state
 	service.Status = types.ServiceStatusPending
 
-	o.logger.Info("========== Should run handleServiceCreated ==========",
-		log.Json("service", service))
+	o.logger.Info("Service created",
+		log.Str("name", service.Name),
+		log.Str("namespace", service.Namespace))
 
 	// Update service status in store
-	if err := o.store.Update(ctx, types.ResourceTypeService, service.Namespace, service.Name, service); err != nil {
+	if err := o.updateServiceStatus(ctx, service, types.ServiceStatusPending); err != nil {
 		o.logger.Error("Failed to update service status",
 			log.Str("name", service.Name),
 			log.Str("namespace", service.Namespace),
 			log.Err(err))
-		return
+		return err
 	}
 
-	// Schedule reconciliation for this service using the reconciler
-	go func() {
-		// Collect running instances for reconciliation
-		runningInstances, err := o.reconciler.collectRunningInstances(ctx)
-		if err != nil {
-			o.logger.Error("Failed to collect running instances",
-				log.Str("name", service.Name),
-				log.Str("namespace", service.Namespace),
-				log.Err(err))
-			return
-		}
+	// Collect running instances for reconciliation
+	runningInstances, err := o.reconciler.collectRunningInstances(ctx)
+	if err != nil {
+		o.logger.Error("Failed to collect running instances",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Err(err))
+		return err
+	}
 
-		// Use the reconciler to handle this service
-		if err := o.reconciler.reconcileService(ctx, service, runningInstances); err != nil {
-			o.logger.Error("Failed to reconcile service",
-				log.Str("name", service.Name),
-				log.Str("namespace", service.Namespace),
-				log.Err(err))
-		}
-	}()
+	// Use the reconciler to handle this service
+	if err := o.reconciler.reconcileService(ctx, service, runningInstances); err != nil {
+		o.logger.Error("Failed to reconcile service",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Err(err))
+		return err
+	}
+
+	return nil
 }
 
 // handleServiceUpdated handles service update events
-func (o *orchestrator) handleServiceUpdated(ctx context.Context, service *types.Service) {
-	o.logger.Info("========== Should run handleServiceUpdated ==========",
-		log.Json("service", service))
+func (o *orchestrator) handleServiceUpdated(ctx context.Context, service *types.Service) error {
+	o.logger.Info("Service updated",
+		log.Str("name", service.Name),
+		log.Str("namespace", service.Namespace))
 
-	// Schedule reconciliation for this service using the reconciler
-	go func() {
-		// Collect running instances for reconciliation
-		runningInstances, err := o.reconciler.collectRunningInstances(ctx)
-		if err != nil {
-			o.logger.Error("Failed to collect running instances",
-				log.Str("name", service.Name),
-				log.Str("namespace", service.Namespace),
-				log.Err(err))
-			return
-		}
+	// Check if this is a status-only change
+	if o.isStatusOnlyChange(service) {
+		o.logger.Debug("Skipping reconciliation for status-only change",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Int64("generation", service.Generation))
+		return nil
+	}
 
-		// Use the reconciler to handle this service
-		if err := o.reconciler.reconcileService(ctx, service, runningInstances); err != nil {
-			o.logger.Error("Failed to reconcile updated service",
-				log.Str("name", service.Name),
-				log.Str("namespace", service.Namespace),
-				log.Err(err))
-		}
-	}()
+	// Mark as in progress
+	o.inProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+	defer o.clearInProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+
+	// Collect running instances for reconciliation
+	runningInstances, err := o.reconciler.collectRunningInstances(ctx)
+	if err != nil {
+		o.logger.Error("Failed to collect running instances",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Err(err))
+		return err
+	}
+
+	// Use the reconciler to handle this service
+	if err := o.reconciler.reconcileService(ctx, service, runningInstances); err != nil {
+		o.logger.Error("Failed to reconcile updated service",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Err(err))
+		return err
+	}
+
+	// Record observed generation
+	o.recordObservedGeneration(service.Namespace, service.Name, service.Generation)
+
+	return nil
 }
 
 // handleServiceDeleted handles service deletion events
@@ -344,7 +483,7 @@ func (o *orchestrator) handleServiceDeleted(ctx context.Context, service *types.
 }
 
 // GetServiceStatus returns the current status of a service
-func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name string) (*ServiceStatusInfo, error) {
+func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name string) (*types.ServiceStatusInfo, error) {
 	// Get service from store
 	var service types.Service
 	if err := o.store.Get(ctx, types.ResourceTypeService, namespace, name, &service); err != nil {
@@ -357,15 +496,21 @@ func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name str
 		return nil, fmt.Errorf("failed to list instances: %w", err)
 	}
 
-	status := &ServiceStatusInfo{
-		State:         service.Status,
-		InstanceCount: len(instances),
+	observedGeneration, exists := o.getObservedGeneration(namespace, name)
+	if !exists {
+		observedGeneration = 0
+	}
+
+	status := &types.ServiceStatusInfo{
+		Status:             service.Status,
+		DesiredInstances:   service.Scale,
+		ObservedGeneration: observedGeneration,
 	}
 
 	// Count ready instances
 	for _, instance := range instances {
 		if instance.Status == types.InstanceStatusRunning {
-			status.ReadyInstanceCount++
+			status.RunningInstances++
 		}
 	}
 
@@ -373,7 +518,7 @@ func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name str
 }
 
 // GetInstanceStatus returns the current status of an instance
-func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*InstanceStatusInfo, error) {
+func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error) {
 	// Get instance from store
 	var instance types.Instance
 	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
@@ -385,8 +530,8 @@ func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, service
 		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
 	}
 
-	return &InstanceStatusInfo{
-		State:      instance.Status,
+	return &types.InstanceStatusInfo{
+		Status:     instance.Status,
 		InstanceID: instance.ID,
 		NodeID:     instance.NodeID,
 		CreatedAt:  instance.CreatedAt,
@@ -394,7 +539,7 @@ func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, service
 }
 
 // GetServiceLogs returns a stream of logs for a service
-func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name string, opts LogOptions) (io.ReadCloser, error) {
+func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error) {
 	// List instances for this service
 	instances, err := o.listInstancesForService(ctx, namespace, name)
 	if err != nil {
@@ -438,7 +583,7 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 }
 
 // GetInstanceLogs returns a stream of logs for an instance
-func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts LogOptions) (io.ReadCloser, error) {
+func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error) {
 	// Get instance from store
 	var instance types.Instance
 	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
@@ -455,7 +600,7 @@ func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceNa
 }
 
 // ExecInService executes a command in a running instance of the service
-func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName string, options ExecOptions) (ExecStream, error) {
+func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName string, options types.ExecOptions) (types.ExecStream, error) {
 	// List instances for this service
 	instances, err := o.listInstancesForService(ctx, namespace, serviceName)
 	if err != nil {
@@ -484,7 +629,7 @@ func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName
 }
 
 // ExecInInstance executes a command in a specific instance
-func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options ExecOptions) (ExecStream, error) {
+func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
 	// Get instance from store
 	var instance types.Instance
 	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
@@ -526,7 +671,7 @@ func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, s
 }
 
 // GetInstanceController returns the instance controller for testing purposes
-func (o *orchestrator) GetInstanceController() InstanceController {
+func (o *orchestrator) GetInstanceController() controllers.InstanceController {
 	return o.instanceController
 }
 
@@ -590,7 +735,7 @@ func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceNa
 	}
 
 	// Restart the instance through instance controller
-	if err := o.instanceController.RestartInstance(ctx, &instance, InstanceRestartReasonManual); err != nil {
+	if err := o.instanceController.RestartInstance(ctx, &instance, controllers.InstanceRestartReasonManual); err != nil {
 		return fmt.Errorf("failed to restart instance: %w", err)
 	}
 

@@ -9,7 +9,11 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/types"
 )
+
+// Validate that BadgerStore implements the Store interface
+var _ Store = &BadgerStore{}
 
 // BadgerStore implements the Store interface using BadgerDB.
 type BadgerStore struct {
@@ -79,6 +83,29 @@ func (s *BadgerStore) Close() error {
 	return nil
 }
 
+func (s *BadgerStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+	// Special case for Namespace resources
+	if resourceType == types.ResourceTypeNamespace {
+		namespace, ok := resource.(*types.Namespace)
+		if !ok {
+			return fmt.Errorf("expected Namespace type for namespace resource")
+		}
+
+		// Use the namespace name as both namespace and name
+		// This effectively stores namespaces in a pseudo-namespace called "system"
+		return s.Create(ctx, resourceType, "system", namespace.Name, namespace)
+	}
+
+	// Normal handling for other resource types
+	namespacedResource, ok := resource.(types.NamespacedResource)
+	if !ok {
+		return fmt.Errorf("resource must implement NamespacedResource interface")
+	}
+
+	nn := namespacedResource.NamespacedName()
+	return s.Create(ctx, resourceType, nn.Namespace, nn.Name, resource)
+}
+
 // Create creates a new resource.
 func (s *BadgerStore) Create(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
 	s.logger.Debug("Creating resource",
@@ -146,7 +173,7 @@ func (s *BadgerStore) Create(ctx context.Context, resourceType string, namespace
 	}
 
 	// Emit watch event
-	s.emitWatchEvent(WatchEventCreated, resourceType, namespace, name, resource)
+	s.emitWatchEvent(WatchEventCreated, resourceType, namespace, name, resource, "")
 
 	return nil
 }
@@ -176,11 +203,14 @@ func (s *BadgerStore) Get(ctx context.Context, resourceType string, namespace st
 }
 
 // Update updates an existing resource.
-func (s *BadgerStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *BadgerStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
 	s.logger.Debug("Updating resource",
 		log.Str("resourceType", resourceType),
 		log.Str("namespace", namespace),
 		log.Str("name", name))
+
+	// Parse options
+	options := ParseUpdateOptions(opts...)
 
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
@@ -241,8 +271,8 @@ func (s *BadgerStore) Update(ctx context.Context, resourceType string, namespace
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Emit watch event
-	s.emitWatchEvent(WatchEventUpdated, resourceType, namespace, name, resource)
+	// Emit watch event with source info
+	s.emitWatchEvent(WatchEventUpdated, resourceType, namespace, name, resource, options.Source)
 
 	return nil
 }
@@ -292,7 +322,7 @@ func (s *BadgerStore) Delete(ctx context.Context, resourceType string, namespace
 	}
 
 	// Emit watch event
-	s.emitWatchEvent(WatchEventDeleted, resourceType, namespace, name, resource)
+	s.emitWatchEvent(WatchEventDeleted, resourceType, namespace, name, resource, "")
 
 	return nil
 }
@@ -333,6 +363,11 @@ func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace s
 
 	s.logger.Debug("Found resources", log.Int("count", len(resources)))
 	return UnmarshalResource(resources, resource)
+}
+
+// ListAll retrieves all resources of a given type in all namespaces.
+func (s *BadgerStore) ListAll(ctx context.Context, resourceType string, resource interface{}) error {
+	return s.List(ctx, resourceType, "", resource)
 }
 
 // Transaction executes multiple operations in a single transaction.
@@ -481,7 +516,7 @@ func (s *BadgerStore) Watch(ctx context.Context, resourceType string, namespace 
 }
 
 // emitWatchEvent sends a watch event to all watchers.
-func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType string, namespace string, name string, resource interface{}) {
+func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType string, namespace string, name string, resource interface{}, source EventSource) {
 	// Create the event
 	event := WatchEvent{
 		Type:         eventType,
@@ -489,6 +524,7 @@ func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType stri
 		Namespace:    namespace,
 		Name:         name,
 		Resource:     resource,
+		Source:       source,
 	}
 
 	// Send the event to the channel (non-blocking)

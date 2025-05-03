@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 // MockHealthController implements a minimal HealthController for testing
 type MockHealthController struct {
 	mock.Mock
+	instanceController controllers.InstanceController
 }
 
 func (m *MockHealthController) Start(ctx context.Context) error {
@@ -37,8 +39,12 @@ func (m *MockHealthController) RemoveInstance(instanceID string) error {
 }
 
 // Add stub for the remaining method to satisfy the interface
-func (m *MockHealthController) GetHealthStatus(ctx context.Context, instanceID string) (*InstanceHealthStatus, error) {
+func (m *MockHealthController) GetHealthStatus(ctx context.Context, instanceID string) (*types.InstanceHealthStatus, error) {
 	return nil, nil
+}
+
+func (m *MockHealthController) SetInstanceController(instanceController controllers.InstanceController) {
+	m.instanceController = instanceController
 }
 
 func setupStore(t *testing.T) *store.TestStore {
@@ -165,7 +171,7 @@ func TestReconcileScaleUp(t *testing.T) {
 func TestReconcileScaleDown(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	instanceController := NewFakeInstanceController()
+	instanceController := controllers.NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 

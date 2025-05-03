@@ -158,7 +158,7 @@ func TestExecInService(t *testing.T) {
 	command := []string{"ps", "-ef"}
 
 	// Create exec options
-	execOpts := ExecOptions{
+	execOpts := types.ExecOptions{
 		Command: command,
 		Env:     map[string]string{"SERVICE_TEST_VAR": "service_test_value"},
 	}
@@ -240,7 +240,7 @@ func TestExecInInstance(t *testing.T) {
 	command := []string{"cat", "/etc/passwd"}
 
 	// Create exec options
-	execOpts := ExecOptions{
+	execOpts := types.ExecOptions{
 		Command: command,
 		Env:     map[string]string{"INSTANCE_TEST_VAR": "instance_test_value"},
 	}
@@ -307,7 +307,7 @@ func TestExecInInstanceWrongService(t *testing.T) {
 	require.NoError(t, err, "Failed to add instance to runner")
 
 	// Create exec options
-	execOpts := ExecOptions{
+	execOpts := types.ExecOptions{
 		Command: []string{"echo", "hello"},
 	}
 

@@ -12,6 +12,9 @@ const (
 
 	// ResourceTypeInstance is the resource type for instances.
 	ResourceTypeInstance = "instances"
+
+	// ResourceTypeNamespace is the resource type for namespaces.
+	ResourceTypeNamespace = "namespaces"
 )
 
 // RunnerType is the type of runner for an instance.

@@ -9,20 +9,21 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 )
 
 // The amount of time to keep deleted instances before removing them from store
-const deletedInstanceRetentionTime = 1 * time.Hour
+const deletedInstanceRetentionTime = 10 * time.Minute
 
 // reconciler is responsible for ensuring the actual state of instances
 // matches the desired state defined in the services
 type reconciler struct {
 	store              store.Store
-	instanceController InstanceController
-	healthController   HealthController
+	instanceController controllers.InstanceController
+	healthController   controllers.HealthController
 	runnerManager      manager.IRunnerManager
 	logger             log.Logger
 	reconcileInterval  time.Duration
@@ -37,8 +38,8 @@ type reconciler struct {
 // newReconciler creates a new reconciler.
 func newReconciler(
 	store store.Store,
-	instanceController InstanceController,
-	healthController HealthController,
+	instanceController controllers.InstanceController,
+	healthController controllers.HealthController,
 	runnerManager manager.IRunnerManager,
 	logger log.Logger,
 ) *reconciler {
@@ -154,7 +155,7 @@ func (r *reconciler) reconcileServices(ctx context.Context) error {
 
 	// Get desired state from store
 	var services []types.Service
-	err := r.store.List(ctx, types.ResourceTypeService, "", &services)
+	err := r.store.ListAll(ctx, types.ResourceTypeService, &services)
 
 	if err != nil {
 		return fmt.Errorf("failed to list services: %w", err)
@@ -369,7 +370,7 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 
 	for i := 0; i < service.Scale; i++ {
 		// Generate instance name
-		instanceName := fmt.Sprintf("%s-%d", service.Name, i)
+		instanceName := generateInstanceName(service, i)
 
 		// Check if this instance already exists
 		var existingInstance *types.Instance

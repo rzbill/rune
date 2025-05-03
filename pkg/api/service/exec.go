@@ -143,7 +143,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Convert gRPC options to orchestrator options
-	execOptions := orchestrator.ExecOptions{
+	execOptions := types.ExecOptions{
 		Command:        initReq.Command,
 		Env:            initReq.Env,
 		WorkingDir:     initReq.WorkingDir,
@@ -153,7 +153,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 	}
 
 	// Use orchestrator to execute the command
-	var execStream orchestrator.ExecStream
+	var execStream types.ExecStream
 	var instanceID string
 
 	if initReq.GetServiceName() != "" {
@@ -181,9 +181,7 @@ func (s *ExecService) StreamExec(stream generated.ExecService_StreamExecServer) 
 		}
 
 		serviceName := instance.ServiceName
-		fmt.Printf("Before====>>>>>>ExecInInstance %+v", instance)
 		execStream, err = s.orchestrator.ExecInInstance(ctx, namespace, serviceName, instanceID, execOptions)
-		fmt.Printf("\nAfter====>>>>>>ExecInInstance %+v", err)
 		if err != nil {
 			s.logger.Error("Failed to exec in instance",
 				log.Str("instance", instanceID),

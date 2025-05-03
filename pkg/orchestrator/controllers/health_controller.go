@@ -1,14 +1,14 @@
-package orchestrator
+package controllers
 
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator/probes"
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
@@ -30,7 +30,10 @@ type HealthController interface {
 	RemoveInstance(instanceID string) error
 
 	// GetHealthStatus gets the current health status of an instance
-	GetHealthStatus(ctx context.Context, instanceID string) (*InstanceHealthStatus, error)
+	GetHealthStatus(ctx context.Context, instanceID string) (*types.InstanceHealthStatus, error)
+
+	// SetInstanceController sets the instance controller for restarting instances
+	SetInstanceController(controller InstanceController)
 }
 
 // healthController implements the HealthController interface
@@ -63,12 +66,20 @@ type healthController struct {
 	instanceController InstanceController
 }
 
+// Ensure healthController implements RunnerProvider
+var _ runner.RunnerProvider = (*healthController)(nil)
+
+// GetInstanceRunner implements the RunnerProvider interface
+func (c *healthController) GetInstanceRunner(instance *types.Instance) (runner.Runner, error) {
+	return c.runnerManager.GetInstanceRunner(instance)
+}
+
 // instanceHealth tracks health check state for an instance
 type instanceHealth struct {
 	instance            *types.Instance
 	service             *types.Service
-	livenessResults     []HealthCheckResult
-	readinessResults    []HealthCheckResult
+	livenessResults     []types.HealthCheckResult
+	readinessResults    []types.HealthCheckResult
 	livenessStatus      bool
 	readinessStatus     bool
 	lastCheck           time.Time
@@ -157,8 +168,8 @@ func (c *healthController) AddInstance(instance *types.Instance) error {
 	healthState := &instanceHealth{
 		instance:            instance,
 		service:             &service,
-		livenessResults:     make([]HealthCheckResult, 0),
-		readinessResults:    make([]HealthCheckResult, 0),
+		livenessResults:     make([]types.HealthCheckResult, 0),
+		readinessResults:    make([]types.HealthCheckResult, 0),
 		lastCheck:           time.Now(),
 		consecutiveFailures: 0,
 		restartCount:        0,
@@ -217,7 +228,7 @@ func (c *healthController) RemoveInstance(instanceID string) error {
 }
 
 // GetHealthStatus gets the current health status of an instance
-func (c *healthController) GetHealthStatus(ctx context.Context, instanceID string) (*InstanceHealthStatus, error) {
+func (c *healthController) GetHealthStatus(ctx context.Context, instanceID string) (*types.InstanceHealthStatus, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -230,7 +241,7 @@ func (c *healthController) GetHealthStatus(ctx context.Context, instanceID strin
 		c.logger.Debug("Instance not being monitored, returning default healthy status",
 			log.Str("instance", instanceID))
 
-		return &InstanceHealthStatus{
+		return &types.InstanceHealthStatus{
 			InstanceID:  instanceID,
 			Liveness:    true, // Default to healthy
 			Readiness:   true, // Default to ready
@@ -238,7 +249,7 @@ func (c *healthController) GetHealthStatus(ctx context.Context, instanceID strin
 		}, nil
 	}
 
-	return &InstanceHealthStatus{
+	return &types.InstanceHealthStatus{
 		InstanceID:  instanceID,
 		Liveness:    ih.livenessStatus,
 		Readiness:   ih.readinessStatus,
@@ -343,8 +354,6 @@ func (c *healthController) monitorInstance(instanceID string) {
 // performHealthCheck performs a health check for an instance
 func (c *healthController) performHealthCheck(instanceID string, probe *types.Probe, checkType string) {
 	start := time.Now()
-	success := false
-	message := ""
 
 	// Get instance under read lock
 	c.mu.RLock()
@@ -353,118 +362,66 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 		c.mu.RUnlock()
 		return
 	}
-	instance := ih.instance // We do need the instance for exec checks
+	instance := ih.instance
 	c.mu.RUnlock()
 
-	// Determine endpoint for the check
-	var endpoint string
-	if probe.Port > 0 {
-		// In a real environment, we would get the actual IP of the instance
-		// For now, assume we're using localhost for testing
-		endpoint = fmt.Sprintf("http://localhost:%d", probe.Port)
+	// Create a prober for this probe type
+	prober, err := probes.NewProber(probe.Type)
+	if err != nil {
+		// Log unknown probe type error
+		c.logger.Error("Failed to create prober",
+			log.Str("instance", instanceID),
+			log.Str("probe_type", probe.Type),
+			log.Err(err))
+
+		// Record failure result
+		result := types.HealthCheckResult{
+			Success:    false,
+			Message:    fmt.Sprintf("Unknown health check type: %s", probe.Type),
+			Duration:   time.Since(start),
+			CheckTime:  time.Now(),
+			InstanceID: instanceID,
+			CheckType:  checkType,
+		}
+
+		c.updateHealthStatus(instanceID, result, checkType)
+		return
 	}
 
-	// Perform the appropriate check based on probe type
-	switch probe.Type {
-	case "http":
-		// HTTP check
-		url := fmt.Sprintf("%s%s", endpoint, probe.Path)
-		req, err := http.NewRequestWithContext(c.ctx, "GET", url, nil)
-		if err != nil {
-			message = fmt.Sprintf("Failed to create HTTP request: %v", err)
-			break
-		}
-
-		resp, err := c.client.Do(req)
-		if err != nil {
-			message = fmt.Sprintf("HTTP health check failed: %v", err)
-			break
-		}
-		defer resp.Body.Close()
-
-		// Check for successful status code (200-399)
-		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-			success = true
-			message = fmt.Sprintf("HTTP health check succeeded with status %d", resp.StatusCode)
-		} else {
-			message = fmt.Sprintf("HTTP health check returned non-success status %d", resp.StatusCode)
-		}
-
-	case "tcp":
-		// TCP check
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", probe.Port), 5*time.Second)
-		if err != nil {
-			message = fmt.Sprintf("TCP health check failed: %v", err)
-			break
-		}
-		defer conn.Close()
-
-		success = true
-		message = "TCP health check succeeded"
-
-	case "exec":
-		// Exec check - execute a command in the instance using the appropriate runner
-		if len(probe.Command) == 0 {
-			message = "Exec health check failed: no command specified"
-			break
-		}
-
-		// Determine which runner to use based on the instance's runtime
-		var activeRunner runner.Runner
-
-		// In a production environment, we would determine the correct runner
-		// based on the instance's type. For simplicity, try both runners.
-		_runner, err := c.runnerManager.GetInstanceRunner(instance)
-		if err != nil {
-			message = fmt.Sprintf("Exec health check failed to get runner: %v", err)
-			break
-		}
-		activeRunner = _runner
-
-		// Execute the command
-		execOpts := runner.GetExecOptions(probe.Command, instance)
-		execStream, err := activeRunner.Exec(c.ctx, instance, execOpts)
-		if err != nil {
-			message = fmt.Sprintf("Exec health check failed to start command: %v", err)
-			break
-		}
-		defer execStream.Close()
-
-		// Wait for command completion and check exit code
-		exitCode, err := execStream.ExitCode()
-		if err != nil {
-			message = fmt.Sprintf("Exec health check failed to get exit code: %v", err)
-			break
-		}
-
-		if exitCode == 0 {
-			success = true
-			message = "Exec health check succeeded with exit code 0"
-		} else {
-			message = fmt.Sprintf("Exec health check failed with exit code %d", exitCode)
-		}
-
-	default:
-		message = fmt.Sprintf("Unknown health check type: %s", probe.Type)
+	// Create probe context with all necessary dependencies
+	probeCtx := &probes.ProbeContext{
+		Ctx:            c.ctx,
+		Logger:         c.logger,
+		Instance:       instance,
+		ProbeConfig:    probe,
+		HTTPClient:     c.client,
+		RunnerProvider: c, // Health controller implements RunnerProvider
 	}
+
+	// Execute the appropriate probe
+	probeResult := prober.Execute(probeCtx)
 
 	// Record the result
-	duration := time.Since(start)
-	result := HealthCheckResult{
-		Success:    success,
-		Message:    message,
-		Duration:   duration,
+	result := types.HealthCheckResult{
+		Success:    probeResult.Success,
+		Message:    probeResult.Message,
+		Duration:   probeResult.Duration,
 		CheckTime:  time.Now(),
 		InstanceID: instanceID,
 		CheckType:  checkType,
 	}
 
 	// Update instance health status
+	c.updateHealthStatus(instanceID, result, checkType)
+}
+
+// updateHealthStatus updates the health status based on a check result
+func (c *healthController) updateHealthStatus(instanceID string, result types.HealthCheckResult, checkType string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Check if instance still exists
-	ih, exists = c.instances[instanceID]
+	ih, exists := c.instances[instanceID]
 	if !exists {
 		return
 	}
@@ -477,13 +434,13 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 		}
 
 		// Update liveness status based on success
-		ih.livenessStatus = success
+		ih.livenessStatus = result.Success
 
 		// Log the result
-		if success {
+		if result.Success {
 			c.logger.Debug("Liveness check passed",
 				log.Str("instance", instanceID),
-				log.Duration("duration", duration))
+				log.Duration("duration", result.Duration))
 
 			// Reset failure counter on success
 			ih.consecutiveFailures = 0
@@ -493,9 +450,9 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 
 			c.logger.Warn("Liveness check failed",
 				log.Str("instance", instanceID),
-				log.Str("message", message),
+				log.Str("message", result.Message),
 				log.Int("consecutive_failures", ih.consecutiveFailures),
-				log.Duration("duration", duration))
+				log.Duration("duration", result.Duration))
 
 			// Trigger a restart if we have had enough failures
 			// (typically 3-5 consecutive failures)
@@ -514,18 +471,18 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 		}
 
 		// Update readiness status based on success
-		ih.readinessStatus = success
+		ih.readinessStatus = result.Success
 
 		// Log the result
-		if success {
+		if result.Success {
 			c.logger.Debug("Readiness check passed",
 				log.Str("instance", instanceID),
-				log.Duration("duration", duration))
+				log.Duration("duration", result.Duration))
 		} else {
 			c.logger.Warn("Readiness check failed",
 				log.Str("instance", instanceID),
-				log.Str("message", message),
-				log.Duration("duration", duration))
+				log.Str("message", result.Message),
+				log.Duration("duration", result.Duration))
 		}
 	}
 
