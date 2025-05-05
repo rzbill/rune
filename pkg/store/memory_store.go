@@ -224,11 +224,11 @@ func (m *MemoryStore) Delete(ctx context.Context, resourceType types.ResourceTyp
 
 // For testing, we provide minimal implementations of remaining interface methods
 
-func (m *MemoryStore) GetHistory(ctx context.Context, resourceType, namespace, name string) ([]HistoricalVersion, error) {
+func (m *MemoryStore) GetHistory(ctx context.Context, resourceType types.ResourceType, namespace, name string) ([]HistoricalVersion, error) {
 	return []HistoricalVersion{}, nil
 }
 
-func (m *MemoryStore) GetVersion(ctx context.Context, resourceType, namespace, name, version string) (interface{}, error) {
+func (m *MemoryStore) GetVersion(ctx context.Context, resourceType types.ResourceType, namespace, name, version string) (interface{}, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -236,7 +236,7 @@ func (m *MemoryStore) Transaction(ctx context.Context, fn func(ctx Transaction) 
 	return fmt.Errorf("not implemented")
 }
 
-func (m *MemoryStore) Watch(ctx context.Context, resourceType, namespace string) (<-chan WatchEvent, error) {
+func (m *MemoryStore) Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error) {
 	ch := make(chan WatchEvent)
 	close(ch)
 	return ch, nil
