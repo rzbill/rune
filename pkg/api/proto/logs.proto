@@ -40,6 +40,15 @@ message LogRequest {
   
   // Client can send updated parameters while streaming
   bool parameter_update = 10;
+
+  // Show container/process logs
+  bool show_logs = 11;
+  
+  // Show lifecycle events
+  bool show_events = 12;
+  
+  // Show status changes
+  bool show_status = 13;
 }
 
 // LogResponse represents a log message in a stream response.
@@ -49,18 +58,24 @@ message LogResponse {
   
   // Instance ID the log is from
   string instance_id = 2;
+
+  // Instance name the log is from
+  string instance_name = 3;
   
   // Timestamp of the log (RFC 3339 format)
-  string timestamp = 3;
+  string timestamp = 4;
   
   // Contents of the log line
-  string content = 4;
+  string content = 5;
   
   // Stream (stdout or stderr)
-  string stream = 5;
+  string stream = 6;
   
   // Status code for control messages
-  Status status = 6;
+  Status status = 7;
+  
+  // Log level (info, warning, error, etc.) if applicable
+  string log_level = 9;
 }
 
 // LogService provides access to service and instance logs.

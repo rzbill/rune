@@ -117,19 +117,19 @@ func TestSortServices(t *testing.T) {
 
 	services := []*types.Service{
 		{
-			Name:      "zebra",
-			Status:    types.ServiceStatusRunning,
-			CreatedAt: lastWeek,
+			Name:     "zebra",
+			Status:   types.ServiceStatusRunning,
+			Metadata: &types.ServiceMetadata{CreatedAt: lastWeek},
 		},
 		{
-			Name:      "apple",
-			Status:    types.ServiceStatusPending,
-			CreatedAt: yesterday,
+			Name:     "apple",
+			Status:   types.ServiceStatusPending,
+			Metadata: &types.ServiceMetadata{CreatedAt: yesterday},
 		},
 		{
-			Name:      "banana",
-			Status:    types.ServiceStatusFailed,
-			CreatedAt: now,
+			Name:     "banana",
+			Status:   types.ServiceStatusFailed,
+			Metadata: &types.ServiceMetadata{CreatedAt: now},
 		},
 	}
 
@@ -203,7 +203,7 @@ func TestWatchServices(t *testing.T) {
 						Image:     "test:latest",
 						Scale:     1,
 						Status:    types.ServiceStatusRunning,
-						CreatedAt: time.Now().Add(-1 * time.Hour),
+						Metadata:  &types.ServiceMetadata{CreatedAt: time.Now().Add(-1 * time.Hour)},
 					},
 					EventType: "ADDED",
 					Error:     nil,
@@ -216,7 +216,7 @@ func TestWatchServices(t *testing.T) {
 						Image:     "test:latest",
 						Scale:     2, // Scale changed
 						Status:    types.ServiceStatusDeploying,
-						CreatedAt: time.Now().Add(-1 * time.Hour),
+						Metadata:  &types.ServiceMetadata{CreatedAt: time.Now().Add(-1 * time.Hour)},
 					},
 					EventType: "MODIFIED",
 					Error:     nil,

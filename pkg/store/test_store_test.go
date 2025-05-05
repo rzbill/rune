@@ -22,8 +22,6 @@ func TestTestStore(t *testing.T) {
 		Name:      "test-service",
 		Namespace: "default",
 		Scale:     1,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	// Test instance

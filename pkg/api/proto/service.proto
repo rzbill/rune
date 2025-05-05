@@ -56,20 +56,29 @@ message Service {
   // Status of the service
   ServiceStatus status = 13;
   
-  // Creation timestamp (in RFC 3339 format)
-  string created_at = 14;
-  
-  // Last update timestamp (in RFC 3339 format)
-  string updated_at = 15;
-  
   // Runtime for the service ("container" or "process")
-  string runtime = 16;
+  string runtime = 14;
 
   // Process-specific configuration (when Runtime="process")
-  ProcessSpec process = 17;
+  ProcessSpec process = 15;
 
   // Restart policy for the service
-  RestartPolicy restart_policy = 18;
+  RestartPolicy restart_policy = 16;
+
+  // Metadata for the service
+  ServiceMetadata metadata = 17;
+}
+
+// ServiceMetadata represents metadata for a service.
+message ServiceMetadata {
+  // Generation number for the service
+  int32 generation = 1;
+
+  // Creation timestamp (in RFC 3339 format)
+  string created_at = 2;
+  
+  // Last update timestamp (in RFC 3339 format)
+  string updated_at = 3;
 }
 
 // CreateServiceRequest represents a request to create a new service.
@@ -157,6 +166,9 @@ message UpdateServiceRequest {
   
   // Optional deployment tag
   string deployment_tag = 2;
+
+  // Force reconciliation even if no changes are detected
+  bool force = 3;
 }
 
 // DeleteServiceRequest requests deletion of a service.

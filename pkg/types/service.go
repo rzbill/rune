@@ -7,6 +7,8 @@ import (
 
 // Service represents a deployable application or workload.
 type Service struct {
+	NamespacedResource `json:"-" yaml:"-"`
+
 	// Unique identifier for the service
 	ID string `json:"id" yaml:"id"`
 
@@ -64,20 +66,11 @@ type Service struct {
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 
-	// Metadata fields for preventing reconciliation loops
-	Generation int64 `json:"generation,omitempty" yaml:"generation,omitempty"`
-
 	// Status of the service
 	Status ServiceStatus `json:"status" yaml:"status"`
 
 	// Instances of this service currently running
 	Instances []Instance `json:"instances,omitempty" yaml:"instances,omitempty"`
-
-	// Creation timestamp
-	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
-
-	// Last update timestamp
-	UpdatedAt time.Time `json:"updatedAt" yaml:"updatedAt"`
 
 	// Runtime for the service ("container" or "process")
 	Runtime RuntimeType `json:"runtime,omitempty" yaml:"runtime,omitempty"`
@@ -87,6 +80,21 @@ type Service struct {
 
 	// Restart policy for the service
 	RestartPolicy RestartPolicy `json:"restart_policy,omitempty" yaml:"restart_policy,omitempty"`
+
+	// Metadata for the service
+	Metadata *ServiceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+// ServiceMetadata represents metadata for a service.
+type ServiceMetadata struct {
+	// Creation timestamp
+	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
+
+	// Last update timestamp
+	UpdatedAt time.Time `json:"updatedAt" yaml:"updatedAt"`
+
+	// Generation of the service
+	Generation int64 `json:"generation,omitempty" yaml:"generation,omitempty"`
 }
 
 // ServicePort represents a port exposed by a service.

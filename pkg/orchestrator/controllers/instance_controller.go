@@ -96,7 +96,14 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 		Status:      types.InstanceStatusPending,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
+		Metadata:    &types.InstanceMetadata{},
 	}
+
+	// Store the service generation in instance metadata
+	instance.Metadata.ServiceGeneration = service.Metadata.Generation
+	c.logger.Debug("Storing service generation in instance",
+		log.Str("instance", instanceName),
+		log.Int64("generation", service.Metadata.Generation))
 
 	// Save instance to store
 	if err := c.store.Create(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID, instance); err != nil {
@@ -123,10 +130,10 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 
 	// Store original image for future compatibility checks
 	if service.Image != "" {
-		if instance.Environment == nil {
-			instance.Environment = make(map[string]string)
+		if instance.Metadata == nil {
+			instance.Metadata = &types.InstanceMetadata{}
 		}
-		instance.Environment["RUNE_ORIGINAL_IMAGE"] = service.Image
+		instance.Metadata.Image = service.Image
 	}
 
 	// Update instance with pending status
@@ -267,6 +274,15 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 	instance.UpdatedAt = time.Now()
 	instanceUpdated = true
 
+	// Update the stored service generation
+	if instance.Metadata == nil {
+		instance.Metadata = &types.InstanceMetadata{}
+	}
+	instance.Metadata.ServiceGeneration = service.Metadata.Generation
+	c.logger.Debug("Updating service generation in instance",
+		log.Str("instance", instance.ID),
+		log.Int64("generation", service.Metadata.Generation))
+
 	// If we've made any updates to the instance object, save it back to the store
 	if instanceUpdated {
 		if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
@@ -362,9 +378,10 @@ func (c *instanceController) DeleteInstance(ctx context.Context, instance *types
 
 	// Store the deletion timestamp for garbage collection
 	if instance.Metadata == nil {
-		instance.Metadata = make(map[string]string)
+		instance.Metadata = &types.InstanceMetadata{}
 	}
-	instance.Metadata["deletionTimestamp"] = time.Now().Format(time.RFC3339)
+	deletionTimestamp := time.Now()
+	instance.Metadata.DeletionTimestamp = &deletionTimestamp
 
 	if err := c.store.Update(ctx, types.ResourceTypeInstance, instance.Namespace, instance.ID, instance); err != nil {
 		c.logger.Error("Failed to mark instance as deleted",
@@ -608,6 +625,28 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 		return false, fmt.Sprintf("instance is in failed state: %s", string(instance.Status))
 	}
 
+	// Check the service generation
+	if instance.Metadata != nil {
+		if instanceGen := instance.Metadata.ServiceGeneration; instanceGen != 0 {
+			// Convert instance's stored generation to int64
+			if instanceGen < service.Metadata.Generation {
+				c.logger.Debug("Service generation changed, instance needs recreation",
+					log.Str("instance", instance.ID),
+					log.Int64("instance_generation", instanceGen),
+					log.Int64("service_generation", service.Metadata.Generation))
+				return false, fmt.Sprintf("service generation changed: %d -> %d", instanceGen, service.Metadata.Generation)
+			}
+		} else {
+			// If instance doesn't have a stored generation but service has one, recreate
+			if service.Metadata.Generation > 0 {
+				c.logger.Debug("Instance missing service generation, needs recreation",
+					log.Str("instance", instance.ID),
+					log.Int64("service_generation", service.Metadata.Generation))
+				return false, "instance missing service generation"
+			}
+		}
+	}
+
 	// Get the current runner for the instance
 	runner, err := c.runnerManager.GetInstanceRunner(instance)
 	if err != nil {
@@ -629,11 +668,11 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 	if instance.ContainerID != "" && service.Runtime == "docker" {
 		// Check if image has changed
 		// This would require the Instance to store the image it was created with
-		if instance.Environment != nil {
-			// Look for stored image information in the environment
-			if originalImage, ok := instance.Environment["RUNE_ORIGINAL_IMAGE"]; ok {
-				if originalImage != service.Image {
-					return false, fmt.Sprintf("image changed: %s -> %s", originalImage, service.Image)
+		if instance.Metadata != nil {
+			// Look for stored image information in the metadata
+			if instance.Metadata.Image != "" {
+				if instance.Metadata.Image != service.Image {
+					return false, fmt.Sprintf("image changed: %s -> %s", instance.Metadata.Image, service.Image)
 				}
 			} else {
 				// If we can't determine the original image, be cautious and recreate

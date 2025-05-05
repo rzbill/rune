@@ -12,6 +12,10 @@ type LogOptions struct {
 	Until      time.Time
 	Tail       int
 	Timestamps bool
+	ShowLogs   bool   // Show container/process logs
+	ShowEvents bool   // Show lifecycle events
+	ShowStatus bool   // Show status changes
+	Pattern    string // Filter logs by pattern
 }
 
 // InstanceActionType represents an action to perform on an instance

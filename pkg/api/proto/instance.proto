@@ -71,7 +71,16 @@ message Instance {
   map<string, string> environment = 16;
 
   // Metadata
-  map<string, string> metadata = 17;
+  InstanceMetadata metadata = 17;
+}
+
+// InstanceMetadata represents metadata for an instance.
+message InstanceMetadata {
+  // Generation number for the service
+  int32 generation = 1;
+
+  // Deletion timestamp
+  string deletion_timestamp = 2;
 }
 
 // GetInstanceRequest requests a specific instance.

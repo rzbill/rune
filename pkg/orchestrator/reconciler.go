@@ -651,8 +651,7 @@ func (r *reconciler) runGarbageCollection(ctx context.Context) error {
 	for _, instance := range instances {
 		if instance.Status == types.InstanceStatusDeleted && instance.Metadata != nil {
 			// Check if retention period has passed
-			deletionTimestamp, exists := instance.Metadata["deletionTimestamp"]
-			if !exists {
+			if instance.Metadata.DeletionTimestamp == nil {
 				// No timestamp, keep it for now and log the issue
 				r.logger.Warn("Found deleted instance without deletion timestamp",
 					log.Str("instance", instance.ID),
@@ -661,14 +660,7 @@ func (r *reconciler) runGarbageCollection(ctx context.Context) error {
 			}
 
 			// Parse the timestamp
-			deletedAt, err := time.Parse(time.RFC3339, deletionTimestamp)
-			if err != nil {
-				r.logger.Warn("Failed to parse deletion timestamp",
-					log.Str("instance", instance.ID),
-					log.Str("timestamp", deletionTimestamp),
-					log.Err(err))
-				continue
-			}
+			deletedAt := *instance.Metadata.DeletionTimestamp
 
 			// Check if retention period has passed
 			if time.Since(deletedAt) > deletedInstanceRetentionTime {

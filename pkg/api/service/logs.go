@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
@@ -67,6 +68,16 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 		Follow:     req.Follow,
 		Tail:       int(req.Tail),
 		Timestamps: req.Timestamps,
+		ShowLogs:   req.ShowLogs,
+		ShowEvents: req.ShowEvents,
+		ShowStatus: req.ShowStatus,
+	}
+
+	// If none of the show options are specified, default to showing all
+	if !req.ShowLogs && !req.ShowEvents && !req.ShowStatus {
+		logOptions.ShowLogs = true
+		logOptions.ShowEvents = true
+		logOptions.ShowStatus = true
 	}
 
 	// Parse timestamps if provided
@@ -131,7 +142,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 			return status.Errorf(codes.Internal, "failed to get instance: %v", err)
 		}
 
-		serviceName = instance.ServiceID
+		serviceName = instance.ServiceName
 
 		// Use orchestrator to get instance logs
 		logReader, err = s.orchestrator.GetInstanceLogs(ctx, namespace, serviceName, instanceID, logOptions)
@@ -163,14 +174,31 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 				return
 			}
 
-			// Send the log chunk to the client
+			// Process the log content
 			if n > 0 {
+				content := string(buf[:n])
+
+				// Determine log type and level
+				logLevel := "info" // Default to info level
+
+				// Simple heuristic detection of event and status messages
+				// In a real implementation, this would use a more structured approach
+				if strings.Contains(strings.ToLower(content), "error") ||
+					strings.Contains(strings.ToLower(content), "exception") ||
+					strings.Contains(strings.ToLower(content), "failed") {
+					logLevel = "error"
+				} else if strings.Contains(strings.ToLower(content), "warn") {
+					logLevel = "warning"
+				}
+
+				// Send the log chunk to the client
 				logCh <- &generated.LogResponse{
 					InstanceId:  instanceID,
 					ServiceName: serviceName,
-					Content:     string(buf[:n]),
+					Content:     content,
 					Timestamp:   time.Now().Format(time.RFC3339),
 					Stream:      "stdout", // This is simplified - the orchestrator doesn't differentiate streams
+					LogLevel:    logLevel,
 				}
 			}
 

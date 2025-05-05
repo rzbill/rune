@@ -243,13 +243,6 @@ func (o *orchestrator) watchServices() {
 
 			// Add event to queue context
 			o.workerQueue.Enqueue(key)
-
-			// Record generation if this is a spec update
-			if event.Type == store.WatchEventUpdated && event.ResourceType == types.ResourceTypeService {
-				if service, ok := event.Resource.(*types.Service); ok {
-					o.recordObservedGeneration(service.Namespace, service.Name, service.Generation)
-				}
-			}
 		}
 	}
 }
@@ -278,18 +271,33 @@ func (o *orchestrator) processWorkItem(key string) error {
 		return fmt.Errorf("failed to get resource %s/%s/%s: %w", workItemKey.ResourceType, workItemKey.Namespace, workItemKey.Name, err)
 	}
 
+	var processErr error
+
 	// Process based on event type
 	switch store.WatchEventType(workItemKey.EventType) {
 	case store.WatchEventCreated:
-		return o.handleServiceCreated(o.ctx, &service)
+		processErr = o.handleServiceCreated(o.ctx, &service)
 	case store.WatchEventUpdated:
-		return o.handleServiceUpdated(o.ctx, &service)
+		processErr = o.handleServiceUpdated(o.ctx, &service)
 	case store.WatchEventDeleted:
 		o.handleServiceDeleted(o.ctx, &service)
-		return nil
+		processErr = nil // Explicitly set to nil since handleServiceDeleted doesn't return an error
 	default:
 		return fmt.Errorf("unknown event type: %s", workItemKey.EventType)
 	}
+
+	// If we successfully processed the work item and it was an update,
+	// record the observed generation to avoid reprocessing
+	if processErr == nil && store.WatchEventType(workItemKey.EventType) == store.WatchEventUpdated {
+		o.recordObservedGeneration(service.Namespace, service.Name, service.Metadata.Generation)
+		o.logger.Debug("Successfully processed event and recorded generation",
+			log.Str("name", service.Name),
+			log.Str("namespace", service.Namespace),
+			log.Int64("generation", service.Metadata.Generation),
+			log.Json("event", workItemKey))
+	}
+
+	return processErr
 }
 
 // isInternalUpdate checks if an event was triggered by the orchestrator itself
@@ -342,8 +350,15 @@ func (o *orchestrator) isStatusOnlyChange(service *types.Service) bool {
 		return false // We haven't seen this service before
 	}
 
+	o.logger.Debug("Checking if status-only change",
+		log.Str("namespace", service.Namespace),
+		log.Str("name", service.Name),
+		log.Int64("last_observed", lastObserved),
+		log.Int64("current_generation", service.Metadata.Generation),
+		log.Json("service", service))
+
 	// If the generation hasn't changed, it's a status-only update
-	return lastObserved == service.Generation
+	return lastObserved == service.Metadata.Generation
 }
 
 // updateServiceStatus updates a service's status while preventing reconciliation loops
@@ -412,7 +427,7 @@ func (o *orchestrator) handleServiceUpdated(ctx context.Context, service *types.
 		o.logger.Debug("Skipping reconciliation for status-only change",
 			log.Str("name", service.Name),
 			log.Str("namespace", service.Namespace),
-			log.Int64("generation", service.Generation))
+			log.Int64("generation", service.Metadata.Generation))
 		return nil
 	}
 
@@ -439,8 +454,7 @@ func (o *orchestrator) handleServiceUpdated(ctx context.Context, service *types.
 		return err
 	}
 
-	// Record observed generation
-	o.recordObservedGeneration(service.Namespace, service.Name, service.Generation)
+	// The recordObservedGeneration call has been moved to processWorkItem
 
 	return nil
 }
@@ -540,11 +554,29 @@ func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, service
 
 // GetServiceLogs returns a stream of logs for a service
 func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error) {
+	// First, get the service to confirm it exists
+	var service types.Service
+	if err := o.store.Get(ctx, types.ResourceTypeService, namespace, name, &service); err != nil {
+		return nil, fmt.Errorf("failed to get service %s: %w", name, err)
+	}
+
+	// Debug logging for service details
+	o.logger.Debug("Getting logs for service",
+		log.Str("namespace", namespace),
+		log.Str("name", name),
+		log.Str("id", service.ID))
+
 	// List instances for this service
 	instances, err := o.listInstancesForService(ctx, namespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list instances: %w", err)
 	}
+
+	// Debug logging for instances found
+	o.logger.Debug("Found instances for service",
+		log.Str("namespace", namespace),
+		log.Str("name", name),
+		log.Int("count", len(instances)))
 
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no instances found for service %s in namespace %s", name, namespace)
@@ -553,7 +585,46 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 	// Collect log streams from all instances
 	logInfos := make([]InstanceLogInfo, 0, len(instances))
 	for _, instance := range instances {
-		logReader, err := o.GetInstanceLogs(ctx, namespace, name, instance.Name, opts)
+		// Skip instances that are marked as deleted
+		if instance.Status == types.InstanceStatusDeleted {
+			o.logger.Debug("Skipping deleted instance for logs",
+				log.Str("namespace", namespace),
+				log.Str("service", name),
+				log.Str("instance_id", instance.ID),
+				log.Str("instance_name", instance.Name))
+			continue
+		}
+
+		// Debug logging for instance details
+		o.logger.Debug("Processing instance",
+			log.Str("namespace", namespace),
+			log.Str("service", name),
+			log.Str("instance_id", instance.ID),
+			log.Str("instance_name", instance.Name),
+			log.Str("status", string(instance.Status)))
+
+		// Apply filtering based on instance status and requested log types
+		// - Running instances provide container logs (if ShowLogs is true)
+		// - All instances can provide events and status updates
+		if instance.Status == types.InstanceStatusRunning {
+			// For running instances, we need at least one type of log enabled
+			if !opts.ShowLogs && !opts.ShowEvents && !opts.ShowStatus {
+				o.logger.Debug("Skipping running instance - no log types enabled",
+					log.Str("instance_id", instance.ID))
+				continue
+			}
+		} else {
+			// For non-running instances, we only care about events and status
+			// Skip if we're not interested in those
+			if !opts.ShowEvents && !opts.ShowStatus {
+				o.logger.Debug("Skipping non-running instance - events/status not enabled",
+					log.Str("instance_id", instance.ID),
+					log.Str("status", string(instance.Status)))
+				continue
+			}
+		}
+
+		logReader, err := o.GetInstanceLogs(ctx, namespace, name, instance.ID, opts)
 		if err != nil {
 			o.logger.Warn("Failed to get logs for instance",
 				log.Str("service", name),
@@ -564,13 +635,33 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 			continue
 		}
 		logInfos = append(logInfos, InstanceLogInfo{
-			InstanceID: instance.ID,
-			Reader:     logReader,
+			InstanceID:   instance.ID,
+			InstanceName: instance.Name,
+			Reader:       logReader,
 		})
 	}
 
+	o.logger.Debug("Collected log streams",
+		log.Str("service", name),
+		log.Int("streams", len(logInfos)))
+
 	if len(logInfos) == 0 {
-		return nil, fmt.Errorf("failed to get logs from any instance of service %s in namespace %s", name, namespace)
+		// Check if we have any non-deleted instances
+		hasNonDeletedInstances := false
+		for _, instance := range instances {
+			if instance.Status != types.InstanceStatusDeleted {
+				hasNonDeletedInstances = true
+				break
+			}
+		}
+
+		// If we have non-deleted instances but couldn't get logs, report error
+		if hasNonDeletedInstances {
+			return nil, fmt.Errorf("failed to get logs from any instance of service %s in namespace %s", name, namespace)
+		} else {
+			// If all instances are deleted, return a specific message
+			return nil, fmt.Errorf("all instances of service %s in namespace %s are marked as deleted", name, namespace)
+		}
 	}
 
 	// If only one reader is available, return it directly without metadata
@@ -662,7 +753,7 @@ func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, s
 	// Filter instances for this service
 	filteredInstances := make([]*types.Instance, 0, len(instances))
 	for _, instance := range instances {
-		if instance.ServiceID == serviceName {
+		if instance.ServiceName == serviceName {
 			filteredInstances = append(filteredInstances, &instance)
 		}
 	}

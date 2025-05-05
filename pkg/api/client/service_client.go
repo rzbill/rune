@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
@@ -27,6 +26,11 @@ func NewServiceClient(client *Client) *ServiceClient {
 		logger: client.logger.WithComponent("service-client"),
 		svc:    generated.NewServiceServiceClient(client.conn),
 	}
+}
+
+// GetLogger returns the logger for this client
+func (s *ServiceClient) GetLogger() log.Logger {
+	return s.logger
 }
 
 // CreateService creates a new service on the API server.
@@ -99,12 +103,16 @@ func (s *ServiceClient) GetService(namespace, name string) (*types.Service, erro
 }
 
 // UpdateService updates an existing service.
-func (s *ServiceClient) UpdateService(service *types.Service) error {
-	s.logger.Debug("Updating service", log.Str("name", service.Name), log.Str("namespace", service.Namespace))
+func (s *ServiceClient) UpdateService(service *types.Service, force bool) error {
+	s.logger.Debug("Updating service",
+		log.Str("name", service.Name),
+		log.Str("namespace", service.Namespace),
+		log.Bool("force", force))
 
 	// Create the gRPC request
 	req := &generated.UpdateServiceRequest{
 		Service: s.serviceToProto(service),
+		Force:   force,
 	}
 
 	// Send the request to the API server
@@ -308,14 +316,15 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		Runtime:   string(service.Runtime),
 	}
 
-	// Format timestamps as RFC3339 strings
-	if !service.CreatedAt.IsZero() {
-		protoService.CreatedAt = service.CreatedAt.Format(time.RFC3339)
+	//TODO: Remove this, users should not be able to set timestamps
+	/*/ Format timestamps as RFC3339 strings
+	if !service.Metadata.CreatedAt.IsZero() {
+		protoService.Metadata.CreatedAt = service.Metadata.CreatedAt.Format(time.RFC3339)
 	}
 
-	if !service.UpdatedAt.IsZero() {
-		protoService.UpdatedAt = service.UpdatedAt.Format(time.RFC3339)
-	}
+	if !service.Metadata.UpdatedAt.IsZero() {
+		protoService.Metadata.UpdatedAt = service.Metadata.UpdatedAt.Format(time.RFC3339)
+	}*/
 
 	// Convert args
 	if len(service.Args) > 0 {
@@ -436,26 +445,27 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 		Image:     proto.Image,
 		Command:   proto.Command,
 		Scale:     int(proto.Scale),
+		Metadata:  &types.ServiceMetadata{Generation: int64(proto.Metadata.Generation)},
 		Runtime:   types.RuntimeType(proto.Runtime),
 	}
 
-	createdAt, err := parseTimestamp(proto.CreatedAt)
+	createdAt, err := parseTimestamp(proto.Metadata.CreatedAt)
 	if err != nil {
 		s.logger.Warn("Failed to parse created_at timestamp",
 			log.Str("service", proto.Name),
-			log.Str("timestamp", proto.CreatedAt),
+			log.Str("timestamp", proto.Metadata.CreatedAt),
 			log.Err(err))
 	}
-	service.CreatedAt = *createdAt
+	service.Metadata.CreatedAt = *createdAt
 
-	updatedAt, err := parseTimestamp(proto.UpdatedAt)
+	updatedAt, err := parseTimestamp(proto.Metadata.UpdatedAt)
 	if err != nil {
 		s.logger.Warn("Failed to parse updated_at timestamp",
 			log.Str("service", proto.Name),
-			log.Str("timestamp", proto.UpdatedAt),
+			log.Str("timestamp", proto.Metadata.UpdatedAt),
 			log.Err(err))
 	}
-	service.UpdatedAt = *updatedAt
+	service.Metadata.UpdatedAt = *updatedAt
 
 	// Convert args
 	if len(proto.Args) > 0 {

@@ -104,7 +104,7 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 		}
 
 		// Calculate age
-		age := formatAgeTable(service.CreatedAt)
+		age := formatAgeTable(service.Metadata.CreatedAt)
 
 		// Create the row
 		var row []string

@@ -624,7 +624,7 @@ func DefaultServiceResourceToRows(resources []Resource) [][]string {
 		}
 
 		// Calculate age
-		age := formatAge(service.CreatedAt)
+		age := formatAge(service.Metadata.CreatedAt)
 
 		// Create the row
 		var row []string

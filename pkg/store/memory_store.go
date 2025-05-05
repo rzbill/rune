@@ -92,6 +92,10 @@ func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string, 
 	return UnmarshalResource(result, value)
 }
 
+func (m *MemoryStore) ListAll(ctx context.Context, resourceType string, value interface{}) error {
+	return m.List(ctx, resourceType, "", value)
+}
+
 // Create creates an object in the memory store.
 func (m *MemoryStore) Create(ctx context.Context, resourceType, namespace, name string, value interface{}) error {
 	m.mutex.Lock()
@@ -177,7 +181,7 @@ func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name 
 	if resourceType == types.ResourceTypeService {
 		if service, ok := value.(*types.Service); ok {
 			// Increment the generation counter
-			service.Generation++
+			service.Metadata.Generation++
 		}
 	}
 

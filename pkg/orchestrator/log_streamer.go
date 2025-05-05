@@ -22,8 +22,9 @@ type MultiLogStreamer struct {
 
 // InstanceLogInfo associates an instance ID with its log reader
 type InstanceLogInfo struct {
-	InstanceID string
-	Reader     io.ReadCloser
+	InstanceID   string
+	InstanceName string
+	Reader       io.ReadCloser
 }
 
 // NewMultiLogStreamer creates a new MultiLogStreamer that combines log streams from multiple instances
@@ -35,18 +36,10 @@ func NewMultiLogStreamer(instances []InstanceLogInfo, includeMetadata bool) *Mul
 		metadata: includeMetadata,
 	}
 
-	// Extract readers for internal tracking and store instance IDs
-	instanceIDs := make([]string, len(instances))
-	for i, info := range instances {
-		m.readers[i] = info.Reader
-		instanceIDs[i] = info.InstanceID
-	}
-
 	// Start a goroutine for each reader
 	for i, reader := range m.readers {
 		m.wg.Add(1)
-		instanceID := instanceIDs[i]
-		go m.collectLogs(reader, instanceID)
+		go m.collectLogs(reader, instances[i])
 	}
 
 	// Start a goroutine to close the streamer when all collectors are done
@@ -59,7 +52,7 @@ func NewMultiLogStreamer(instances []InstanceLogInfo, includeMetadata bool) *Mul
 }
 
 // collectLogs reads from a reader and writes to the buffer with instance metadata
-func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instanceID string) {
+func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instance InstanceLogInfo) {
 	defer m.wg.Done()
 	defer reader.Close()
 
@@ -80,7 +73,7 @@ func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instanceID string) 
 					// If we have a full line or this is the last chunk of data
 					if data[i] == '\n' || (err == io.EOF && i == n-1) {
 						timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-						prefix := fmt.Sprintf("[%s %s] ", instanceID, timestamp)
+						prefix := fmt.Sprintf("[%s %s %s] ", instance.InstanceID, instance.InstanceName, timestamp)
 						m.buffer.WriteString(prefix)
 						m.buffer.Write(lineBuffer)
 						lineBuffer = lineBuffer[:0] // Clear the line buffer
@@ -97,14 +90,14 @@ func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instanceID string) 
 		if err != nil {
 			if err != io.EOF {
 				// Log error but continue with other readers
-				fmt.Printf("Error reading from %s logs: %v\n", instanceID, err)
+				fmt.Printf("Error reading from %s logs: %v\n", instance.InstanceID, err)
 			}
 
 			// If we have any remaining data in the line buffer, write it out
 			if m.metadata && len(lineBuffer) > 0 {
 				m.bufMu.Lock()
 				timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-				prefix := fmt.Sprintf("[%s %s] ", instanceID, timestamp)
+				prefix := fmt.Sprintf("[%s %s %s] ", instance.InstanceID, instance.InstanceName, timestamp)
 				m.buffer.WriteString(prefix)
 				m.buffer.Write(lineBuffer)
 				m.bufMu.Unlock()

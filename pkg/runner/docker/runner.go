@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
@@ -61,6 +62,11 @@ func (r *DockerRunner) Create(ctx context.Context, instance *runetypes.Instance)
 	containerConfig, hostConfig, err := r.instanceToContainerConfig(instance)
 	if err != nil {
 		return fmt.Errorf("failed to create container configuration: %w", err)
+	}
+
+	// Pull the image first
+	if err := r.pullImage(ctx, containerConfig.Image); err != nil {
+		return fmt.Errorf("failed to pull image %s: %w", containerConfig.Image, err)
 	}
 
 	// Create the container
@@ -341,6 +347,29 @@ func (r *DockerRunner) getContainerID(ctx context.Context, instance *runetypes.I
 	return containers[0].ID, nil
 }
 
+// pullImage pulls an image from the registry if it doesn't exist locally
+func (r *DockerRunner) pullImage(ctx context.Context, image string) error {
+	// Check if we already have the image
+	_, _, err := r.client.ImageInspectWithRaw(ctx, image)
+	if err == nil {
+		// Image exists locally
+		return nil
+	}
+
+	r.logger.Info("Pulling Docker image", log.Str("image", image))
+
+	// Pull the image
+	reader, err := r.client.ImagePull(ctx, image, imageTypes.PullOptions{})
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	// Read the output to complete the pull
+	_, err = io.Copy(io.Discard, reader)
+	return err
+}
+
 // instanceToContainerConfig converts a Rune instance to Docker container config.
 func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (*container.Config, *container.HostConfig, error) {
 	// Extract service ID from the instance
@@ -349,10 +378,24 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 		return nil, nil, fmt.Errorf("service ID is required")
 	}
 
-	// For now, use a simple container configuration with a fixed image
-	// In a real implementation, this would be derived from the service definition
+	// Get the image from environment variables
+	var image string
+	if instance.Metadata != nil {
+		image = instance.Metadata.Image
+	}
+
+	// Validate that we have an image
+	if image == "" {
+		return nil, nil, fmt.Errorf("no image specified for instance %s", instance.ID)
+	}
+
+	r.logger.Debug("Using image for instance",
+		log.Str("instance", instance.ID),
+		log.Str("image", image))
+
+	// Configure the container
 	containerConfig := &container.Config{
-		Image: "nginx:latest", // Fixed image for testing
+		Image: image,
 		Labels: map[string]string{
 			"rune.managed":      "true",
 			"rune.namespace":    instance.Namespace,

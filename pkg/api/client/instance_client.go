@@ -394,7 +394,9 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 		ContainerID:   proto.ContainerId,
 		PID:           int(proto.Pid),
 		Environment:   proto.Environment,
-		Metadata:      proto.Metadata,
+		Metadata: &types.InstanceMetadata{
+			ServiceGeneration: int64(proto.Metadata.Generation),
+		},
 	}
 
 	// Parse timestamps
@@ -416,6 +418,16 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 			log.Err(err))
 	} else {
 		instance.UpdatedAt = *updatedAt
+	}
+
+	deletionTimestamp, err := parseTimestamp(proto.Metadata.DeletionTimestamp)
+	if err != nil {
+		i.logger.Warn("Failed to parse deletion timestamp",
+			log.Str("instance", proto.Id),
+			log.Str("timestamp", proto.Metadata.DeletionTimestamp),
+			log.Err(err))
+	} else {
+		instance.Metadata.DeletionTimestamp = deletionTimestamp
 	}
 
 	// Convert status

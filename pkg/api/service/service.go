@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -61,10 +63,13 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 		service.Namespace = DefaultNamespace
 	}
 
-	// Set creation time
+	//Set Metadata with initial generation, creation and update times
 	now := time.Now()
-	service.CreatedAt = now
-	service.UpdatedAt = now
+	service.Metadata = &types.ServiceMetadata{
+		Generation: 1,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
 
 	// Set initial status
 	service.Status = types.ServiceStatusPending
@@ -95,7 +100,7 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 	s.logger.Debug("GetService called", log.Str("name", req.Name))
 
 	if req.Name == "" {
-		return nil, status.Error(codes.InvalidArgument, "service name is required")
+		return nil, status.Error(codes.InvalidArgument, "2service name is required")
 	}
 
 	namespace := req.Namespace
@@ -105,6 +110,7 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 
 	// Get the service from the store
 	var service types.Service
+	s.logger.Debug("Getting service", log.Str("namespace", namespace), log.Str("name", req.Name))
 	if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
@@ -151,8 +157,6 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 		// Get services from the store for a specific namespace
 		err = s.store.List(ctx, types.ResourceTypeService, namespace, &services)
 	}
-
-	s.logger.Debug("======client requested========Found services", log.Json("services", services))
 
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
@@ -272,9 +276,52 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 
 	// Preserve the ID, creation time, and other fields that shouldn't change
 	updatedService.ID = existingService.ID
-	updatedService.CreatedAt = existingService.CreatedAt
-	updatedService.UpdatedAt = time.Now()
-	updatedService.Status = types.ServiceStatusDeploying
+	updatedService.Metadata = existingService.Metadata
+	updatedService.Metadata.UpdatedAt = time.Now()
+
+	// Determine if we need to increment the generation
+	needsGenUpdate := req.Force // Force flag forces generation update
+
+	if !needsGenUpdate {
+		// Calculate service hash to determine if anything meaningful changed
+		oldHash := calculateServiceHash(&existingService)
+		newHash := calculateServiceHash(updatedService)
+
+		if oldHash != newHash {
+			// Service has changed, increment generation
+			needsGenUpdate = true
+			s.logger.Debug("Service hash changed, incrementing generation",
+				log.Str("service", updatedService.Name),
+				log.Str("namespace", updatedService.Namespace),
+				log.Str("old_hash", oldHash[:8]),
+				log.Str("new_hash", newHash[:8]),
+				log.Int64("from_generation", existingService.Metadata.Generation),
+				log.Int64("to_generation", existingService.Metadata.Generation+1))
+		} else {
+			// No changes detected, keep existing generation
+			s.logger.Debug("Service unchanged, keeping generation",
+				log.Str("service", updatedService.Name),
+				log.Str("namespace", updatedService.Namespace),
+				log.Str("hash", oldHash[:8]),
+				log.Int64("generation", existingService.Metadata.Generation))
+		}
+	} else {
+		s.logger.Info("Force flag set, incrementing generation",
+			log.Str("service", updatedService.Name),
+			log.Str("namespace", updatedService.Namespace),
+			log.Int64("from_generation", existingService.Metadata.Generation),
+			log.Int64("to_generation", existingService.Metadata.Generation+1))
+	}
+
+	if needsGenUpdate {
+		// Increment generation to trigger reconciliation
+		updatedService.Metadata.Generation = existingService.Metadata.Generation + 1
+		updatedService.Status = types.ServiceStatusDeploying
+	} else {
+		// Keep existing generation and status
+		updatedService.Metadata.Generation = existingService.Metadata.Generation
+		updatedService.Status = existingService.Status
+	}
 
 	// Store the updated service
 	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Service.Name, updatedService); err != nil {
@@ -295,6 +342,66 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 			Message: "Service updated successfully",
 		},
 	}, nil
+}
+
+// calculateServiceHash generates a hash of service properties that should trigger reconciliation when changed
+func calculateServiceHash(service *types.Service) string {
+	h := sha256.New()
+
+	// Include only fields that should trigger a reconciliation when changed
+	fmt.Fprintf(h, "image:%s\n", service.Image)
+	fmt.Fprintf(h, "command:%s\n", service.Command)
+	fmt.Fprintf(h, "scale:%d\n", service.Scale)
+	fmt.Fprintf(h, "runtime:%s\n", string(service.Runtime))
+
+	// Args
+	fmt.Fprintf(h, "args:[")
+	for i, arg := range service.Args {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s", arg)
+	}
+	fmt.Fprintf(h, "]\n")
+
+	// Environment variables
+	var envKeys []string
+	for k := range service.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+
+	fmt.Fprintf(h, "env:{")
+	for i, k := range envKeys {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s:%s", k, service.Env[k])
+	}
+	fmt.Fprintf(h, "}\n")
+
+	// Ports
+	fmt.Fprintf(h, "ports:[")
+	for i, port := range service.Ports {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s:%d:%d:%s", port.Name, port.Port, port.TargetPort, port.Protocol)
+	}
+	fmt.Fprintf(h, "]\n")
+
+	// Resources
+	if service.Resources.CPU.Request != "" || service.Resources.CPU.Limit != "" {
+		fmt.Fprintf(h, "cpu:%s:%s\n", service.Resources.CPU.Request, service.Resources.CPU.Limit)
+	}
+
+	if service.Resources.Memory.Request != "" || service.Resources.Memory.Limit != "" {
+		fmt.Fprintf(h, "memory:%s:%s\n", service.Resources.Memory.Request, service.Resources.Memory.Limit)
+	}
+
+	// Add more fields as needed that should trigger reconciliation when changed
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // DeleteService removes a service.
@@ -366,7 +473,7 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 
 	// Update the scale
 	service.Scale = int(req.Scale)
-	service.UpdatedAt = time.Now()
+	service.Metadata.UpdatedAt = time.Now()
 
 	// Store the updated service
 	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
@@ -402,9 +509,12 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		Image:     service.Image,
 		Command:   service.Command,
 		Scale:     int32(service.Scale),
-		CreatedAt: service.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: service.UpdatedAt.Format(time.RFC3339),
-		Runtime:   string(service.Runtime),
+		Metadata: &generated.ServiceMetadata{
+			Generation: int32(service.Metadata.Generation),
+			CreatedAt:  service.Metadata.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:  service.Metadata.UpdatedAt.Format(time.RFC3339),
+		},
+		Runtime: string(service.Runtime),
 	}
 
 	// Convert labels

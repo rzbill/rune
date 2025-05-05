@@ -102,8 +102,12 @@ func (s *BadgerStore) CreateResource(ctx context.Context, resourceType string, r
 		return fmt.Errorf("resource must implement NamespacedResource interface")
 	}
 
-	nn := namespacedResource.NamespacedName()
-	return s.Create(ctx, resourceType, nn.Namespace, nn.Name, resource)
+	s.logger.Debug("Creating resource",
+		log.Str("resourceType", resourceType),
+		log.Json("namespace", namespacedResource),
+		log.Json("resource", resource))
+
+	return s.Create(ctx, resourceType, namespacedResource.NamespacedName().Namespace, namespacedResource.NamespacedName().Name, resource)
 }
 
 // Create creates a new resource.

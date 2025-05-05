@@ -277,7 +277,9 @@ func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.
 		StatusMessage: protoInstance.StatusMessage,
 		ContainerID:   protoInstance.ContainerId,
 		Environment:   protoInstance.Environment,
-		Metadata:      protoInstance.Metadata,
+		Metadata: &types.InstanceMetadata{
+			ServiceGeneration: int64(protoInstance.Metadata.Generation),
+		},
 	}
 
 	// Convert PID (int32 -> int)
@@ -304,6 +306,14 @@ func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.
 		instance.UpdatedAt = updatedAt
 	} else {
 		instance.UpdatedAt = instance.CreatedAt // Default to created time if not provided
+	}
+
+	if protoInstance.Metadata.DeletionTimestamp != "" {
+		deletionTimestamp, err := time.Parse(time.RFC3339, protoInstance.Metadata.DeletionTimestamp)
+		if err != nil {
+			return nil, fmt.Errorf("invalid deletion_timestamp: %w", err)
+		}
+		instance.Metadata.DeletionTimestamp = &deletionTimestamp
 	}
 
 	// Convert status
@@ -377,7 +387,7 @@ func (s *InstanceService) instanceModelToProto(instance *types.Instance) (*gener
 		ContainerId:   instance.ContainerID,
 		Pid:           int32(instance.PID),
 		Environment:   instance.Environment,
-		Metadata:      instance.Metadata,
+		Metadata:      &generated.InstanceMetadata{Generation: int32(instance.Metadata.ServiceGeneration)},
 		CreatedAt:     instance.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     instance.UpdatedAt.Format(time.RFC3339),
 	}

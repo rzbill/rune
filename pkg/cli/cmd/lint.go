@@ -17,15 +17,15 @@ import (
 )
 
 var (
-	strict        bool
-	quiet         bool
-	recursive     bool
-	fileTypes     []string
-	exitOnFail    bool
-	autoFix       bool
-	outputFormat  string
-	contextLines  int
-	expandContext bool
+	strict           bool
+	quiet            bool
+	recursive        bool
+	fileTypes        []string
+	exitOnFail       bool
+	autoFix          bool
+	lintOutputFormat string
+	contextLines     int
+	expandContext    bool
 )
 
 // Color setup for formatting
@@ -147,7 +147,7 @@ func init() {
 	lintCmd.Flags().StringSliceVar(&fileTypes, "types", []string{}, "Only validate specific resource types (comma separated: service, job, secret, etc.)")
 	lintCmd.Flags().BoolVar(&exitOnFail, "exit-on-fail", false, "Exit on first validation failure")
 	lintCmd.Flags().BoolVar(&autoFix, "fix", false, "Automatically fix simple issues when possible")
-	lintCmd.Flags().StringVar(&outputFormat, "format", "text", "Output format (text, json)")
+	lintCmd.Flags().StringVar(&lintOutputFormat, "format", "text", "Output format (text, json)")
 	lintCmd.Flags().IntVar(&contextLines, "context", 1, "Number of context lines to show around errors")
 	lintCmd.Flags().BoolVar(&expandContext, "expand-context", false, "Show more context around errors (equivalent to --context=3)")
 }
@@ -168,7 +168,7 @@ func runLint(files []string) error {
 
 	for _, filename := range files {
 		// Only show per-file progress in verbose mode
-		if verbose && !quiet && outputFormat == "text" {
+		if verbose && !quiet && lintOutputFormat == "text" {
 			fmt.Printf("Linting %s...\n", filename)
 		}
 
@@ -188,7 +188,7 @@ func runLint(files []string) error {
 		formatter := format.NewErrorFormatter(filename, data)
 		formatter.ContextLines = contextLines
 		formatter.CanAutoFix = autoFix
-		formatter.OutputFormat = outputFormat
+		formatter.OutputFormat = lintOutputFormat
 
 		// Determine resource type
 		resourceType, err := determineResourceType(data)
@@ -202,7 +202,7 @@ func runLint(files []string) error {
 			// Try auto-fix if enabled
 			if autoFix {
 				if fixed, newData := formatter.TryAutoFix(err.Error(), lineNum); fixed {
-					if !quiet && outputFormat == "text" {
+					if !quiet && lintOutputFormat == "text" {
 						format.SuccessColor.Printf("  ↪ Auto-fixed issues in %s\n", filename)
 					}
 					// Write the fixed data back to the file
@@ -242,7 +242,7 @@ func runLint(files []string) error {
 
 		// Skip if we're only linting specific types and this isn't one of them
 		if len(fileTypes) > 0 && !contains(fileTypes, resourceType) {
-			if !quiet && outputFormat == "text" {
+			if !quiet && lintOutputFormat == "text" {
 				fmt.Printf("Skipping %s (resource type: %s)\n", filename, resourceType)
 			}
 			continue
@@ -259,7 +259,7 @@ func runLint(files []string) error {
 				for _, valError := range formatter.Errors {
 					if valError.AutoFixable {
 						if fixed, newData := formatter.TryAutoFix(valError.Message, valError.LineNumber); fixed {
-							if !quiet && outputFormat == "text" {
+							if !quiet && lintOutputFormat == "text" {
 								format.SuccessColor.Printf("  ↪ Auto-fixed issue at line %d in %s\n",
 									valError.LineNumber, filename)
 							}
@@ -283,12 +283,12 @@ func runLint(files []string) error {
 					// Create a new formatter with the updated data
 					newFormatter := format.NewErrorFormatter(filename, data)
 					newFormatter.ContextLines = contextLines
-					newFormatter.OutputFormat = outputFormat
+					newFormatter.OutputFormat = lintOutputFormat
 
 					// Revalidate
 					if err := validateResource(newFormatter, resourceType, data); err == nil {
 						// Fixed all issues!
-						if !quiet && outputFormat == "text" {
+						if !quiet && lintOutputFormat == "text" {
 							format.SuccessColor.Printf("  ✓ All issues fixed in %s\n", filename)
 						}
 						// Reset the error flag for this file
@@ -311,7 +311,7 @@ func runLint(files []string) error {
 			}
 
 			// Show error summary for this file
-			if outputFormat == "text" {
+			if lintOutputFormat == "text" {
 				formatter.PrintErrorSummary()
 			}
 
@@ -322,7 +322,7 @@ func runLint(files []string) error {
 	}
 
 	// Output in JSON format if requested
-	if outputFormat == "json" {
+	if lintOutputFormat == "json" {
 		// Create a combined formatter just for JSON output
 		jsonFormatter := format.NewErrorFormatter("", nil)
 		jsonFormatter.Errors = allErrors
@@ -332,7 +332,7 @@ func runLint(files []string) error {
 	}
 
 	// Print overall stats
-	if outputFormat == "text" {
+	if lintOutputFormat == "text" {
 		duration := time.Since(startTime)
 		format.PrintLintSummary(len(files), totalErrorCount, totalFixCount, duration)
 	}

@@ -448,7 +448,7 @@ func sortServices(services []*types.Service, sortField string) {
 		})
 	case "creationTime", "age":
 		sort.Slice(services, func(i, j int) bool {
-			return services[i].CreatedAt.Before(services[j].CreatedAt)
+			return services[i].Metadata.CreatedAt.Before(services[j].Metadata.CreatedAt)
 		})
 	case "status":
 		sort.Slice(services, func(i, j int) bool {

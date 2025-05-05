@@ -265,8 +265,7 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		ConfigMounts:  s.ConfigMounts,
 		Discovery:     s.Discovery,
 		Status:        ServiceStatusPending,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		Metadata:      &ServiceMetadata{CreatedAt: now, UpdatedAt: now},
 	}, nil
 }
 

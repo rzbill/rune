@@ -5,6 +5,7 @@ service:
   scale: 1
   labels:
     app: echo
-  command: "echo"
+  command: "/bin/sh"
   args:
-    - "Hello from Rune!" 
+    - "-c"
+    - "while true; do echo \"Hello from Rune! $(date)\"; sleep 5; done" 

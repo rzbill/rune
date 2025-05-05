@@ -130,7 +130,7 @@ type Instance struct {
 	// Environment variables
 	Environment map[string]string `protobuf:"bytes,16,rep,name=environment,proto3" json:"environment,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Metadata
-	Metadata map[string]string `protobuf:"bytes,17,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Metadata *InstanceMetadata `protobuf:"bytes,17,opt,name=metadata,proto3" json:"metadata,omitempty"`
 }
 
 func (x *Instance) Reset() {
@@ -277,11 +277,69 @@ func (x *Instance) GetEnvironment() map[string]string {
 	return nil
 }
 
-func (x *Instance) GetMetadata() map[string]string {
+func (x *Instance) GetMetadata() *InstanceMetadata {
 	if x != nil {
 		return x.Metadata
 	}
 	return nil
+}
+
+// InstanceMetadata represents metadata for an instance.
+type InstanceMetadata struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Generation number for the service
+	Generation int32 `protobuf:"varint,1,opt,name=generation,proto3" json:"generation,omitempty"`
+	// Deletion timestamp
+	DeletionTimestamp string `protobuf:"bytes,2,opt,name=deletion_timestamp,json=deletionTimestamp,proto3" json:"deletion_timestamp,omitempty"`
+}
+
+func (x *InstanceMetadata) Reset() {
+	*x = InstanceMetadata{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *InstanceMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InstanceMetadata) ProtoMessage() {}
+
+func (x *InstanceMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InstanceMetadata.ProtoReflect.Descriptor instead.
+func (*InstanceMetadata) Descriptor() ([]byte, []int) {
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *InstanceMetadata) GetGeneration() int32 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *InstanceMetadata) GetDeletionTimestamp() string {
+	if x != nil {
+		return x.DeletionTimestamp
+	}
+	return ""
 }
 
 // GetInstanceRequest requests a specific instance.
@@ -299,7 +357,7 @@ type GetInstanceRequest struct {
 func (x *GetInstanceRequest) Reset() {
 	*x = GetInstanceRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[1]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -312,7 +370,7 @@ func (x *GetInstanceRequest) String() string {
 func (*GetInstanceRequest) ProtoMessage() {}
 
 func (x *GetInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[1]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -325,7 +383,7 @@ func (x *GetInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInstanceRequest.ProtoReflect.Descriptor instead.
 func (*GetInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{1}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *GetInstanceRequest) GetId() string {
@@ -357,7 +415,7 @@ type InstanceResponse struct {
 func (x *InstanceResponse) Reset() {
 	*x = InstanceResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[2]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -370,7 +428,7 @@ func (x *InstanceResponse) String() string {
 func (*InstanceResponse) ProtoMessage() {}
 
 func (x *InstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[2]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +441,7 @@ func (x *InstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceResponse.ProtoReflect.Descriptor instead.
 func (*InstanceResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{2}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *InstanceResponse) GetInstance() *Instance {
@@ -425,7 +483,7 @@ type ListInstancesRequest struct {
 func (x *ListInstancesRequest) Reset() {
 	*x = ListInstancesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[3]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -438,7 +496,7 @@ func (x *ListInstancesRequest) String() string {
 func (*ListInstancesRequest) ProtoMessage() {}
 
 func (x *ListInstancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[3]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +509,7 @@ func (x *ListInstancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstancesRequest.ProtoReflect.Descriptor instead.
 func (*ListInstancesRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{3}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ListInstancesRequest) GetServiceName() string {
@@ -520,7 +578,7 @@ type ListInstancesResponse struct {
 func (x *ListInstancesResponse) Reset() {
 	*x = ListInstancesResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[4]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -533,7 +591,7 @@ func (x *ListInstancesResponse) String() string {
 func (*ListInstancesResponse) ProtoMessage() {}
 
 func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[4]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -546,7 +604,7 @@ func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstancesResponse.ProtoReflect.Descriptor instead.
 func (*ListInstancesResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{4}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListInstancesResponse) GetInstances() []*Instance {
@@ -587,7 +645,7 @@ type InstanceActionRequest struct {
 func (x *InstanceActionRequest) Reset() {
 	*x = InstanceActionRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[5]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -600,7 +658,7 @@ func (x *InstanceActionRequest) String() string {
 func (*InstanceActionRequest) ProtoMessage() {}
 
 func (x *InstanceActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[5]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -613,7 +671,7 @@ func (x *InstanceActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceActionRequest.ProtoReflect.Descriptor instead.
 func (*InstanceActionRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{5}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *InstanceActionRequest) GetId() string {
@@ -656,7 +714,7 @@ type WatchInstancesRequest struct {
 func (x *WatchInstancesRequest) Reset() {
 	*x = WatchInstancesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[6]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -669,7 +727,7 @@ func (x *WatchInstancesRequest) String() string {
 func (*WatchInstancesRequest) ProtoMessage() {}
 
 func (x *WatchInstancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[6]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +740,7 @@ func (x *WatchInstancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchInstancesRequest.ProtoReflect.Descriptor instead.
 func (*WatchInstancesRequest) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{6}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *WatchInstancesRequest) GetNamespace() string {
@@ -730,7 +788,7 @@ type WatchInstancesResponse struct {
 func (x *WatchInstancesResponse) Reset() {
 	*x = WatchInstancesResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_pkg_api_proto_instance_proto_msgTypes[7]
+		mi := &file_pkg_api_proto_instance_proto_msgTypes[8]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -743,7 +801,7 @@ func (x *WatchInstancesResponse) String() string {
 func (*WatchInstancesResponse) ProtoMessage() {}
 
 func (x *WatchInstancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pkg_api_proto_instance_proto_msgTypes[7]
+	mi := &file_pkg_api_proto_instance_proto_msgTypes[8]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +814,7 @@ func (x *WatchInstancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchInstancesResponse.ProtoReflect.Descriptor instead.
 func (*WatchInstancesResponse) Descriptor() ([]byte, []int) {
-	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{7}
+	return file_pkg_api_proto_instance_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *WatchInstancesResponse) GetInstance() *Instance {
@@ -787,7 +845,7 @@ var file_pkg_api_proto_instance_proto_rawDesc = []byte{
 	0x69, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x08,
 	0x72, 0x75, 0x6e, 0x65, 0x2e, 0x61, 0x70, 0x69, 0x1a, 0x1a, 0x70, 0x6b, 0x67, 0x2f, 0x61, 0x70,
 	0x69, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x22, 0xd0, 0x05, 0x0a, 0x08, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63,
+	0x72, 0x6f, 0x74, 0x6f, 0x22, 0x8d, 0x05, 0x0a, 0x08, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63,
 	0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69,
 	0x64, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x75, 0x6e, 0x6e, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28,
 	0x09, 0x52, 0x06, 0x72, 0x75, 0x6e, 0x6e, 0x65, 0x72, 0x12, 0x1c, 0x0a, 0x09, 0x6e, 0x61, 0x6d,
@@ -820,19 +878,21 @@ var file_pkg_api_proto_instance_proto_rawDesc = []byte{
 	0x6d, 0x65, 0x6e, 0x74, 0x18, 0x10, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x72, 0x75, 0x6e,
 	0x65, 0x2e, 0x61, 0x70, 0x69, 0x2e, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x2e, 0x45,
 	0x6e, 0x76, 0x69, 0x72, 0x6f, 0x6e, 0x6d, 0x65, 0x6e, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52,
-	0x0b, 0x65, 0x6e, 0x76, 0x69, 0x72, 0x6f, 0x6e, 0x6d, 0x65, 0x6e, 0x74, 0x12, 0x3c, 0x0a, 0x08,
-	0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x11, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x20,
+	0x0b, 0x65, 0x6e, 0x76, 0x69, 0x72, 0x6f, 0x6e, 0x6d, 0x65, 0x6e, 0x74, 0x12, 0x36, 0x0a, 0x08,
+	0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x11, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a,
 	0x2e, 0x72, 0x75, 0x6e, 0x65, 0x2e, 0x61, 0x70, 0x69, 0x2e, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e,
-	0x63, 0x65, 0x2e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79,
-	0x52, 0x08, 0x6d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x1a, 0x3e, 0x0a, 0x10, 0x45, 0x6e,
-	0x76, 0x69, 0x72, 0x6f, 0x6e, 0x6d, 0x65, 0x6e, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10,
-	0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79,
-	0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x1a, 0x3b, 0x0a, 0x0d, 0x4d, 0x65,
-	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b,
-	0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a,
-	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61,
-	0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0x42, 0x0a, 0x12, 0x47, 0x65, 0x74, 0x49, 0x6e,
+	0x63, 0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x52, 0x08, 0x6d, 0x65, 0x74, 0x61,
+	0x64, 0x61, 0x74, 0x61, 0x1a, 0x3e, 0x0a, 0x10, 0x45, 0x6e, 0x76, 0x69, 0x72, 0x6f, 0x6e, 0x6d,
+	0x65, 0x6e, 0x74, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61,
+	0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65,
+	0x3a, 0x02, 0x38, 0x01, 0x22, 0x61, 0x0a, 0x10, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65,
+	0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x1e, 0x0a, 0x0a, 0x67, 0x65, 0x6e, 0x65,
+	0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x0a, 0x67, 0x65,
+	0x6e, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x2d, 0x0a, 0x12, 0x64, 0x65, 0x6c, 0x65,
+	0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x11, 0x64, 0x65, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x69,
+	0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x22, 0x42, 0x0a, 0x12, 0x47, 0x65, 0x74, 0x49, 0x6e,
 	0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x0e, 0x0a,
 	0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x1c, 0x0a,
 	0x09, 0x6e, 0x61, 0x6d, 0x65, 0x73, 0x70, 0x61, 0x63, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
@@ -1002,15 +1062,15 @@ var file_pkg_api_proto_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 1
 var file_pkg_api_proto_instance_proto_goTypes = []interface{}{
 	(InstanceStatus)(0),            // 0: rune.api.InstanceStatus
 	(*Instance)(nil),               // 1: rune.api.Instance
-	(*GetInstanceRequest)(nil),     // 2: rune.api.GetInstanceRequest
-	(*InstanceResponse)(nil),       // 3: rune.api.InstanceResponse
-	(*ListInstancesRequest)(nil),   // 4: rune.api.ListInstancesRequest
-	(*ListInstancesResponse)(nil),  // 5: rune.api.ListInstancesResponse
-	(*InstanceActionRequest)(nil),  // 6: rune.api.InstanceActionRequest
-	(*WatchInstancesRequest)(nil),  // 7: rune.api.WatchInstancesRequest
-	(*WatchInstancesResponse)(nil), // 8: rune.api.WatchInstancesResponse
-	nil,                            // 9: rune.api.Instance.EnvironmentEntry
-	nil,                            // 10: rune.api.Instance.MetadataEntry
+	(*InstanceMetadata)(nil),       // 2: rune.api.InstanceMetadata
+	(*GetInstanceRequest)(nil),     // 3: rune.api.GetInstanceRequest
+	(*InstanceResponse)(nil),       // 4: rune.api.InstanceResponse
+	(*ListInstancesRequest)(nil),   // 5: rune.api.ListInstancesRequest
+	(*ListInstancesResponse)(nil),  // 6: rune.api.ListInstancesResponse
+	(*InstanceActionRequest)(nil),  // 7: rune.api.InstanceActionRequest
+	(*WatchInstancesRequest)(nil),  // 8: rune.api.WatchInstancesRequest
+	(*WatchInstancesResponse)(nil), // 9: rune.api.WatchInstancesResponse
+	nil,                            // 10: rune.api.Instance.EnvironmentEntry
 	nil,                            // 11: rune.api.ListInstancesRequest.LabelSelectorEntry
 	nil,                            // 12: rune.api.ListInstancesRequest.FieldSelectorEntry
 	nil,                            // 13: rune.api.WatchInstancesRequest.LabelSelectorEntry
@@ -1023,8 +1083,8 @@ var file_pkg_api_proto_instance_proto_goTypes = []interface{}{
 var file_pkg_api_proto_instance_proto_depIdxs = []int32{
 	0,  // 0: rune.api.Instance.status:type_name -> rune.api.InstanceStatus
 	15, // 1: rune.api.Instance.resources:type_name -> rune.api.Resources
-	9,  // 2: rune.api.Instance.environment:type_name -> rune.api.Instance.EnvironmentEntry
-	10, // 3: rune.api.Instance.metadata:type_name -> rune.api.Instance.MetadataEntry
+	10, // 2: rune.api.Instance.environment:type_name -> rune.api.Instance.EnvironmentEntry
+	2,  // 3: rune.api.Instance.metadata:type_name -> rune.api.InstanceMetadata
 	1,  // 4: rune.api.InstanceResponse.instance:type_name -> rune.api.Instance
 	16, // 5: rune.api.InstanceResponse.status:type_name -> rune.api.Status
 	0,  // 6: rune.api.ListInstancesRequest.status:type_name -> rune.api.InstanceStatus
@@ -1039,18 +1099,18 @@ var file_pkg_api_proto_instance_proto_depIdxs = []int32{
 	1,  // 15: rune.api.WatchInstancesResponse.instance:type_name -> rune.api.Instance
 	18, // 16: rune.api.WatchInstancesResponse.event_type:type_name -> rune.api.EventType
 	16, // 17: rune.api.WatchInstancesResponse.status:type_name -> rune.api.Status
-	2,  // 18: rune.api.InstanceService.GetInstance:input_type -> rune.api.GetInstanceRequest
-	4,  // 19: rune.api.InstanceService.ListInstances:input_type -> rune.api.ListInstancesRequest
-	6,  // 20: rune.api.InstanceService.StartInstance:input_type -> rune.api.InstanceActionRequest
-	6,  // 21: rune.api.InstanceService.StopInstance:input_type -> rune.api.InstanceActionRequest
-	6,  // 22: rune.api.InstanceService.RestartInstance:input_type -> rune.api.InstanceActionRequest
-	7,  // 23: rune.api.InstanceService.WatchInstances:input_type -> rune.api.WatchInstancesRequest
-	3,  // 24: rune.api.InstanceService.GetInstance:output_type -> rune.api.InstanceResponse
-	5,  // 25: rune.api.InstanceService.ListInstances:output_type -> rune.api.ListInstancesResponse
-	3,  // 26: rune.api.InstanceService.StartInstance:output_type -> rune.api.InstanceResponse
-	3,  // 27: rune.api.InstanceService.StopInstance:output_type -> rune.api.InstanceResponse
-	3,  // 28: rune.api.InstanceService.RestartInstance:output_type -> rune.api.InstanceResponse
-	8,  // 29: rune.api.InstanceService.WatchInstances:output_type -> rune.api.WatchInstancesResponse
+	3,  // 18: rune.api.InstanceService.GetInstance:input_type -> rune.api.GetInstanceRequest
+	5,  // 19: rune.api.InstanceService.ListInstances:input_type -> rune.api.ListInstancesRequest
+	7,  // 20: rune.api.InstanceService.StartInstance:input_type -> rune.api.InstanceActionRequest
+	7,  // 21: rune.api.InstanceService.StopInstance:input_type -> rune.api.InstanceActionRequest
+	7,  // 22: rune.api.InstanceService.RestartInstance:input_type -> rune.api.InstanceActionRequest
+	8,  // 23: rune.api.InstanceService.WatchInstances:input_type -> rune.api.WatchInstancesRequest
+	4,  // 24: rune.api.InstanceService.GetInstance:output_type -> rune.api.InstanceResponse
+	6,  // 25: rune.api.InstanceService.ListInstances:output_type -> rune.api.ListInstancesResponse
+	4,  // 26: rune.api.InstanceService.StartInstance:output_type -> rune.api.InstanceResponse
+	4,  // 27: rune.api.InstanceService.StopInstance:output_type -> rune.api.InstanceResponse
+	4,  // 28: rune.api.InstanceService.RestartInstance:output_type -> rune.api.InstanceResponse
+	9,  // 29: rune.api.InstanceService.WatchInstances:output_type -> rune.api.WatchInstancesResponse
 	24, // [24:30] is the sub-list for method output_type
 	18, // [18:24] is the sub-list for method input_type
 	18, // [18:18] is the sub-list for extension type_name
@@ -1078,7 +1138,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetInstanceRequest); i {
+			switch v := v.(*InstanceMetadata); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1090,7 +1150,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*InstanceResponse); i {
+			switch v := v.(*GetInstanceRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1102,7 +1162,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListInstancesRequest); i {
+			switch v := v.(*InstanceResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1114,7 +1174,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListInstancesResponse); i {
+			switch v := v.(*ListInstancesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1126,7 +1186,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*InstanceActionRequest); i {
+			switch v := v.(*ListInstancesResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1138,7 +1198,7 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WatchInstancesRequest); i {
+			switch v := v.(*InstanceActionRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1150,6 +1210,18 @@ func file_pkg_api_proto_instance_proto_init() {
 			}
 		}
 		file_pkg_api_proto_instance_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*WatchInstancesRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_pkg_api_proto_instance_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*WatchInstancesResponse); i {
 			case 0:
 				return &v.state

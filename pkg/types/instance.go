@@ -6,6 +6,8 @@ import (
 
 // Instance represents a running copy of a service.
 type Instance struct {
+	NamespacedResource
+
 	// Runner type for the instance
 	Runner RunnerType `json:"runner" yaml:"runner"`
 
@@ -62,7 +64,19 @@ type Instance struct {
 
 	// Metadata contains additional information about the instance
 	// Use for storing system properties that aren't part of the core spec
-	Metadata map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Metadata *InstanceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+// InstanceMetadata contains additional information about the instance
+type InstanceMetadata struct {
+	// Image is the image that the instance is running
+	Image string `json:"image,omitempty" yaml:"image,omitempty"`
+
+	// ServiceGeneration is the generation of the service that the instance belongs to
+	ServiceGeneration int64 `json:"serviceGeneration,omitempty" yaml:"serviceGeneration,omitempty"`
+
+	// DeletionTimestamp is the timestamp when the instance was marked for deletion
+	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty" yaml:"deletionTimestamp,omitempty"`
 }
 
 // Exec represents execution configuration for a command

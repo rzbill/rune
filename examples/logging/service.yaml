@@ -1,0 +1,9 @@
+service:
+  name: logging-service
+  namespace: default
+  image: rune-logging-service:latest
+  scale: 1
+  labels:
+    app: logging-service
+  env:
+    LOG_LEVEL: debug

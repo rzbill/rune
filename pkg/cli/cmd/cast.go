@@ -18,14 +18,15 @@ import (
 
 var (
 	// Cast command flags
-	namespace    string
-	tag          string
-	dryRun       bool
-	detach       bool
-	timeoutStr   string
-	recursiveDir bool
-	clientAPIKey string
-	clientAddr   string
+	namespace       string
+	tag             string
+	dryRun          bool
+	detach          bool
+	timeoutStr      string
+	recursiveDir    bool
+	clientAPIKey    string
+	clientAddr      string
+	forceGeneration bool
 )
 
 // castCmd represents the cast command
@@ -38,7 +39,8 @@ For example:
   rune cast my-service.yml --namespace=production
   rune cast my-service.yml --tag=stable
   rune cast my-directory/ --recursive
-  rune cast services/*.yaml`,
+  rune cast services/*.yaml
+  rune cast my-service.yml --force`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runCast,
 }
@@ -53,6 +55,7 @@ func init() {
 	castCmd.Flags().BoolVar(&detach, "detach", false, "Detach from the deployment and return immediately")
 	castCmd.Flags().StringVar(&timeoutStr, "timeout", "5m", "Timeout for the wait operation")
 	castCmd.Flags().BoolVarP(&recursiveDir, "recursive", "r", false, "Recursively process directories")
+	castCmd.Flags().BoolVar(&forceGeneration, "force", false, "Force generation increment even if no changes are detected")
 
 	// API client flags
 	castCmd.Flags().StringVar(&clientAPIKey, "api-key", "", "API key for authentication")
@@ -297,7 +300,7 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 			if action == "Creating" {
 				deployErr = serviceClient.CreateService(service)
 			} else {
-				deployErr = serviceClient.UpdateService(service)
+				deployErr = serviceClient.UpdateService(service, forceGeneration)
 			}
 
 			if deployErr != nil {

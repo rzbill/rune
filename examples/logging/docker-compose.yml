@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  logging-service:
+    build: 
+      context: ../..
+      dockerfile: examples/logging/Dockerfile
+    container_name: rune-logging-service
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=debug 

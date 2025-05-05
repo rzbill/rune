@@ -516,9 +516,11 @@ func TestUpdateInstance(t *testing.T) {
 		ServiceID: service.ID,
 		Status:    types.InstanceStatusRunning,
 		Environment: map[string]string{
-			"RUNE_SERVICE_NAME":   "test-service",
-			"RUNE_ORIGINAL_IMAGE": "test-image:latest",
-			"ENV_VAR1":            "old-value", // This will be updated
+			"RUNE_SERVICE_NAME": "test-service",
+			"ENV_VAR1":          "old-value", // This will be updated
+		},
+		Metadata: &types.InstanceMetadata{
+			Image: "original-image:latest",
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: originalUpdateTime,
@@ -578,8 +580,8 @@ func TestUpdateInstanceIncompatible(t *testing.T) {
 		ServiceID:   service.ID,
 		Status:      types.InstanceStatusRunning,
 		ContainerID: "container123", // Important for docker runtime incompatibility check
-		Environment: map[string]string{
-			"RUNE_ORIGINAL_IMAGE": "original-image:latest",
+		Metadata: &types.InstanceMetadata{
+			Image: "original-image:latest",
 		},
 	}
 
