@@ -4,25 +4,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/rzbill/rune/pkg/types"
 )
 
 // MakeKey creates a standardized key for a resource.
-func MakeKey(resourceType, namespace, name string) []byte {
+func MakeKey(resourceType types.ResourceType, namespace, name string) []byte {
 	return []byte(fmt.Sprintf("%s/%s/%s", resourceType, namespace, name))
 }
 
 // MakeVersionKey creates a standardized key for a resource version.
-func MakeVersionKey(resourceType, namespace, name, version string) []byte {
+func MakeVersionKey(resourceType types.ResourceType, namespace, name, version string) []byte {
 	return []byte(fmt.Sprintf("%s-versions/%s/%s/%s", resourceType, namespace, name, version))
 }
 
 // MakePrefix creates a prefix for listing resources by type and namespace.
-func MakePrefix(resourceType, namespace string) []byte {
+func MakePrefix(resourceType types.ResourceType, namespace string) []byte {
 	return []byte(fmt.Sprintf("%s/%s", resourceType, namespace))
 }
 
 // MakeVersionPrefix creates a prefix for listing resource versions.
-func MakeVersionPrefix(resourceType, namespace, name string) []byte {
+func MakeVersionPrefix(resourceType types.ResourceType, namespace, name string) []byte {
 	return []byte(fmt.Sprintf("%s-versions/%s/%s/", resourceType, namespace, name))
 }
 

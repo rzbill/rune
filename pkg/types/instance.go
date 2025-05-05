@@ -6,7 +6,7 @@ import (
 
 // Instance represents a running copy of a service.
 type Instance struct {
-	NamespacedResource
+	NamespacedResource `json:"-" yaml:"-"`
 
 	// Runner type for the instance
 	Runner RunnerType `json:"runner" yaml:"runner"`
@@ -65,6 +65,10 @@ type Instance struct {
 	// Metadata contains additional information about the instance
 	// Use for storing system properties that aren't part of the core spec
 	Metadata *InstanceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+func (i *Instance) GetResourceType() ResourceType {
+	return ResourceTypeInstance
 }
 
 // InstanceMetadata contains additional information about the instance

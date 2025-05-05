@@ -33,7 +33,7 @@ type Orchestrator interface {
 	GetServiceLogs(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error)
 
 	// GetInstanceLogs returns a stream of logs for an instance
-	GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error)
+	GetInstanceLogs(ctx context.Context, namespace, instanceID string, opts types.LogOptions) (io.ReadCloser, error)
 
 	// ExecInService executes a command in a running instance of the service
 	// If multiple instances exist, one will be chosen
@@ -224,7 +224,7 @@ func (o *orchestrator) watchServices() {
 			// Check if this is an internal update to avoid reconciliation loops
 			if o.isInternalUpdate(event) {
 				o.logger.Debug("Ignoring internally triggered update",
-					log.Str("resource_type", event.ResourceType),
+					log.Any("resource_type", event.ResourceType),
 					log.Str("namespace", event.Namespace),
 					log.Str("name", event.Name),
 					log.Str("source", string(event.Source)))
@@ -256,7 +256,7 @@ func (o *orchestrator) processWorkItem(key string) error {
 	}
 
 	o.logger.Debug("Processing work item",
-		log.Str("resourceType", workItemKey.ResourceType),
+		log.Any("resourceType", workItemKey.ResourceType),
 		log.Str("namespace", workItemKey.Namespace),
 		log.Str("name", workItemKey.Name),
 		log.Str("eventType", workItemKey.EventType))
@@ -314,13 +314,13 @@ func (o *orchestrator) isInternalUpdate(event store.WatchEvent) bool {
 }
 
 // inProgressUpdate marks an update as being in progress to avoid reconciliation loops
-func (o *orchestrator) inProgressUpdate(resourceType, namespace, name string) {
+func (o *orchestrator) inProgressUpdate(resourceType types.ResourceType, namespace, name string) {
 	key := fmt.Sprintf("%s/%s/%s", resourceType, namespace, name)
 	o.internalUpdates.Store(key, time.Now())
 }
 
 // clearInProgressUpdate clears an update marked as in progress
-func (o *orchestrator) clearInProgressUpdate(resourceType, namespace, name string) {
+func (o *orchestrator) clearInProgressUpdate(resourceType types.ResourceType, namespace, name string) {
 	key := fmt.Sprintf("%s/%s/%s", resourceType, namespace, name)
 	o.internalUpdates.Delete(key)
 }
@@ -488,7 +488,7 @@ func (o *orchestrator) handleServiceDeleted(ctx context.Context, service *types.
 		o.healthController.RemoveInstance(instance.ID)
 
 		// Remove from store
-		if err := o.store.Delete(ctx, "instances", service.Namespace, instance.ID); err != nil {
+		if err := o.store.Delete(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID); err != nil {
 			o.logger.Error("Failed to remove instance from store",
 				log.Str("instance", instance.ID),
 				log.Err(err))
@@ -624,12 +624,12 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 			}
 		}
 
-		logReader, err := o.GetInstanceLogs(ctx, namespace, name, instance.ID, opts)
+		logReader, err := o.GetInstanceLogs(ctx, namespace, instance.ID, opts)
 		if err != nil {
 			o.logger.Warn("Failed to get logs for instance",
 				log.Str("service", name),
 				log.Str("namespace", namespace),
-				log.Str("instance", instance.Name),
+				log.Str("instance", instance.ID),
 				log.Err(err))
 			// Continue with other instances even if one fails
 			continue
@@ -664,30 +664,35 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 		}
 	}
 
-	// If only one reader is available, return it directly without metadata
-	if len(logInfos) == 1 {
-		return logInfos[0].Reader, nil
-	}
-
-	// Create a multi-instance log streamer to combine logs
+	// Always use MultiLogStreamer to ensure consistent metadata handling
+	// regardless of whether we have one or multiple log readers
 	return NewMultiLogStreamer(logInfos, true), nil
 }
 
 // GetInstanceLogs returns a stream of logs for an instance
-func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error) {
+func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, id string, opts types.LogOptions) (io.ReadCloser, error) {
 	// Get instance from store
 	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, id, &instance); err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	// Verify instance belongs to the specified service
-	if instance.ServiceName != serviceName {
-		return nil, fmt.Errorf("instance does not belong to service %s", serviceName)
+	// Get logs from instance controller
+	logReader, err := o.instanceController.GetInstanceLogs(ctx, &instance, opts)
+	if err != nil {
+		return nil, err
 	}
 
-	// Get logs from instance controller
-	return o.instanceController.GetInstanceLogs(ctx, &instance, opts)
+	// Wrap the reader in a MultiLogStreamer to ensure consistent metadata formatting
+	logInfos := []InstanceLogInfo{
+		{
+			InstanceID:   instance.ID,
+			InstanceName: instance.Name,
+			Reader:       logReader,
+		},
+	}
+
+	return NewMultiLogStreamer(logInfos, true), nil
 }
 
 // ExecInService executes a command in a running instance of the service
@@ -745,7 +750,7 @@ func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceNam
 func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, serviceName string) ([]*types.Instance, error) {
 	// Get all instances
 	var instances []types.Instance
-	err := o.store.List(ctx, "instances", namespace, &instances)
+	err := o.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list instances: %w", err)
 	}

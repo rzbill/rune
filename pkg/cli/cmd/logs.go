@@ -25,24 +25,24 @@ const (
 )
 
 var (
-	// Trace command flags
-	traceNamespace      string
-	traceFollow         bool
-	traceTail           int
-	traceSinceStr       string
-	traceUntilStr       string
-	tracePattern        string
-	traceShowTimestamps bool
-	traceShowPrefix     bool
-	traceNoColor        bool
-	traceOutputFormat   string
-	traceClientKey      string
-	traceClientAddr     string
-	traceInstanceID     string
+	// Logs command flags
+	logsNamespace      string
+	logsFollow         bool
+	logsTail           int
+	logsSinceStr       string
+	logsUntilStr       string
+	logsPattern        string
+	logsShowTimestamps bool
+	logsShowPrefix     bool
+	logsNoColor        bool
+	logsOutputFormat   string
+	logsClientKey      string
+	logsClientAddr     string
+	logsInstanceID     string
 )
 
-// TraceOptions defines the configuration for log tracing
-type TraceOptions struct {
+// LogsOptions defines the configuration for log tracing
+type LogsOptions struct {
 	Follow         bool
 	Tail           int
 	Since          time.Time
@@ -56,9 +56,9 @@ type TraceOptions struct {
 	InstanceID     string
 }
 
-// traceCmd represents the trace command
-var traceCmd = &cobra.Command{
-	Use:   "trace [service-name] [instance-id]",
+// logsCmd represents the logs command
+var logsCmd = &cobra.Command{
+	Use:   "logs (SERVICE_NAME | INSTANCE_NAME | TYPE/NAME)",
 	Short: "Show logs for a service or instance",
 	Long: `Display logs for Rune services and instances.
 
@@ -66,82 +66,74 @@ This command allows you to view the logs of your services, helping
 with debugging, monitoring, and understanding service behavior.
 
 Examples:
-  # Stream logs from all instances of the 'api' service
-  rune trace api
+  # Stream logs from a service by name
+  rune logs api
 
-  # View logs from a specific instance
-  rune trace api instance-123
+  # View logs from a specific instance by name
+  rune logs api-instance-123
+
+  # Use the explicit TYPE/NAME format
+  rune logs service/api
 
   # Show only the last 50 lines of logs
-  rune trace api --tail=50
+  rune logs api --tail=50
 
   # Show logs from the last 10 minutes
-  rune trace api --since=10m
+  rune logs api --since=10m
 
   # Show logs from the last 10 minutes until 5 minutes ago
-  rune trace api --since=10m --until=5m
+  rune logs api --since=10m --until=5m
 
   # Filter logs containing the word "error"
-  rune trace api --pattern=error
+  rune logs api --pattern=error
 
   # Show timestamps in the output
-  rune trace api --timestamps
+  rune logs api --timestamps
 
   # Show resource type, service, and instance prefixes
-  rune trace api --prefix
+  rune logs api --prefix
 
   # Output logs in JSON format for machine processing
-  rune trace api --output=json`,
-	Args:          cobra.RangeArgs(0, 2),
-	RunE:          runTrace,
+  rune logs api --output=json`,
+	Aliases:       []string{"log"},
+	Args:          cobra.ExactArgs(1),
+	RunE:          runLogs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
 
 func init() {
-	rootCmd.AddCommand(traceCmd)
+	rootCmd.AddCommand(logsCmd)
 
-	// Local flags for the trace command
-	traceCmd.Flags().StringVarP(&traceNamespace, "namespace", "n", "default", "Namespace of the service")
-	traceCmd.Flags().BoolVarP(&traceFollow, "follow", "f", false, "Stream logs in real-time")
-	traceCmd.Flags().IntVarP(&traceTail, "tail", "t", 100, "Number of recent log lines to show (use 0 for all available)")
-	traceCmd.Flags().StringVar(&traceSinceStr, "since", "", "Show logs since timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
-	traceCmd.Flags().StringVar(&traceUntilStr, "until", "", "Show logs until timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
-	traceCmd.Flags().StringVarP(&tracePattern, "pattern", "p", "", "Filter logs by pattern")
-	traceCmd.Flags().BoolVar(&traceShowTimestamps, "timestamps", false, "Show timestamps in the output")
-	traceCmd.Flags().BoolVar(&traceShowPrefix, "prefix", false, "Show resource type, service and instance prefixes in log output")
-	traceCmd.Flags().BoolVar(&traceNoColor, "no-color", false, "Disable colorized output")
-	traceCmd.Flags().StringVarP(&traceOutputFormat, "output", "o", OutputFormatText, "Output format: text, json, or raw")
+	// Local flags for the logs command
+	logsCmd.Flags().StringVarP(&logsNamespace, "namespace", "n", "default", "Namespace of the service")
+	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Stream logs in real-time")
+	logsCmd.Flags().IntVarP(&logsTail, "tail", "t", 100, "Number of recent log lines to show (use 0 for all available)")
+	logsCmd.Flags().StringVar(&logsSinceStr, "since", "", "Show logs since timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
+	logsCmd.Flags().StringVar(&logsUntilStr, "until", "", "Show logs until timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
+	logsCmd.Flags().StringVarP(&logsPattern, "pattern", "p", "", "Filter logs by pattern")
+	logsCmd.Flags().BoolVar(&logsShowTimestamps, "timestamps", false, "Show timestamps in the output")
+	logsCmd.Flags().BoolVar(&logsShowPrefix, "prefix", false, "Show resource type, service and instance prefixes in log output")
+	logsCmd.Flags().BoolVar(&logsNoColor, "no-color", false, "Disable colorized output")
+	logsCmd.Flags().StringVarP(&logsOutputFormat, "output", "o", OutputFormatText, "Output format: text, json, or raw")
 
 	// API client flags
-	traceCmd.Flags().StringVar(&traceClientKey, "api-key", "", "API key for authentication")
-	traceCmd.Flags().StringVar(&traceClientAddr, "api-server", "", "Address of the API server")
+	logsCmd.Flags().StringVar(&logsClientKey, "api-key", "", "API key for authentication")
+	logsCmd.Flags().StringVar(&logsClientAddr, "api-server", "", "Address of the API server")
 }
 
-// runTrace is the main entry point for the trace command
-func runTrace(cmd *cobra.Command, args []string) error {
-	var serviceName string
-	if len(args) > 0 {
-		serviceName = args[0]
-	}
+// runLogs is the main entry point for the logs command
+func runLogs(cmd *cobra.Command, args []string) error {
+	resourceArg := args[0]
 
-	if len(args) > 1 {
-		traceInstanceID = args[1]
-	}
-
-	// Validate arguments
-	if serviceName == "" {
-		return fmt.Errorf("service name is required")
-	}
-
-	// Configure trace options
-	options, err := parseTraceOptions()
+	// Configure logs options
+	options, err := parseLogsOptions()
 	if err != nil {
 		return err
 	}
 
 	// Create API client
-	apiClient, err := createTraceAPIClient()
+	apiClient, err := createLogsAPIClient()
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -160,25 +152,21 @@ func runTrace(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Stream logs
-	if traceInstanceID != "" {
-		return streamInstanceLogs(ctx, apiClient, serviceName, traceInstanceID, options)
-	}
-	return streamServiceLogs(ctx, apiClient, serviceName, options)
+	return streamLogs(ctx, apiClient, resourceArg, options)
 }
 
-// parseTraceOptions parses and validates command line flags into TraceOptions
-func parseTraceOptions() (*TraceOptions, error) {
-	options := &TraceOptions{
-		Follow:         traceFollow,
-		Tail:           traceTail,
-		Pattern:        tracePattern,
-		ShowTimestamps: traceShowTimestamps,
-		ShowPrefix:     traceShowPrefix,
-		NoColor:        traceNoColor,
-		OutputFormat:   traceOutputFormat,
-		Namespace:      traceNamespace,
-		InstanceID:     traceInstanceID,
+// parseLogsOptions parses and validates command line flags into TraceOptions
+func parseLogsOptions() (*LogsOptions, error) {
+	options := &LogsOptions{
+		Follow:         logsFollow,
+		Tail:           logsTail,
+		Pattern:        logsPattern,
+		ShowTimestamps: logsShowTimestamps,
+		ShowPrefix:     logsShowPrefix,
+		NoColor:        logsNoColor,
+		OutputFormat:   logsOutputFormat,
+		Namespace:      logsNamespace,
+		InstanceID:     logsInstanceID,
 	}
 
 	// Validate output format
@@ -190,8 +178,8 @@ func parseTraceOptions() (*TraceOptions, error) {
 	}
 
 	// Parse since time if provided
-	if traceSinceStr != "" {
-		since, err := parseSinceTime(traceSinceStr)
+	if logsSinceStr != "" {
+		since, err := parseSinceTime(logsSinceStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid since time: %w", err)
 		}
@@ -199,9 +187,9 @@ func parseTraceOptions() (*TraceOptions, error) {
 	}
 
 	// Parse until time if provided
-	if traceUntilStr != "" {
+	if logsUntilStr != "" {
 		// If "until" is a relative time, interpret it as time ago from now
-		until, err := parseSinceTime(traceUntilStr)
+		until, err := parseSinceTime(logsUntilStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid until time: %w", err)
 		}
@@ -235,26 +223,26 @@ func parseSinceTime(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized time format: %s", value)
 }
 
-// createTraceAPIClient creates an API client with the configured options
-func createTraceAPIClient() (*client.Client, error) {
+// createLogsAPIClient creates an API client with the configured options
+func createLogsAPIClient() (*client.Client, error) {
 	// Create client options
 	options := client.DefaultClientOptions()
 
 	// Override with command line flags if provided
-	if traceClientAddr != "" {
-		options.Address = traceClientAddr
+	if logsClientAddr != "" {
+		options.Address = logsClientAddr
 	}
 
-	if traceClientKey != "" {
-		options.APIKey = traceClientKey
+	if logsClientKey != "" {
+		options.APIKey = logsClientKey
 	}
 
 	// Create client
 	return client.NewClient(options)
 }
 
-// streamServiceLogs streams logs from all instances of a service
-func streamServiceLogs(ctx context.Context, apiClient *client.Client, serviceName string, options *TraceOptions) error {
+// streamLogs streams logs from all instances of a service
+func streamLogs(ctx context.Context, apiClient *client.Client, targetName string, options *LogsOptions) error {
 	// Create a log client directly from the API client
 	logClient := client.NewLogClient(apiClient)
 
@@ -266,13 +254,11 @@ func streamServiceLogs(ctx context.Context, apiClient *client.Client, serviceNam
 
 	// Create log request for service
 	logRequest := &generated.LogRequest{
-		Target: &generated.LogRequest_ServiceName{
-			ServiceName: serviceName,
-		},
-		Namespace:  options.Namespace,
-		Follow:     options.Follow,
-		Tail:       int32(options.Tail),
-		Timestamps: options.ShowTimestamps,
+		ResourceTarget: targetName,
+		Namespace:      options.Namespace,
+		Follow:         options.Follow,
+		Tail:           int32(options.Tail),
+		Timestamps:     options.ShowTimestamps,
 	}
 
 	// Add common parameters to request
@@ -292,7 +278,7 @@ func streamServiceLogs(ctx context.Context, apiClient *client.Client, serviceNam
 }
 
 // streamInstanceLogs streams logs from a specific instance
-func streamInstanceLogs(ctx context.Context, apiClient *client.Client, serviceName, instanceID string, options *TraceOptions) error {
+func streamInstanceLogs(ctx context.Context, apiClient *client.Client, targetName string, options *LogsOptions) error {
 	// Create a log client directly from the API client
 	logClient := client.NewLogClient(apiClient)
 
@@ -304,13 +290,11 @@ func streamInstanceLogs(ctx context.Context, apiClient *client.Client, serviceNa
 
 	// Create log request for instance
 	logRequest := &generated.LogRequest{
-		Target: &generated.LogRequest_InstanceId{
-			InstanceId: instanceID,
-		},
-		Namespace:  options.Namespace,
-		Follow:     options.Follow,
-		Tail:       int32(options.Tail),
-		Timestamps: options.ShowTimestamps,
+		ResourceTarget: targetName,
+		Namespace:      options.Namespace,
+		Follow:         options.Follow,
+		Tail:           int32(options.Tail),
+		Timestamps:     options.ShowTimestamps,
 	}
 
 	// Add common parameters to request
@@ -330,7 +314,7 @@ func streamInstanceLogs(ctx context.Context, apiClient *client.Client, serviceNa
 }
 
 // addCommonRequestParams adds common parameters to the log request
-func addCommonRequestParams(logRequest *generated.LogRequest, options *TraceOptions) {
+func addCommonRequestParams(logRequest *generated.LogRequest, options *LogsOptions) {
 	// Add since time if specified
 	if !options.Since.IsZero() {
 		logRequest.Since = options.Since.Format(time.RFC3339)
@@ -348,7 +332,7 @@ func addCommonRequestParams(logRequest *generated.LogRequest, options *TraceOpti
 }
 
 // handleNonStreamingLogs handles logs in non-streaming (non-follow) mode
-func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *TraceOptions) error {
+func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *LogsOptions) error {
 	// Create a timeout context to prevent infinite waiting in non-follow mode
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -435,7 +419,7 @@ func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_Str
 }
 
 // handleStreamingLogs handles logs in streaming (follow) mode
-func handleStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *TraceOptions) error {
+func handleStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *LogsOptions) error {
 	errCh := make(chan error, 1)
 
 	// For follow mode, process logs as they arrive
@@ -477,7 +461,7 @@ func handleStreamingLogs(ctx context.Context, stream generated.LogService_Stream
 }
 
 // shouldProcessLog determines if a log should be processed based on filters
-func shouldProcessLog(resp *generated.LogResponse, options *TraceOptions) bool {
+func shouldProcessLog(resp *generated.LogResponse, options *LogsOptions) bool {
 	// Apply pattern filter if specified
 	if options.Pattern != "" && !strings.Contains(strings.ToLower(resp.Content), strings.ToLower(options.Pattern)) {
 		return false
@@ -496,7 +480,7 @@ func shouldProcessLog(resp *generated.LogResponse, options *TraceOptions) bool {
 }
 
 // processLogResponse processes and displays a log response based on the output format
-func processLogResponse(resp *generated.LogResponse, options *TraceOptions) error {
+func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error {
 	// Get the log level
 	logLevel := resp.LogLevel
 
@@ -554,8 +538,8 @@ func processLogResponse(resp *generated.LogResponse, options *TraceOptions) erro
 			prefixParts = append(prefixParts, resp.ServiceName)
 		}
 
-		if resp.InstanceId != "" {
-			prefixParts = append(prefixParts, resp.InstanceId)
+		if resp.InstanceName != "" {
+			prefixParts = append(prefixParts, resp.InstanceName)
 		}
 
 		prefix = nameColor.Sprint(strings.Join(prefixParts, "/")) + " "

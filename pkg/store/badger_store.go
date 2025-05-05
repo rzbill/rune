@@ -83,7 +83,7 @@ func (s *BadgerStore) Close() error {
 	return nil
 }
 
-func (s *BadgerStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+func (s *BadgerStore) CreateResource(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	// Special case for Namespace resources
 	if resourceType == types.ResourceTypeNamespace {
 		namespace, ok := resource.(*types.Namespace)
@@ -103,7 +103,7 @@ func (s *BadgerStore) CreateResource(ctx context.Context, resourceType string, r
 	}
 
 	s.logger.Debug("Creating resource",
-		log.Str("resourceType", resourceType),
+		log.Any("resourceType", resourceType),
 		log.Json("namespace", namespacedResource),
 		log.Json("resource", resource))
 
@@ -111,9 +111,9 @@ func (s *BadgerStore) CreateResource(ctx context.Context, resourceType string, r
 }
 
 // Create creates a new resource.
-func (s *BadgerStore) Create(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *BadgerStore) Create(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	s.logger.Debug("Creating resource",
-		log.Str("resourceType", resourceType),
+		log.Any("resourceType", resourceType),
 		log.Str("namespace", namespace),
 		log.Str("name", name))
 
@@ -183,7 +183,7 @@ func (s *BadgerStore) Create(ctx context.Context, resourceType string, namespace
 }
 
 // Get retrieves a resource.
-func (s *BadgerStore) Get(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *BadgerStore) Get(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
 
@@ -207,9 +207,9 @@ func (s *BadgerStore) Get(ctx context.Context, resourceType string, namespace st
 }
 
 // Update updates an existing resource.
-func (s *BadgerStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
+func (s *BadgerStore) Update(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
 	s.logger.Debug("Updating resource",
-		log.Str("resourceType", resourceType),
+		log.Any("resourceType", resourceType),
 		log.Str("namespace", namespace),
 		log.Str("name", name))
 
@@ -282,9 +282,9 @@ func (s *BadgerStore) Update(ctx context.Context, resourceType string, namespace
 }
 
 // Delete deletes a resource.
-func (s *BadgerStore) Delete(ctx context.Context, resourceType string, namespace string, name string) error {
+func (s *BadgerStore) Delete(ctx context.Context, resourceType types.ResourceType, namespace string, name string) error {
 	s.logger.Debug("Deleting resource",
-		log.Str("resourceType", resourceType),
+		log.Any("resourceType", resourceType),
 		log.Str("namespace", namespace),
 		log.Str("name", name))
 
@@ -332,7 +332,7 @@ func (s *BadgerStore) Delete(ctx context.Context, resourceType string, namespace
 }
 
 // List retrieves all resources of a given type in a namespace.
-func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace string, resource interface{}) error {
+func (s *BadgerStore) List(ctx context.Context, resourceType types.ResourceType, namespace string, resource interface{}) error {
 	var resources []interface{}
 
 	// Generate the prefix for scanning
@@ -370,7 +370,7 @@ func (s *BadgerStore) List(ctx context.Context, resourceType string, namespace s
 }
 
 // ListAll retrieves all resources of a given type in all namespaces.
-func (s *BadgerStore) ListAll(ctx context.Context, resourceType string, resource interface{}) error {
+func (s *BadgerStore) ListAll(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	return s.List(ctx, resourceType, "", resource)
 }
 
@@ -396,7 +396,7 @@ func (s *BadgerStore) Transaction(ctx context.Context, fn func(tx Transaction) e
 }
 
 // GetHistory retrieves historical versions of a resource.
-func (s *BadgerStore) GetHistory(ctx context.Context, resourceType string, namespace string, name string) ([]HistoricalVersion, error) {
+func (s *BadgerStore) GetHistory(ctx context.Context, resourceType types.ResourceType, namespace string, name string) ([]HistoricalVersion, error) {
 	var versions []HistoricalVersion
 
 	// Generate the prefix for scanning versions
@@ -445,7 +445,7 @@ func (s *BadgerStore) GetHistory(ctx context.Context, resourceType string, names
 }
 
 // GetVersion retrieves a specific version of a resource.
-func (s *BadgerStore) GetVersion(ctx context.Context, resourceType string, namespace string, name string, version string) (interface{}, error) {
+func (s *BadgerStore) GetVersion(ctx context.Context, resourceType types.ResourceType, namespace string, name string, version string) (interface{}, error) {
 	// Generate the version key
 	versionKey := MakeVersionKey(resourceType, namespace, name, version)
 
@@ -482,7 +482,7 @@ func (s *BadgerStore) GetVersion(ctx context.Context, resourceType string, names
 }
 
 // Watch sets up a watch for changes to resources of a given type.
-func (s *BadgerStore) Watch(ctx context.Context, resourceType string, namespace string) (<-chan WatchEvent, error) {
+func (s *BadgerStore) Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error) {
 	s.watchMu.Lock()
 	defer s.watchMu.Unlock()
 
@@ -520,7 +520,7 @@ func (s *BadgerStore) Watch(ctx context.Context, resourceType string, namespace 
 }
 
 // emitWatchEvent sends a watch event to all watchers.
-func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType string, namespace string, name string, resource interface{}, source EventSource) {
+func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType types.ResourceType, namespace string, name string, resource interface{}, source EventSource) {
 	// Create the event
 	event := WatchEvent{
 		Type:         eventType,
@@ -538,8 +538,8 @@ func (s *BadgerStore) emitWatchEvent(eventType WatchEventType, resourceType stri
 	default:
 		// Channel is full, log a warning
 		s.logger.Warn("Watch channel is full, dropping event",
-			log.Str("type", string(eventType)),
-			log.Str("resourceType", resourceType),
+			log.Any("type", eventType),
+			log.Any("resourceType", resourceType),
 			log.Str("namespace", namespace),
 			log.Str("name", name))
 	}
@@ -560,8 +560,8 @@ func (s *BadgerStore) watchEventHandler() {
 				default:
 					// Channel is full, log and continue
 					s.logger.Warn("Watch client channel is full, dropping event",
-						log.Str("type", string(event.Type)),
-						log.Str("resourceType", event.ResourceType),
+						log.Any("type", event.Type),
+						log.Any("resourceType", event.ResourceType),
 						log.Str("namespace", event.Namespace))
 				}
 			}
@@ -577,8 +577,8 @@ func (s *BadgerStore) watchEventHandler() {
 				default:
 					// Channel is full, log and continue
 					s.logger.Warn("Watch client channel is full, dropping event",
-						log.Str("type", string(event.Type)),
-						log.Str("resourceType", event.ResourceType),
+						log.Any("type", event.Type),
+						log.Any("resourceType", event.ResourceType),
 						log.Str("namespace", event.Namespace))
 				}
 			}
@@ -594,8 +594,8 @@ func (s *BadgerStore) watchEventHandler() {
 				default:
 					// Channel is full, log and continue
 					s.logger.Warn("Watch client channel is full, dropping event",
-						log.Str("type", string(event.Type)),
-						log.Str("resourceType", event.ResourceType),
+						log.Any("type", event.Type),
+						log.Any("resourceType", event.ResourceType),
 						log.Str("namespace", event.Namespace))
 				}
 			}
@@ -611,8 +611,8 @@ func (s *BadgerStore) watchEventHandler() {
 				default:
 					// Channel is full, log and continue
 					s.logger.Warn("Watch client channel is full, dropping event",
-						log.Str("type", string(event.Type)),
-						log.Str("resourceType", event.ResourceType),
+						log.Any("type", event.Type),
+						log.Any("resourceType", event.ResourceType),
 						log.Str("namespace", event.Namespace))
 				}
 			}
@@ -629,7 +629,7 @@ type BadgerTransaction struct {
 }
 
 // Create creates a resource within the transaction.
-func (t *BadgerTransaction) Create(resourceType string, namespace string, name string, resource interface{}) error {
+func (t *BadgerTransaction) Create(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
 
@@ -686,7 +686,7 @@ func (t *BadgerTransaction) Create(resourceType string, namespace string, name s
 }
 
 // Get retrieves a resource within the transaction.
-func (t *BadgerTransaction) Get(resourceType string, namespace string, name string, resource interface{}) error {
+func (t *BadgerTransaction) Get(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
 
@@ -706,7 +706,7 @@ func (t *BadgerTransaction) Get(resourceType string, namespace string, name stri
 }
 
 // Update updates a resource within the transaction.
-func (t *BadgerTransaction) Update(resourceType string, namespace string, name string, resource interface{}) error {
+func (t *BadgerTransaction) Update(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
 
@@ -763,7 +763,7 @@ func (t *BadgerTransaction) Update(resourceType string, namespace string, name s
 }
 
 // Delete deletes a resource within the transaction.
-func (t *BadgerTransaction) Delete(resourceType string, namespace string, name string) error {
+func (t *BadgerTransaction) Delete(resourceType types.ResourceType, namespace string, name string) error {
 	// Generate the key
 	key := MakeKey(resourceType, namespace, name)
 

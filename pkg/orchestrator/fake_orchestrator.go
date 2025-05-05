@@ -40,7 +40,7 @@ type FakeOrchestrator struct {
 	GetServiceStatusFunc  func(ctx context.Context, namespace, name string) (*types.ServiceStatusInfo, error)
 	GetInstanceStatusFunc func(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error)
 	GetServiceLogsFunc    func(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error)
-	GetInstanceLogsFunc   func(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error)
+	GetInstanceLogsFunc   func(ctx context.Context, namespace, instanceName string, opts types.LogOptions) (io.ReadCloser, error)
 	ExecInServiceFunc     func(ctx context.Context, namespace, serviceName string, options types.ExecOptions) (types.ExecStream, error)
 	ExecInInstanceFunc    func(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error)
 	RestartServiceFunc    func(ctx context.Context, namespace, serviceName string) error
@@ -88,10 +88,9 @@ type GetServiceLogsCall struct {
 }
 
 type GetInstanceLogsCall struct {
-	Namespace   string
-	ServiceName string
-	InstanceID  string
-	Options     types.LogOptions
+	Namespace    string
+	InstanceName string
+	Options      types.LogOptions
 }
 
 type ExecInServiceCall struct {
@@ -311,19 +310,18 @@ func (o *FakeOrchestrator) GetServiceLogs(ctx context.Context, namespace, name s
 }
 
 // GetInstanceLogs implementation for testing
-func (o *FakeOrchestrator) GetInstanceLogs(ctx context.Context, namespace, serviceName, instanceID string, opts types.LogOptions) (io.ReadCloser, error) {
+func (o *FakeOrchestrator) GetInstanceLogs(ctx context.Context, namespace, instanceName string, opts types.LogOptions) (io.ReadCloser, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	o.GetInstanceLogsCalls = append(o.GetInstanceLogsCalls, GetInstanceLogsCall{
-		Namespace:   namespace,
-		ServiceName: serviceName,
-		InstanceID:  instanceID,
-		Options:     opts,
+		Namespace:    namespace,
+		InstanceName: instanceName,
+		Options:      opts,
 	})
 
 	if o.GetInstanceLogsFunc != nil {
-		return o.GetInstanceLogsFunc(ctx, namespace, serviceName, instanceID, opts)
+		return o.GetInstanceLogsFunc(ctx, namespace, instanceName, opts)
 	}
 
 	if o.GetInstanceLogsError != nil {
@@ -336,14 +334,9 @@ func (o *FakeOrchestrator) GetInstanceLogs(ctx context.Context, namespace, servi
 		return nil, fmt.Errorf("namespace %s not found", namespace)
 	}
 
-	instance, ok := nsInstances[instanceID]
+	_, ok = nsInstances[instanceName]
 	if !ok {
-		return nil, fmt.Errorf("instance %s not found in namespace %s", instanceID, namespace)
-	}
-
-	// Verify service association
-	if instance.ServiceName != serviceName {
-		return nil, fmt.Errorf("instance %s does not belong to service %s", instanceID, serviceName)
+		return nil, fmt.Errorf("instance %s not found in namespace %s", instanceName, namespace)
 	}
 
 	// Return predefined logs content or empty if not set

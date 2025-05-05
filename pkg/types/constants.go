@@ -6,15 +6,20 @@ type RuntimeType string
 const (
 	RuntimeTypeContainer RuntimeType = "container"
 	RuntimeTypeProcess   RuntimeType = "process"
+)
 
+// ResourceType is the type of resource.
+type ResourceType string
+
+const (
 	// ResourceTypeService is the resource type for services.
-	ResourceTypeService = "services"
+	ResourceTypeService ResourceType = "service"
 
 	// ResourceTypeInstance is the resource type for instances.
-	ResourceTypeInstance = "instances"
+	ResourceTypeInstance ResourceType = "instance"
 
 	// ResourceTypeNamespace is the resource type for namespaces.
-	ResourceTypeNamespace = "namespaces"
+	ResourceTypeNamespace ResourceType = "namespace"
 )
 
 // RunnerType is the type of runner for an instance.

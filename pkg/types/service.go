@@ -85,6 +85,10 @@ type Service struct {
 	Metadata *ServiceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
+func (s *Service) GetResourceType() ResourceType {
+	return ResourceTypeService
+}
+
 // ServiceMetadata represents metadata for a service.
 type ServiceMetadata struct {
 	// Creation timestamp

@@ -11,14 +11,14 @@ import (
 
 // MemoryStore is a simple in-memory implementation of the Store interface for testing.
 type MemoryStore struct {
-	data  map[string]map[string]map[string]interface{}
+	data  map[types.ResourceType]map[string]map[string]interface{}
 	mutex sync.RWMutex
 }
 
 // NewMemoryStore creates a new in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		data: make(map[string]map[string]map[string]interface{}),
+		data: make(map[types.ResourceType]map[string]map[string]interface{}),
 	}
 }
 
@@ -35,7 +35,7 @@ func (m *MemoryStore) Close() error {
 }
 
 // Get retrieves an object from the memory store.
-func (m *MemoryStore) Get(ctx context.Context, resourceType, namespace, name string, value interface{}) error {
+func (m *MemoryStore) Get(ctx context.Context, resourceType types.ResourceType, namespace, name string, value interface{}) error {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -70,7 +70,7 @@ func (m *MemoryStore) Get(ctx context.Context, resourceType, namespace, name str
 }
 
 // List lists objects from the memory store.
-func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string, value interface{}) error {
+func (m *MemoryStore) List(ctx context.Context, resourceType types.ResourceType, namespace string, value interface{}) error {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -92,12 +92,12 @@ func (m *MemoryStore) List(ctx context.Context, resourceType, namespace string, 
 	return UnmarshalResource(result, value)
 }
 
-func (m *MemoryStore) ListAll(ctx context.Context, resourceType string, value interface{}) error {
+func (m *MemoryStore) ListAll(ctx context.Context, resourceType types.ResourceType, value interface{}) error {
 	return m.List(ctx, resourceType, "", value)
 }
 
 // Create creates an object in the memory store.
-func (m *MemoryStore) Create(ctx context.Context, resourceType, namespace, name string, value interface{}) error {
+func (m *MemoryStore) Create(ctx context.Context, resourceType types.ResourceType, namespace, name string, value interface{}) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -131,7 +131,7 @@ func (m *MemoryStore) Create(ctx context.Context, resourceType, namespace, name 
 	return nil
 }
 
-func (m *MemoryStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+func (m *MemoryStore) CreateResource(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	// Special case for Namespace resources
 	if resourceType == types.ResourceTypeNamespace {
 		namespace, ok := resource.(*types.Namespace)
@@ -155,7 +155,7 @@ func (m *MemoryStore) CreateResource(ctx context.Context, resourceType string, r
 }
 
 // Update updates an object in the memory store.
-func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name string, value interface{}, opts ...UpdateOption) error {
+func (m *MemoryStore) Update(ctx context.Context, resourceType types.ResourceType, namespace, name string, value interface{}, opts ...UpdateOption) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -199,7 +199,7 @@ func (m *MemoryStore) Update(ctx context.Context, resourceType, namespace, name 
 }
 
 // Delete deletes an object from the memory store.
-func (m *MemoryStore) Delete(ctx context.Context, resourceType, namespace, name string) error {
+func (m *MemoryStore) Delete(ctx context.Context, resourceType types.ResourceType, namespace, name string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -245,7 +245,7 @@ func (m *MemoryStore) Watch(ctx context.Context, resourceType, namespace string)
 // Helper methods for testing
 
 // EnsureResourceType ensures that a resource type exists in the store
-func (m *MemoryStore) EnsureResourceType(resourceType string) {
+func (m *MemoryStore) EnsureResourceType(resourceType types.ResourceType) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -255,7 +255,7 @@ func (m *MemoryStore) EnsureResourceType(resourceType string) {
 }
 
 // EnsureNamespace ensures that a namespace exists for a resource type
-func (m *MemoryStore) EnsureNamespace(resourceType, namespace string) {
+func (m *MemoryStore) EnsureNamespace(resourceType types.ResourceType, namespace string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

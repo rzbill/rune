@@ -59,15 +59,15 @@ func (u *DefaultStatusUpdater) UpdateServiceStatus(ctx context.Context, namespac
 }
 
 // UpdateInstanceStatus updates just the status field for an instance
-func (u *DefaultStatusUpdater) UpdateInstanceStatus(ctx context.Context, namespace, name string, instance *types.Instance, status types.InstanceStatus) error {
+func (u *DefaultStatusUpdater) UpdateInstanceStatus(ctx context.Context, namespace, id string, instance *types.Instance, status types.InstanceStatus) error {
 	u.logger.Debug("Updating instance status",
 		log.Str("namespace", namespace),
-		log.Str("name", name),
+		log.Str("id", id),
 		log.Str("status", string(status)))
 
 	// Get the current instance to update just the status field
 	var currentInstance types.Instance
-	if err := u.store.Get(ctx, types.ResourceTypeInstance, namespace, name, &currentInstance); err != nil {
+	if err := u.store.Get(ctx, types.ResourceTypeInstance, namespace, id, &currentInstance); err != nil {
 		return fmt.Errorf("failed to get instance for status update: %w", err)
 	}
 
@@ -75,7 +75,7 @@ func (u *DefaultStatusUpdater) UpdateInstanceStatus(ctx context.Context, namespa
 	currentInstance.Status = status
 
 	// Update the instance with source tag
-	err := u.store.Update(ctx, types.ResourceTypeInstance, namespace, name, &currentInstance,
+	err := u.store.Update(ctx, types.ResourceTypeInstance, namespace, id, &currentInstance,
 		store.WithSource(store.EventSourceOrchestrator))
 	if err != nil {
 		return fmt.Errorf("failed to update instance status: %w", err)

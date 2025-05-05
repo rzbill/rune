@@ -149,7 +149,6 @@ func TestMultiLogStreamer_WithMetadata(t *testing.T) {
 
 	// Check each line has the correct format
 	for _, line := range outputLines {
-		fmt.Println(line)
 		// Verify line format: [instance-id instance-name timestamp] content
 		if len(line) < 10 {
 			t.Errorf("Line too short: %s", line)

@@ -565,7 +565,7 @@ type RunningInstance struct {
 func (r *reconciler) handleDeletedServices(ctx context.Context) error {
 	// Get all services from store
 	var services []types.Service
-	err := r.store.List(ctx, "services", "", &services)
+	err := r.store.ListAll(ctx, types.ResourceTypeService, &services)
 	if err != nil {
 		return fmt.Errorf("failed to list services: %w", err)
 	}
@@ -590,7 +590,7 @@ func (r *reconciler) handleDeletedServices(ctx context.Context) error {
 					log.Str("name", service.Name),
 					log.Str("namespace", service.Namespace))
 
-				if err := r.store.Delete(ctx, "services", service.Namespace, service.Name); err != nil {
+				if err := r.store.Delete(ctx, types.ResourceTypeService, service.Namespace, service.Name); err != nil {
 					r.logger.Error("Failed to remove deleted service from store",
 						log.Str("name", service.Name),
 						log.Str("namespace", service.Namespace),

@@ -3,10 +3,10 @@ FROM golang:1.21-alpine AS builder
 WORKDIR /app
 
 # Copy the source code
-COPY ./examples/logging/log-generator.go .
+COPY ./examples/logging/log-generator/main.go .
 
 # Build the application
-RUN go build -o /log-generator log-generator.go
+RUN go build -o /log-generator main.go
 
 # Use a smaller image for the final stage
 FROM alpine:latest

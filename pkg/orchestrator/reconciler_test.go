@@ -66,7 +66,7 @@ func setupStore(t *testing.T) *store.TestStore {
 func TestReconcileScaleUp(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	instanceController := NewFakeInstanceController()
+	instanceController := controllers.NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 
@@ -266,7 +266,7 @@ func TestReconcileScaleDown(t *testing.T) {
 
 func TestTestInstanceController(t *testing.T) {
 	// Create a test instance controller
-	instanceCtrl := NewFakeInstanceController()
+	instanceCtrl := controllers.NewFakeInstanceController()
 
 	// Test CreateInstance
 	service := &types.Service{
@@ -317,7 +317,7 @@ func TestHealthController(t *testing.T) {
 
 func TestDeleteInstanceFunction(t *testing.T) {
 	// Create a test instance controller
-	instanceCtrl := NewFakeInstanceController()
+	instanceCtrl := controllers.NewFakeInstanceController()
 
 	// Create test instance
 	instance := &types.Instance{
@@ -348,7 +348,7 @@ func TestDeleteInstanceFunction(t *testing.T) {
 
 func TestReconcilerCreateInstance(t *testing.T) {
 	// Create a test instance controller
-	instanceController := NewFakeInstanceController()
+	instanceController := controllers.NewFakeInstanceController()
 
 	// Test data
 	service := &types.Service{

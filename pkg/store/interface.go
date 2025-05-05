@@ -4,6 +4,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/rzbill/rune/pkg/types"
 )
 
 // Store defines the interface for state storage operations.
@@ -15,52 +17,52 @@ type Store interface {
 	Close() error
 
 	// Create creates a new resource.
-	Create(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
+	Create(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
 	// CreateResource creates a new resource.
-	CreateResource(ctx context.Context, resourceType string, resource interface{}) error
+	CreateResource(ctx context.Context, resourceType types.ResourceType, resource interface{}) error
 
 	// Get retrieves a resource by type, namespace, and name.
-	Get(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error
+	Get(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
 	// List retrieves all resources of a given type in a namespace.
-	List(ctx context.Context, resourceType string, namespace string, resource interface{}) error
+	List(ctx context.Context, resourceType types.ResourceType, namespace string, resource interface{}) error
 
 	// ListAll retrieves all resources of a given type in all namespaces.
-	ListAll(ctx context.Context, resourceType string, resource interface{}) error
+	ListAll(ctx context.Context, resourceType types.ResourceType, resource interface{}) error
 
 	// Update updates an existing resource.
-	Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error
+	Update(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}, opts ...UpdateOption) error
 
 	// Delete deletes a resource.
-	Delete(ctx context.Context, resourceType string, namespace string, name string) error
+	Delete(ctx context.Context, resourceType types.ResourceType, namespace string, name string) error
 
 	// Watch sets up a watch for changes to resources of a given type.
-	Watch(ctx context.Context, resourceType string, namespace string) (<-chan WatchEvent, error)
+	Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error)
 
 	// Transaction executes multiple operations in a single transaction.
 	Transaction(ctx context.Context, fn func(tx Transaction) error) error
 
 	// GetHistory retrieves historical versions of a resource.
-	GetHistory(ctx context.Context, resourceType string, namespace string, name string) ([]HistoricalVersion, error)
+	GetHistory(ctx context.Context, resourceType types.ResourceType, namespace string, name string) ([]HistoricalVersion, error)
 
 	// GetVersion retrieves a specific version of a resource.
-	GetVersion(ctx context.Context, resourceType string, namespace string, name string, version string) (interface{}, error)
+	GetVersion(ctx context.Context, resourceType types.ResourceType, namespace string, name string, version string) (interface{}, error)
 }
 
 // Transaction represents a store transaction.
 type Transaction interface {
 	// Create creates a new resource within the transaction.
-	Create(resourceType string, namespace string, name string, resource interface{}) error
+	Create(resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
 	// Get retrieves a resource within the transaction.
-	Get(resourceType string, namespace string, name string, resource interface{}) error
+	Get(resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
 	// Update updates a resource within the transaction.
-	Update(resourceType string, namespace string, name string, resource interface{}) error
+	Update(resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
 	// Delete deletes a resource within the transaction.
-	Delete(resourceType string, namespace string, name string) error
+	Delete(resourceType types.ResourceType, namespace string, name string) error
 }
 
 // WatchEventType defines the type of watch event.
@@ -83,7 +85,7 @@ type WatchEvent struct {
 	Type WatchEventType
 
 	// ResourceType is the type of resource affected.
-	ResourceType string
+	ResourceType types.ResourceType
 
 	// Namespace is the namespace of the resource.
 	Namespace string

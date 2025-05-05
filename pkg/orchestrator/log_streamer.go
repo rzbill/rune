@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,6 +35,11 @@ func NewMultiLogStreamer(instances []InstanceLogInfo, includeMetadata bool) *Mul
 		buffer:   bytes.NewBuffer(nil),
 		done:     make(chan struct{}),
 		metadata: includeMetadata,
+	}
+
+	// Copy the readers from instances to the readers array
+	for i, instance := range instances {
+		m.readers[i] = instance.Reader
 	}
 
 	// Start a goroutine for each reader
@@ -72,10 +78,20 @@ func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instance InstanceLo
 
 					// If we have a full line or this is the last chunk of data
 					if data[i] == '\n' || (err == io.EOF && i == n-1) {
-						timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-						prefix := fmt.Sprintf("[%s %s %s] ", instance.InstanceID, instance.InstanceName, timestamp)
-						m.buffer.WriteString(prefix)
-						m.buffer.Write(lineBuffer)
+						// Check if line already has our metadata format
+						lineStr := string(lineBuffer)
+						alreadyHasMetadata := lineHasMetadata(lineStr)
+
+						if alreadyHasMetadata {
+							// If already has metadata, write as is
+							m.buffer.Write(lineBuffer)
+						} else {
+							// Add metadata prefix
+							prefix := buildLineMetadata(instance)
+							m.buffer.WriteString(prefix)
+							m.buffer.Write(lineBuffer)
+						}
+
 						lineBuffer = lineBuffer[:0] // Clear the line buffer
 					}
 				}
@@ -96,10 +112,21 @@ func (m *MultiLogStreamer) collectLogs(reader io.ReadCloser, instance InstanceLo
 			// If we have any remaining data in the line buffer, write it out
 			if m.metadata && len(lineBuffer) > 0 {
 				m.bufMu.Lock()
-				timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
-				prefix := fmt.Sprintf("[%s %s %s] ", instance.InstanceID, instance.InstanceName, timestamp)
-				m.buffer.WriteString(prefix)
-				m.buffer.Write(lineBuffer)
+
+				// Check if line already has our metadata format
+				lineStr := string(lineBuffer)
+				alreadyHasMetadata := lineHasMetadata(lineStr)
+
+				if alreadyHasMetadata {
+					// If already has metadata, write as is
+					m.buffer.Write(lineBuffer)
+				} else {
+					// Add metadata prefix
+					prefix := buildLineMetadata(instance)
+					m.buffer.WriteString(prefix)
+					m.buffer.Write(lineBuffer)
+				}
+
 				m.bufMu.Unlock()
 			}
 
@@ -160,4 +187,66 @@ func (m *MultiLogStreamer) Close() error {
 	}
 
 	return firstErr
+}
+
+// lineHasMetadata checks if a line already has our metadata format
+func lineHasMetadata(lineStr string) bool {
+	// Check for our metadata format: @@LOG_META|[uuid|name|timestamp]@@
+	if len(lineStr) > 15 && strings.HasPrefix(lineStr, "@@LOG_META|[") {
+		closingMarkerPos := strings.Index(lineStr, "]@@")
+		if closingMarkerPos > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ExtractLineMetadata extracts metadata and content from a line
+// Returns metadata (instanceID, instanceName, timestamp) and the remaining content
+func ExtractLineMetadata(lineStr string) (string, string, string, string) {
+	if !lineHasMetadata(lineStr) {
+		return "", "", "", lineStr
+	}
+
+	// Find metadata section
+	metadataStart := len("@@LOG_META|[")
+	metadataEnd := strings.Index(lineStr, "]@@")
+
+	// Extract and parse metadata
+	metadata := lineStr[metadataStart:metadataEnd]
+	parts := strings.Split(metadata, "|")
+
+	// Default values
+	instanceID, instanceName, timestamp := "", "", ""
+
+	// Extract metadata fields if available
+	if len(parts) >= 3 {
+		instanceID = parts[0]
+		instanceName = parts[1]
+		timestamp = parts[2]
+	}
+
+	// Extract content (everything after the metadata)
+	content := lineStr[metadataEnd+3:] // Skip past "]@@"
+
+	// Remove leading space if present
+	if strings.HasPrefix(content, " ") && len(content) > 1 {
+		content = content[1:]
+	}
+
+	return instanceID, instanceName, timestamp, content
+}
+
+// buildLineMetadata creates a metadata prefix for log lines
+func buildLineMetadata(instance InstanceLogInfo) string {
+	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z")
+
+	// Format: @@LOG_META|[instanceID|instanceName|timestamp]@@
+	// This format is distinct enough to avoid confusion with application logs
+	prefix := fmt.Sprintf("@@LOG_META|[%s|%s|%s]@@ ",
+		instance.InstanceID,
+		instance.InstanceName,
+		timestamp)
+
+	return prefix
 }

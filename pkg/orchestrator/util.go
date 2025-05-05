@@ -10,7 +10,7 @@ import (
 
 // WorkItemKey is a key for a work item
 type workItemKey struct {
-	ResourceType string
+	ResourceType types.ResourceType
 	Namespace    string
 	Name         string
 	EventType    string
@@ -33,7 +33,7 @@ func parseWorkItemKey(key string) (*workItemKey, error) {
 		return nil, fmt.Errorf("invalid work item key format: %s, expected at least 4 segments (resourceType/namespace/name/eventType)", key)
 	}
 	return &workItemKey{
-		ResourceType: parts[0],
+		ResourceType: types.ResourceType(parts[0]),
 		Namespace:    parts[1],
 		Name:         parts[2],
 		EventType:    parts[3],

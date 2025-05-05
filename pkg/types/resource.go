@@ -5,6 +5,7 @@ import "fmt"
 type NamespacedResource interface {
 	NamespacedName() NamespacedName
 	GetID() string // For resources that also have an ID
+	GetResourceType() ResourceType
 }
 
 // NamespacedName is a struct that contains a namespace and a name.

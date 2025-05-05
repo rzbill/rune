@@ -155,7 +155,7 @@ func (c *healthController) AddInstance(instance *types.Instance) error {
 	}
 
 	// Fetch from the store using service ID
-	err := c.store.Get(c.ctx, "services", namespace, instance.ServiceID, &service)
+	err := c.store.Get(c.ctx, types.ResourceTypeService, namespace, instance.ServiceID, &service)
 	if err != nil {
 		c.logger.Error("Failed to get service definition for health check",
 			log.Str("instance", instance.ID),

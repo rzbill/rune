@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -34,36 +35,68 @@ func NewLogService(store store.Store, logger log.Logger, orchestrator orchestrat
 	}
 }
 
-// StreamLogs provides bidirectional streaming for logs.
-func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) error {
-	// Get the initial request
-	req, err := stream.Recv()
-	if err != nil {
-		s.logger.Error("Failed to receive initial log request", log.Err(err))
-		return status.Errorf(codes.Internal, "failed to receive initial request: %v", err)
+// parseLogLine parses a log line from MultiLogStreamer and converts it to a LogResponse
+// Format from MultiLogStreamer is: @@LOG_META|[instanceID|instanceName|timestamp]@@ content
+func (s *LogService) parseLogLine(line, serviceName, fallbackInstanceName string) *generated.LogResponse {
+	// Extract metadata using the orchestrator's function
+	instanceID, instanceName, timestamp, content := orchestrator.ExtractLineMetadata(line)
+
+	// Use fallback instance ID if not found in metadata
+	if instanceName == "" {
+		instanceName = fallbackInstanceName
 	}
 
-	// Validate the request
-	if err := s.validateLogRequest(req); err != nil {
-		s.logger.Error("Invalid log request", log.Err(err))
-		return status.Errorf(codes.InvalidArgument, "invalid log request: %v", err)
+	// Determine log level from content
+	logLevel := "info" // Default level
+	if strings.Contains(strings.ToLower(content), "error") ||
+		strings.Contains(strings.ToLower(content), "exception") ||
+		strings.Contains(strings.ToLower(content), "failed") {
+		logLevel = "error"
+	} else if strings.Contains(strings.ToLower(content), "warn") {
+		logLevel = "warning"
 	}
 
-	// Set up context with cancel
-	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
+	// Create and return the LogResponse
+	return &generated.LogResponse{
+		ServiceName:  serviceName,
+		InstanceId:   instanceID,
+		InstanceName: instanceName,
+		Timestamp:    timestamp,
+		Content:      content,
+		Stream:       "stdout",
+		LogLevel:     logLevel,
+	}
+}
 
-	// Process request based on target (service or instance)
-	var namespace string
-	var serviceName string
-	var instanceID string
+// processSingleLine processes a single log line from the reader
+func (s *LogService) readLogsFromReader(ctx context.Context, logReader io.ReadCloser, logCh chan<- *generated.LogResponse, errCh chan<- error, serviceName, instanceName string) {
+	scanner := bufio.NewScanner(logReader)
+	for scanner.Scan() {
+		line := scanner.Text()
 
-	namespace = req.Namespace
-	if namespace == "" {
-		namespace = DefaultNamespace
+		// Parse the log line and send it to the channel
+		logCh <- s.parseLogLine(line, serviceName, instanceName)
+
+		// Check if context is cancelled
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Continue
+		}
 	}
 
-	// Set up log options
+	if err := scanner.Err(); err != nil {
+		s.logger.Error("Failed to scan logs", log.Err(err))
+		errCh <- fmt.Errorf("failed to scan logs: %v", err)
+		return
+	}
+
+	s.logger.Debug("End of logs")
+}
+
+// buildLogOptions converts a log request into log options
+func (s *LogService) buildLogOptions(req *generated.LogRequest) (types.LogOptions, error) {
 	logOptions := types.LogOptions{
 		Follow:     req.Follow,
 		Tail:       int(req.Tail),
@@ -84,7 +117,7 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	if req.Since != "" {
 		since, err := time.Parse(time.RFC3339, req.Since)
 		if err != nil {
-			return status.Errorf(codes.InvalidArgument, "invalid since timestamp: %v", err)
+			return logOptions, fmt.Errorf("invalid since timestamp: %v", err)
 		}
 		logOptions.Since = since
 	}
@@ -92,10 +125,135 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	if req.Until != "" {
 		until, err := time.Parse(time.RFC3339, req.Until)
 		if err != nil {
-			return status.Errorf(codes.InvalidArgument, "invalid until timestamp: %v", err)
+			return logOptions, fmt.Errorf("invalid until timestamp: %v", err)
 		}
 		logOptions.Until = until
 	}
+
+	return logOptions, nil
+}
+
+// getLogReader returns the appropriate log reader based on the request type
+func (s *LogService) getLogReader(ctx context.Context, req *generated.LogRequest, logOptions types.LogOptions) (io.ReadCloser, string, string, error) {
+	var logReader io.ReadCloser
+	var err error
+	var serviceName string
+	var instanceName string
+
+	namespace := req.Namespace
+	if namespace == "" {
+		namespace = DefaultNamespace
+	}
+
+	resourceType, resource, err := s.identifyResourceType(ctx, req.ResourceTarget, namespace)
+	if err != nil {
+		s.logger.Error("Failed to identify resource type", log.Err(err))
+		return nil, "", "", status.Errorf(codes.InvalidArgument, "invalid resource target: %v", err)
+	}
+
+	if resourceType == types.ResourceTypeService {
+		// Target is a service
+		service, ok := resource.(types.Service)
+		if !ok {
+			return nil, "", "", status.Errorf(codes.Internal, "resource is not a service")
+		}
+
+		// Use orchestrator to get service logs
+		logReader, err = s.orchestrator.GetServiceLogs(ctx, namespace, service.Name, logOptions)
+		if err != nil {
+			s.logger.Error("Failed to get service logs",
+				log.Str("service", serviceName),
+				log.Err(err))
+			return nil, "", "", status.Errorf(codes.Internal, "failed to get service logs: %v", err)
+		}
+	}
+
+	if resourceType == types.ResourceTypeInstance {
+
+		instance, ok := resource.(types.Instance)
+		if !ok {
+			return nil, "", "", status.Errorf(codes.Internal, "resource is not an instance ---0")
+		}
+
+		// Use orchestrator to get instance logs
+		logReader, err = s.orchestrator.GetInstanceLogs(ctx, namespace, instance.ID, logOptions)
+		if err != nil {
+			s.logger.Error("Failed to get instance logs",
+				log.Str("instance", instanceName),
+				log.Err(err))
+			return nil, "", "", status.Errorf(codes.Internal, "failed to get instance logs: %v", err)
+		}
+	}
+
+	if logReader == nil {
+		return nil, "", "", status.Errorf(codes.Internal, "failed to create log reader")
+	}
+
+	return logReader, serviceName, instanceName, nil
+}
+
+// handleParameterUpdates listens for parameter updates from the client
+func (s *LogService) handleParameterUpdates(ctx context.Context, stream generated.LogService_StreamLogsServer, errCh chan<- error) {
+	for {
+		newReq, err := stream.Recv()
+		if err == io.EOF {
+			// Client closed stream
+			return
+		}
+		if err != nil {
+			s.logger.Error("Failed to receive log request update", log.Err(err))
+			errCh <- fmt.Errorf("failed to receive request update: %v", err)
+			return
+		}
+
+		// Handle parameter update
+		if newReq.ParameterUpdate {
+			// Signal that we need to update parameters
+			errCh <- fmt.Errorf("parameter update requested")
+			return
+		}
+
+		// Check if context is cancelled
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Continue
+		}
+	}
+}
+
+// StreamLogs provides bidirectional streaming for logs.
+func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) error {
+	// Get the initial request
+	req, err := stream.Recv()
+	if err != nil {
+		s.logger.Error("Failed to receive initial log request", log.Err(err))
+		return status.Errorf(codes.Internal, "failed to receive initial request: %v", err)
+	}
+
+	// Validate the request
+	if err := s.validateLogRequest(req); err != nil {
+		s.logger.Error("Invalid log request", log.Err(err))
+		return status.Errorf(codes.InvalidArgument, "invalid log request: %v", err)
+	}
+
+	// Set up context with cancel
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	// Build log options from request
+	logOptions, err := s.buildLogOptions(req)
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	// Get the appropriate log reader
+	logReader, serviceName, instanceName, err := s.getLogReader(ctx, req, logOptions)
+	if err != nil {
+		return err
+	}
+	defer logReader.Close()
 
 	// Channel to collect log output
 	logCh := make(chan *generated.LogResponse, 100)
@@ -104,149 +262,20 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 	// Error channel to propagate errors from goroutines
 	errCh := make(chan error, 1)
 
-	// Get logs based on target
-	var logReader io.ReadCloser
-	if req.GetServiceName() != "" {
-		// Target is a service
-		serviceName = req.GetServiceName()
-
-		// Verify service exists
-		var service types.Service
-		if err := s.store.Get(ctx, types.ResourceTypeService, namespace, serviceName, &service); err != nil {
-			if IsNotFound(err) {
-				return status.Errorf(codes.NotFound, "service not found: %s", serviceName)
-			}
-			s.logger.Error("Failed to get service", log.Err(err))
-			return status.Errorf(codes.Internal, "failed to get service: %v", err)
-		}
-
-		// Use orchestrator to get service logs
-		logReader, err = s.orchestrator.GetServiceLogs(ctx, namespace, serviceName, logOptions)
-		if err != nil {
-			s.logger.Error("Failed to get service logs",
-				log.Str("service", serviceName),
-				log.Err(err))
-			return status.Errorf(codes.Internal, "failed to get service logs: %v", err)
-		}
-	} else {
-		// Target is a specific instance
-		instanceID = req.GetInstanceId()
-
-		// Get the instance to determine its service
-		var instance types.Instance
-		if err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
-			if IsNotFound(err) {
-				return status.Errorf(codes.NotFound, "instance not found: %s", instanceID)
-			}
-			s.logger.Error("Failed to get instance", log.Err(err))
-			return status.Errorf(codes.Internal, "failed to get instance: %v", err)
-		}
-
-		serviceName = instance.ServiceName
-
-		// Use orchestrator to get instance logs
-		logReader, err = s.orchestrator.GetInstanceLogs(ctx, namespace, serviceName, instanceID, logOptions)
-		if err != nil {
-			s.logger.Error("Failed to get instance logs",
-				log.Str("instance", instanceID),
-				log.Err(err))
-			return status.Errorf(codes.Internal, "failed to get instance logs: %v", err)
-		}
-	}
-
-	if logReader == nil {
-		return status.Errorf(codes.Internal, "failed to create log reader")
-	}
-	defer logReader.Close()
-
 	// Start a goroutine to read from logReader and send to logCh
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := logReader.Read(buf)
-			if err != nil {
-				if err == io.EOF {
-					s.logger.Debug("End of logs")
-					return
-				}
-				s.logger.Error("Failed to read logs", log.Err(err))
-				errCh <- fmt.Errorf("failed to read logs: %v", err)
-				return
-			}
-
-			// Process the log content
-			if n > 0 {
-				content := string(buf[:n])
-
-				// Determine log type and level
-				logLevel := "info" // Default to info level
-
-				// Simple heuristic detection of event and status messages
-				// In a real implementation, this would use a more structured approach
-				if strings.Contains(strings.ToLower(content), "error") ||
-					strings.Contains(strings.ToLower(content), "exception") ||
-					strings.Contains(strings.ToLower(content), "failed") {
-					logLevel = "error"
-				} else if strings.Contains(strings.ToLower(content), "warn") {
-					logLevel = "warning"
-				}
-
-				// Send the log chunk to the client
-				logCh <- &generated.LogResponse{
-					InstanceId:  instanceID,
-					ServiceName: serviceName,
-					Content:     content,
-					Timestamp:   time.Now().Format(time.RFC3339),
-					Stream:      "stdout", // This is simplified - the orchestrator doesn't differentiate streams
-					LogLevel:    logLevel,
-				}
-			}
-
-			// Check if context is cancelled
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				// Continue
-			}
-		}
-	}()
+	go s.readLogsFromReader(ctx, logReader, logCh, errCh, serviceName, instanceName)
 
 	// Handle parameter updates from client
-	go func() {
-		for {
-			newReq, err := stream.Recv()
-			if err == io.EOF {
-				// Client closed stream
-				cancel()
-				return
-			}
-			if err != nil {
-				s.logger.Error("Failed to receive log request update", log.Err(err))
-				errCh <- fmt.Errorf("failed to receive request update: %v", err)
-				cancel()
-				return
-			}
-
-			// Handle parameter update
-			if newReq.ParameterUpdate {
-				// Cancel current loggers and start new ones with updated parameters
-				// This is a simplified approach - a real implementation would be more sophisticated
-				cancel()
-				return
-			}
-
-			// Check if context is cancelled
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				// Continue
-			}
-		}
-	}()
+	go s.handleParameterUpdates(ctx, stream, errCh)
 
 	// Stream logs to client
+	return s.streamLogsToClient(ctx, stream, logCh, errCh)
+}
+
+// streamLogsToClient sends log responses to the client
+func (s *LogService) streamLogsToClient(ctx context.Context, stream generated.LogService_StreamLogsServer,
+	logCh <-chan *generated.LogResponse, errCh <-chan error) error {
+
 	for {
 		select {
 		case logResp, ok := <-logCh:
@@ -270,14 +299,8 @@ func (s *LogService) StreamLogs(stream generated.LogService_StreamLogsServer) er
 
 // validateLogRequest validates a log request.
 func (s *LogService) validateLogRequest(req *generated.LogRequest) error {
-	// Must specify either service name or instance ID
-	if req.GetServiceName() == "" && req.GetInstanceId() == "" {
-		return fmt.Errorf("must specify either service_name or instance_id")
-	}
-
-	// Can't specify both service name and instance ID
-	if req.GetServiceName() != "" && req.GetInstanceId() != "" {
-		return fmt.Errorf("cannot specify both service_name and instance_id")
+	if req.ResourceTarget == "" {
+		return fmt.Errorf("must specify either service name or instance ID or resource type/name")
 	}
 
 	// Validate since and until timestamps
@@ -294,4 +317,60 @@ func (s *LogService) validateLogRequest(req *generated.LogRequest) error {
 	}
 
 	return nil
+}
+
+// identifyResourceType attempts to identify the type of resource being queried
+// It checks if the argument is service, instance, or type/name format
+// Returns resource type, name, and any error that occurred
+func (s *LogService) identifyResourceType(ctx context.Context, arg string, namespace string) (types.ResourceType, interface{}, error) {
+	// Check if the argument is in the format TYPE/NAME
+	if strings.Contains(arg, "/") {
+		parts := strings.SplitN(arg, "/", 2)
+		resourceType := strings.ToLower(parts[0])
+		resourceName := parts[1]
+
+		resource, err := s.getResourceByType(ctx, resourceType, resourceName, namespace)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return types.ResourceType(resourceType), resource, nil
+	}
+
+	// Try to fetch as a service first
+	var service types.Service
+	err := s.store.Get(ctx, types.ResourceTypeService, namespace, arg, &service)
+	if err == nil {
+		// It's a service
+		return types.ResourceTypeService, service, nil
+	}
+
+	// Try to fetch as an instance
+	var instance types.Instance
+	err = s.store.Get(ctx, types.ResourceTypeInstance, namespace, arg, &instance)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return types.ResourceTypeInstance, instance, nil
+}
+
+func (s *LogService) getResourceByType(ctx context.Context, resourceType string, resourceName string, namespace string) (interface{}, error) {
+	if resourceType == string(types.ResourceTypeService) {
+		var service types.Service
+		err := s.store.Get(ctx, types.ResourceTypeService, namespace, resourceName, &service)
+		if err == nil {
+			return service, nil
+		}
+	}
+
+	if resourceType == string(types.ResourceTypeInstance) {
+		var instance types.Instance
+		err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, resourceName, &instance)
+		if err == nil {
+			return instance, nil
+		}
+	}
+
+	return nil, fmt.Errorf("resource not found")
 }

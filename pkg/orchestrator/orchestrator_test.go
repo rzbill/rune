@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
@@ -32,8 +33,8 @@ func setupTestOrchestrator(t *testing.T) (context.Context, *store.TestStore, *ru
 	err = testStore.Create(ctx, "instances", "default", "", struct{}{})
 	require.NoError(t, err, "Failed to initialize instances namespace")
 
-	instanceController := NewInstanceController(testStore, testRunnerMgr, testLogger)
-	healthController := NewHealthController(testLogger, testStore, testRunnerMgr)
+	instanceController := controllers.NewInstanceController(testStore, testRunnerMgr, testLogger)
+	healthController := controllers.NewHealthController(testLogger, testStore, testRunnerMgr)
 
 	orchestrator := NewOrchestrator(testStore, instanceController, healthController, testRunnerMgr, testLogger)
 	return ctx, testStore, testRunner, orchestrator
@@ -96,7 +97,7 @@ func TestServiceCreation(t *testing.T) {
 }
 
 // createTestServiceWithInstances creates a test service with instances in the store
-func createTestServiceWithInstances(ctx context.Context, t *testing.T, testStore *store.TestStore, instanceCtrl InstanceController, name string, count int) (*types.Service, []*types.Instance) {
+func createTestServiceWithInstances(ctx context.Context, t *testing.T, testStore *store.TestStore, instanceCtrl controllers.InstanceController, name string, count int) (*types.Service, []*types.Instance) {
 	service := &types.Service{
 		ID:            name,
 		Name:          name,
@@ -132,13 +133,15 @@ func TestExecInService(t *testing.T) {
 	ctx, testStore, testRunner, orch := setupTestOrchestrator(t)
 
 	// Get the instance controller to create instances
-	instanceCtrl, ok := orch.(interface{ GetInstanceController() InstanceController })
-	var instController InstanceController
+	instanceCtrl, ok := orch.(interface {
+		GetInstanceController() controllers.InstanceController
+	})
+	var instController controllers.InstanceController
 	if ok {
 		instController = instanceCtrl.GetInstanceController()
 	} else {
 		// Create a new instance controller if the accessor isn't available
-		instController = NewInstanceController(testStore, manager.NewTestRunnerManager(testRunner), log.NewLogger())
+		instController = controllers.NewInstanceController(testStore, manager.NewTestRunnerManager(testRunner), log.NewLogger())
 	}
 
 	// Create a test service with 2 instances

@@ -17,8 +17,8 @@ var _ Store = &TestStore{}
 // Unlike MockStore, it doesn't require setting up expectations and is more convenient
 // for basic tests that need a functional store.
 type TestStore struct {
-	data       map[string]map[string]map[string]interface{}
-	history    map[string]map[string]map[string][]HistoricalVersion
+	data       map[types.ResourceType]map[string]map[string]interface{}
+	history    map[types.ResourceType]map[string]map[string][]HistoricalVersion
 	mutex      sync.RWMutex
 	watchChans map[string][]chan WatchEvent
 	watchMutex sync.RWMutex
@@ -28,8 +28,8 @@ type TestStore struct {
 // NewTestStore creates a new TestStore instance.
 func NewTestStore() *TestStore {
 	return &TestStore{
-		data:       make(map[string]map[string]map[string]interface{}),
-		history:    make(map[string]map[string]map[string][]HistoricalVersion),
+		data:       make(map[types.ResourceType]map[string]map[string]interface{}),
+		history:    make(map[types.ResourceType]map[string]map[string][]HistoricalVersion),
 		watchChans: make(map[string][]chan WatchEvent),
 		opened:     true, // Consider it already opened for simplicity
 	}
@@ -71,7 +71,7 @@ func (s *TestStore) Close() error {
 	return nil
 }
 
-func (s *TestStore) CreateResource(ctx context.Context, resourceType string, resource interface{}) error {
+func (s *TestStore) CreateResource(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	// Special case for Namespace resources
 	if resourceType == types.ResourceTypeNamespace {
 		namespace, ok := resource.(*types.Namespace)
@@ -95,7 +95,7 @@ func (s *TestStore) CreateResource(ctx context.Context, resourceType string, res
 }
 
 // Create implements the Store interface.
-func (s *TestStore) Create(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *TestStore) Create(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -144,7 +144,7 @@ func (s *TestStore) Create(ctx context.Context, resourceType string, namespace s
 }
 
 // Get implements the Store interface.
-func (s *TestStore) Get(ctx context.Context, resourceType string, namespace string, name string, resource interface{}) error {
+func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -217,7 +217,7 @@ func (s *TestStore) Get(ctx context.Context, resourceType string, namespace stri
 }
 
 // List implements the Store interface.
-func (s *TestStore) List(ctx context.Context, resourceType string, namespace string, resource interface{}) error {
+func (s *TestStore) List(ctx context.Context, resourceType types.ResourceType, namespace string, resource interface{}) error {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -245,12 +245,12 @@ func (s *TestStore) List(ctx context.Context, resourceType string, namespace str
 }
 
 // ListAll retrieves all resources of a given type in all namespaces.
-func (s *TestStore) ListAll(ctx context.Context, resourceType string, resource interface{}) error {
+func (s *TestStore) ListAll(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	return s.List(ctx, resourceType, "", resource)
 }
 
 // Update implements the Store interface.
-func (s *TestStore) Update(ctx context.Context, resourceType string, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
+func (s *TestStore) Update(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -291,7 +291,7 @@ func (s *TestStore) Update(ctx context.Context, resourceType string, namespace s
 }
 
 // Delete implements the Store interface.
-func (s *TestStore) Delete(ctx context.Context, resourceType string, namespace string, name string) error {
+func (s *TestStore) Delete(ctx context.Context, resourceType types.ResourceType, namespace string, name string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -324,7 +324,7 @@ func (s *TestStore) Delete(ctx context.Context, resourceType string, namespace s
 }
 
 // Watch implements the Store interface.
-func (s *TestStore) Watch(ctx context.Context, resourceType string, namespace string) (<-chan WatchEvent, error) {
+func (s *TestStore) Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error) {
 	s.watchMutex.Lock()
 	defer s.watchMutex.Unlock()
 
@@ -364,7 +364,7 @@ func (s *TestStore) Watch(ctx context.Context, resourceType string, namespace st
 }
 
 // GetHistory implements the Store interface.
-func (s *TestStore) GetHistory(ctx context.Context, resourceType string, namespace string, name string) ([]HistoricalVersion, error) {
+func (s *TestStore) GetHistory(ctx context.Context, resourceType types.ResourceType, namespace string, name string) ([]HistoricalVersion, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -391,7 +391,7 @@ func (s *TestStore) GetHistory(ctx context.Context, resourceType string, namespa
 }
 
 // GetVersion implements the Store interface.
-func (s *TestStore) GetVersion(ctx context.Context, resourceType string, namespace string, name string, version string) (interface{}, error) {
+func (s *TestStore) GetVersion(ctx context.Context, resourceType types.ResourceType, namespace string, name string, version string) (interface{}, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -439,7 +439,7 @@ func (s *TestStore) Transaction(ctx context.Context, fn func(tx Transaction) err
 }
 
 // Helper method to send watch events with source info
-func (s *TestStore) sendWatchEventWithSource(resourceType, namespace string, eventType WatchEventType, name string, resource interface{}, source EventSource) {
+func (s *TestStore) sendWatchEventWithSource(resourceType types.ResourceType, namespace string, eventType WatchEventType, name string, resource interface{}, source EventSource) {
 	s.watchMutex.RLock()
 	defer s.watchMutex.RUnlock()
 
@@ -469,7 +469,7 @@ func (s *TestStore) sendWatchEventWithSource(resourceType, namespace string, eve
 }
 
 // Helper method to send watch events
-func (s *TestStore) sendWatchEvent(resourceType, namespace string, eventType WatchEventType, name string, resource interface{}) {
+func (s *TestStore) sendWatchEvent(resourceType types.ResourceType, namespace string, eventType WatchEventType, name string, resource interface{}) {
 	s.sendWatchEventWithSource(resourceType, namespace, eventType, name, resource, "")
 }
 
@@ -480,29 +480,29 @@ type testTransaction struct {
 }
 
 // Create implements the Transaction interface
-func (tx *testTransaction) Create(resourceType string, namespace string, name string, resource interface{}) error {
+func (tx *testTransaction) Create(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	return tx.store.Create(tx.ctx, resourceType, namespace, name, resource)
 }
 
 // Get implements the Transaction interface
-func (tx *testTransaction) Get(resourceType string, namespace string, name string, resource interface{}) error {
+func (tx *testTransaction) Get(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	return tx.store.Get(tx.ctx, resourceType, namespace, name, resource)
 }
 
 // Update implements the Transaction interface
-func (tx *testTransaction) Update(resourceType string, namespace string, name string, resource interface{}) error {
+func (tx *testTransaction) Update(resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	return tx.store.Update(tx.ctx, resourceType, namespace, name, resource)
 }
 
 // Delete implements the Transaction interface
-func (tx *testTransaction) Delete(resourceType string, namespace string, name string) error {
+func (tx *testTransaction) Delete(resourceType types.ResourceType, namespace string, name string) error {
 	return tx.store.Delete(tx.ctx, resourceType, namespace, name)
 }
 
 // Helper functions for testing
 
 // SetupTestData adds predefined test data to the store
-func (s *TestStore) SetupTestData(resources map[string]map[string]map[string]interface{}) error {
+func (s *TestStore) SetupTestData(resources map[types.ResourceType]map[string]map[string]interface{}) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -539,8 +539,8 @@ func (s *TestStore) Reset() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	s.data = make(map[string]map[string]map[string]interface{})
-	s.history = make(map[string]map[string]map[string][]HistoricalVersion)
+	s.data = make(map[types.ResourceType]map[string]map[string]interface{})
+	s.history = make(map[types.ResourceType]map[string]map[string][]HistoricalVersion)
 
 	// Close all watch channels
 	s.watchMutex.Lock()

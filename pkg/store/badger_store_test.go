@@ -48,7 +48,7 @@ func TestBadgerStoreCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Test resource type
-	resourceType := "services"
+	resourceType := types.ResourceTypeService
 	namespace := "default"
 	name := "test-service"
 
@@ -149,7 +149,7 @@ func TestBadgerStoreVersioning(t *testing.T) {
 		Version string `json:"version"`
 	}
 
-	resourceType := "services"
+	resourceType := types.ResourceTypeService
 	namespace := "default"
 	name := "versioned-service"
 
