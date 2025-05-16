@@ -36,6 +36,10 @@ type ServiceServiceClient interface {
 	DeleteService(ctx context.Context, in *DeleteServiceRequest, opts ...grpc.CallOption) (*DeleteServiceResponse, error)
 	// ScaleService changes the scale of a service.
 	ScaleService(ctx context.Context, in *ScaleServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
+	// WatchScaling watches the scaling progress of a service.
+	WatchScaling(ctx context.Context, in *WatchScalingRequest, opts ...grpc.CallOption) (ServiceService_WatchScalingClient, error)
+	// ListInstances lists instances for a service.
+	ListInstances(ctx context.Context, in *ListInstancesRequest, opts ...grpc.CallOption) (*ListInstancesResponse, error)
 }
 
 type serviceServiceClient struct {
@@ -132,6 +136,47 @@ func (c *serviceServiceClient) ScaleService(ctx context.Context, in *ScaleServic
 	return out, nil
 }
 
+func (c *serviceServiceClient) WatchScaling(ctx context.Context, in *WatchScalingRequest, opts ...grpc.CallOption) (ServiceService_WatchScalingClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ServiceService_ServiceDesc.Streams[1], "/rune.api.ServiceService/WatchScaling", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &serviceServiceWatchScalingClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type ServiceService_WatchScalingClient interface {
+	Recv() (*ScalingStatusResponse, error)
+	grpc.ClientStream
+}
+
+type serviceServiceWatchScalingClient struct {
+	grpc.ClientStream
+}
+
+func (x *serviceServiceWatchScalingClient) Recv() (*ScalingStatusResponse, error) {
+	m := new(ScalingStatusResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *serviceServiceClient) ListInstances(ctx context.Context, in *ListInstancesRequest, opts ...grpc.CallOption) (*ListInstancesResponse, error) {
+	out := new(ListInstancesResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.ServiceService/ListInstances", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ServiceServiceServer is the server API for ServiceService service.
 // All implementations must embed UnimplementedServiceServiceServer
 // for forward compatibility
@@ -150,6 +195,10 @@ type ServiceServiceServer interface {
 	DeleteService(context.Context, *DeleteServiceRequest) (*DeleteServiceResponse, error)
 	// ScaleService changes the scale of a service.
 	ScaleService(context.Context, *ScaleServiceRequest) (*ServiceResponse, error)
+	// WatchScaling watches the scaling progress of a service.
+	WatchScaling(*WatchScalingRequest, ServiceService_WatchScalingServer) error
+	// ListInstances lists instances for a service.
+	ListInstances(context.Context, *ListInstancesRequest) (*ListInstancesResponse, error)
 	mustEmbedUnimplementedServiceServiceServer()
 }
 
@@ -177,6 +226,12 @@ func (UnimplementedServiceServiceServer) DeleteService(context.Context, *DeleteS
 }
 func (UnimplementedServiceServiceServer) ScaleService(context.Context, *ScaleServiceRequest) (*ServiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ScaleService not implemented")
+}
+func (UnimplementedServiceServiceServer) WatchScaling(*WatchScalingRequest, ServiceService_WatchScalingServer) error {
+	return status.Errorf(codes.Unimplemented, "method WatchScaling not implemented")
+}
+func (UnimplementedServiceServiceServer) ListInstances(context.Context, *ListInstancesRequest) (*ListInstancesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInstances not implemented")
 }
 func (UnimplementedServiceServiceServer) mustEmbedUnimplementedServiceServiceServer() {}
 
@@ -320,6 +375,45 @@ func _ServiceService_ScaleService_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ServiceService_WatchScaling_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchScalingRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ServiceServiceServer).WatchScaling(m, &serviceServiceWatchScalingServer{stream})
+}
+
+type ServiceService_WatchScalingServer interface {
+	Send(*ScalingStatusResponse) error
+	grpc.ServerStream
+}
+
+type serviceServiceWatchScalingServer struct {
+	grpc.ServerStream
+}
+
+func (x *serviceServiceWatchScalingServer) Send(m *ScalingStatusResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _ServiceService_ListInstances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInstancesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServiceServer).ListInstances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.ServiceService/ListInstances",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServiceServer).ListInstances(ctx, req.(*ListInstancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ServiceService_ServiceDesc is the grpc.ServiceDesc for ServiceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -351,11 +445,20 @@ var ServiceService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ScaleService",
 			Handler:    _ServiceService_ScaleService_Handler,
 		},
+		{
+			MethodName: "ListInstances",
+			Handler:    _ServiceService_ListInstances_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "WatchServices",
 			Handler:       _ServiceService_WatchServices_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchScaling",
+			Handler:       _ServiceService_WatchScaling_Handler,
 			ServerStreams: true,
 		},
 	},

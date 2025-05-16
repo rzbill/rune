@@ -23,6 +23,17 @@ client:
   timeout: 30s
   retries: 3
 
+# Docker runner configuration
+docker:
+  # API version to use (if not specified, auto-negotiation is used)
+  # api_version: "1.43"
+  
+  # Fallback API version to use if auto-negotiation fails
+  fallback_api_version: "1.43"
+  
+  # Timeout for API version negotiation in seconds
+  negotiation_timeout_seconds: 3
+
 # Default namespace
 namespace: "default"
 

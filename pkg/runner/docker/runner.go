@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -17,6 +18,29 @@ import (
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
+// DockerConfig holds Docker runner configuration options
+type DockerConfig struct {
+	// APIVersion is the Docker API version to use
+	// If empty, auto-negotiation will be used
+	APIVersion string
+	
+	// FallbackAPIVersion is used when auto-negotiation fails
+	// Default is "1.43" which is widely compatible
+	FallbackAPIVersion string
+	
+	// Timeout for API version negotiation in seconds
+	NegotiationTimeoutSeconds int
+}
+
+// DefaultDockerConfig returns the default Docker configuration
+func DefaultDockerConfig() *DockerConfig {
+	return &DockerConfig{
+		APIVersion:                "",  // Empty means use auto-negotiation
+		FallbackAPIVersion:        "1.43", // Fallback to a widely compatible version
+		NegotiationTimeoutSeconds: 3,
+	}
+}
+
 // Validate that DockerRunner implements the runner.Runner interface
 var _ runner.Runner = &DockerRunner{}
 
@@ -24,6 +48,7 @@ var _ runner.Runner = &DockerRunner{}
 type DockerRunner struct {
 	client *client.Client
 	logger log.Logger
+	config *DockerConfig
 }
 
 func (r *DockerRunner) Type() types.RunnerType {
@@ -32,24 +57,112 @@ func (r *DockerRunner) Type() types.RunnerType {
 
 // NewDockerRunner creates a new DockerRunner instance.
 func NewDockerRunner(logger log.Logger) (*DockerRunner, error) {
+	// Use default configuration
+	config := DefaultDockerConfig()
+	return NewDockerRunnerWithConfig(logger, config)
+}
+
+// NewDockerRunnerWithConfig creates a new DockerRunner with specific configuration.
+func NewDockerRunnerWithConfig(logger log.Logger, config *DockerConfig) (*DockerRunner, error) {
 	// Default to use global logger if none provided
 	if logger == nil {
 		logger = log.GetDefaultLogger().WithComponent("docker-runner")
 	}
+	
+	// Use default config if none provided
+	if config == nil {
+		config = DefaultDockerConfig()
+	}
+	
+	// Create a client with the appropriate API version
+	client, err := createClientWithVersionHandling(logger, config)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &DockerRunner{
+		client: client,
+		logger: logger,
+		config: config,
+	}, nil
+}
 
+// createClientWithVersionHandling creates a Docker client with appropriate API version handling
+func createClientWithVersionHandling(logger log.Logger, config *DockerConfig) (*client.Client, error) {
 	// Create Docker client with default configuration
-	client, err := client.NewClientWithOpts(client.FromEnv)
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
-	// Set API version to negotiate the highest supported version
-	client.NegotiateAPIVersion(context.Background())
+	// If a specific API version is configured, use it
+	if config.APIVersion != "" {
+		logger.Info("Using specified Docker API version",
+			log.Str("api_version", config.APIVersion))
+		
+		dockerClient, err = client.NewClientWithOpts(
+			client.FromEnv,
+			client.WithVersion(config.APIVersion),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Docker client with version %s: %w", config.APIVersion, err)
+		}
+		
+		return dockerClient, nil
+	}
 
-	return &DockerRunner{
-		client: client,
-		logger: logger,
-	}, nil
+	// Otherwise try to negotiate API version safely with timeout
+	negotiationTimeout := time.Duration(config.NegotiationTimeoutSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), negotiationTimeout)
+	defer cancel()
+
+	dockerClient.NegotiateAPIVersion(ctx)
+	clientVersion := dockerClient.ClientVersion()
+	logger.Info("Using negotiated Docker API version", log.Str("api_version", clientVersion))
+
+	// Verify the version works by doing a ping test
+	if err := verifyClientCompatibility(dockerClient, clientVersion, config.FallbackAPIVersion, logger); err != nil {
+		return nil, err
+	}
+
+	return dockerClient, nil
+}
+
+// verifyClientCompatibility checks if the Docker client is compatible with the server
+// and falls back to a compatible version if needed
+func verifyClientCompatibility(dockerClient *client.Client, clientVersion, fallbackVersion string, logger log.Logger) error {
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer pingCancel()
+
+	_, err := dockerClient.Ping(pingCtx)
+	
+	// Check for version mismatch errors
+	if err != nil && strings.Contains(err.Error(), "client version") && 
+		strings.Contains(err.Error(), "too new") {
+		// If we get version mismatch error, use the fallback version
+		logger.Warn("Docker API version mismatch, falling back to compatibility version",
+			log.Str("current_version", clientVersion),
+			log.Str("fallback_version", fallbackVersion),
+			log.Err(err))
+			
+		// Create new client with fallback version
+		newClient, err := client.NewClientWithOpts(
+			client.FromEnv,
+			client.WithVersion(fallbackVersion),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create Docker client with fallback version %s: %w", 
+				fallbackVersion, err)
+		}
+		
+		// Replace the original client with the fallback client
+		*dockerClient = *newClient
+	} else if err != nil {
+		// If there's a non-version error, log it but continue
+		logger.Warn("Docker ping error (continuing anyway)", log.Err(err))
+	}
+	
+	return nil
 }
 
 // Create creates a new container but does not start it.

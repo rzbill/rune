@@ -20,6 +20,9 @@ const (
 
 	// ResourceTypeNamespace is the resource type for namespaces.
 	ResourceTypeNamespace ResourceType = "namespace"
+
+	// ResourceTypeScalingOperation is the resource type for scaling operations.
+	ResourceTypeScalingOperation ResourceType = "scaling_operation"
 )
 
 // RunnerType is the type of runner for an instance.

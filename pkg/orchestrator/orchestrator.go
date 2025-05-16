@@ -60,6 +60,7 @@ type orchestrator struct {
 	store              store.Store
 	instanceController controllers.InstanceController
 	healthController   controllers.HealthController
+	scalingController  controllers.ScalingController
 	reconciler         *reconciler
 	logger             log.Logger
 	statusUpdater      StatusUpdater
@@ -86,7 +87,14 @@ type orchestrator struct {
 }
 
 // NewOrchestrator creates a new orchestrator
-func NewOrchestrator(store store.Store, instanceController controllers.InstanceController, healthController controllers.HealthController, runnerManager manager.IRunnerManager, logger log.Logger) Orchestrator {
+func NewOrchestrator(
+	store store.Store,
+	instanceController controllers.InstanceController,
+	healthController controllers.HealthController,
+	scalingController controllers.ScalingController,
+	runnerManager manager.IRunnerManager,
+	logger log.Logger,
+) Orchestrator {
 	// Create the reconciler
 	reconciler := newReconciler(
 		store,
@@ -103,6 +111,7 @@ func NewOrchestrator(store store.Store, instanceController controllers.InstanceC
 		store:                      store,
 		instanceController:         instanceController,
 		healthController:           healthController,
+		scalingController:          scalingController,
 		reconciler:                 reconciler,
 		logger:                     logger.WithComponent("orchestrator"),
 		statusUpdater:              statusUpdater,
@@ -119,8 +128,11 @@ func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager 
 	healthController := controllers.NewHealthController(logger, store, runnerManager)
 	healthController.SetInstanceController(instanceController)
 
+	// Create the scaling controller
+	scalingController := controllers.NewScalingController(store, logger)
+
 	// Create and return the orchestrator
-	return NewOrchestrator(store, instanceController, healthController, runnerManager, logger), nil
+	return NewOrchestrator(store, instanceController, healthController, scalingController, runnerManager, logger), nil
 }
 
 // Start the orchestrator
@@ -153,6 +165,11 @@ func (o *orchestrator) Start(ctx context.Context) error {
 	// Start health controller
 	if err := o.healthController.Start(o.ctx); err != nil {
 		return fmt.Errorf("failed to start health controller: %w", err)
+	}
+
+	// Start scaling controller
+	if err := o.scalingController.Start(o.ctx); err != nil {
+		return fmt.Errorf("failed to start scaling controller: %w", err)
 	}
 
 	// Start watching services
@@ -188,6 +205,9 @@ func (o *orchestrator) Stop() error {
 
 	// Stop reconciler
 	o.reconciler.Stop()
+
+	// Stop scaling controller
+	o.scalingController.Stop()
 
 	// Stop health controller
 	if err := o.healthController.Stop(); err != nil {
@@ -899,20 +919,15 @@ func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName,
 		log.Str("service", serviceName),
 		log.Str("instance", instanceID))
 
-	// Get instance from store
+	// Get the instance
 	var instance types.Instance
 	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
-		return fmt.Errorf("failed to get instance: %w", err)
+		return fmt.Errorf("failed to get instance %s: %w", instanceID, err)
 	}
 
-	// Verify instance belongs to the specified service
-	if instance.ServiceName != serviceName {
-		return fmt.Errorf("instance does not belong to service %s", serviceName)
-	}
-
-	// Stop the instance through instance controller
+	// Stop the instance
 	if err := o.instanceController.StopInstance(ctx, &instance); err != nil {
-		return fmt.Errorf("failed to stop instance: %w", err)
+		return fmt.Errorf("failed to stop instance %s: %w", instanceID, err)
 	}
 
 	o.logger.Info("Successfully stopped instance",

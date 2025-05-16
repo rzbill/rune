@@ -27,15 +27,17 @@ const (
 type ServiceService struct {
 	generated.UnimplementedServiceServiceServer
 
-	store  store.Store
-	logger log.Logger
+	store      store.Store
+	logger     log.Logger
+	scalingOps *ScalingOps
 }
 
 // NewServiceService creates a new ServiceService with the given store and logger.
 func NewServiceService(store store.Store, logger log.Logger) *ServiceService {
 	return &ServiceService{
-		store:  store,
-		logger: logger.WithComponent("service-service"),
+		store:      store,
+		logger:     logger.WithComponent("service-service"),
+		scalingOps: NewScalingOps(store, logger),
 	}
 }
 
@@ -471,27 +473,49 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 		return nil, status.Errorf(codes.Internal, "failed to get service: %v", err)
 	}
 
-	// Update the scale
-	service.Scale = int(req.Scale)
-	service.Metadata.UpdatedAt = time.Now()
+	// Track the current scale and target scale
+	currentScale := service.Scale
+	targetScale := int(req.Scale)
 
-	// Store the updated service
-	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
-		s.logger.Error("Failed to update service scale", log.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to update service scale: %v", err)
+	// Check if we're already at the target scale
+	if currentScale == targetScale {
+		return &generated.ServiceResponse{
+			Status: &generated.Status{
+				Code:    int32(codes.OK),
+				Message: fmt.Sprintf("Service already at scale %d", targetScale),
+			},
+		}, nil
 	}
 
-	// Convert to protobuf message
-	protoService, err := s.serviceModelToProto(&service)
+	// Create scaling parameters
+	params := types.ScalingOperationParams{
+		CurrentScale:    currentScale,
+		TargetScale:     targetScale,
+		StepSize:        1,  // Default step size
+		IntervalSeconds: 30, // Default interval
+		IsGradual:       req.Mode == generated.ScalingMode_SCALING_MODE_GRADUAL,
+	}
+
+	// Override defaults if gradual scaling is requested
+	if params.IsGradual {
+		if req.StepSize > 0 {
+			params.StepSize = int(req.StepSize)
+		}
+		if req.IntervalSeconds > 0 {
+			params.IntervalSeconds = int(req.IntervalSeconds)
+		}
+	}
+
+	// Initiate scaling operation
+	_, err := s.scalingOps.CreateScalingOperation(ctx, &service, params)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to initiate scaling: %v", err)
 	}
 
 	return &generated.ServiceResponse{
-		Service: protoService,
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
-			Message: fmt.Sprintf("Service scaled to %d instances", req.Scale),
+			Message: fmt.Sprintf("Service scaling to %d instances initiated", req.Scale),
 		},
 	}, nil
 }
@@ -897,6 +921,226 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 			if err != nil {
 				s.logger.Error("Failed to send watch event", log.Err(err))
 				return status.Errorf(codes.Internal, "failed to send watch event: %v", err)
+			}
+		}
+	}
+}
+
+// getServiceInstances retrieves and filters instances for a specific service
+func (s *ServiceService) getServiceInstances(ctx context.Context, namespace, serviceID string) ([]types.Instance, error) {
+	var allInstances []types.Instance
+	err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &allInstances)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter instances that belong to this service
+	var instances []types.Instance
+	for _, inst := range allInstances {
+		if inst.ServiceID == serviceID {
+			instances = append(instances, inst)
+		}
+	}
+	return instances, nil
+}
+
+// countInstanceStatus counts running and pending instances
+func (s *ServiceService) countInstanceStatus(instances []types.Instance, instanceCache map[string]types.InstanceStatus) (running, pending int) {
+	for _, inst := range instances {
+		previousStatus, exists := instanceCache[inst.ID]
+
+		// Only log status changes for debugging
+		if !exists || previousStatus != inst.Status {
+			instanceCache[inst.ID] = inst.Status
+			s.logger.Debug("Instance status",
+				log.Str("id", inst.ID),
+				log.Str("status", string(inst.Status)))
+		}
+
+		switch inst.Status {
+		case types.InstanceStatusRunning:
+			running++
+		case types.InstanceStatusPending, types.InstanceStatusStarting, types.InstanceStatusCreated:
+			pending++
+		}
+	}
+	return running, pending
+}
+
+// determineScalingStatus determines the target scale and completion status
+func (s *ServiceService) determineScalingStatus(ctx context.Context, namespace, serviceName string, service *types.Service, instances []types.Instance, reqTargetScale int32) (targetScale int32, isComplete bool, err error) {
+	// Check for active scaling operation first
+	activeOp, err := s.scalingOps.GetActiveOperation(ctx, namespace, serviceName)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to get active scaling operation: %v", err)
+	}
+
+	if activeOp != nil {
+		// Use the active scaling operation's target
+		return int32(activeOp.TargetScale), activeOp.Status == types.ScalingOperationStatusCompleted, nil
+	}
+
+	if reqTargetScale > 0 {
+		// Use the requested target scale if no active operation
+		// Check if we've reached the target
+		if reqTargetScale == 0 {
+			// For scale to zero, we're complete when no instances exist
+			return 0, len(instances) == 0, nil
+		}
+
+		// For scale up/down, check if service.Scale AND actual running instances match the target
+		runningCount := 0
+		for _, inst := range instances {
+			if inst.Status == types.InstanceStatusRunning {
+				runningCount++
+			}
+		}
+
+		// We're complete when both the service scale setting and actual running instances match target
+		return reqTargetScale, service.Scale == int(reqTargetScale) && runningCount == int(reqTargetScale), nil
+	}
+
+	// No target specified and no active operation
+	return int32(service.Scale), true, nil
+}
+
+// WatchScaling watches a service for scaling status changes and streams updates to the client.
+func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream generated.ServiceService_WatchScalingServer) error {
+	s.logger.Debug("WatchScaling called",
+		log.Str("service", req.ServiceName),
+		log.Str("namespace", req.Namespace),
+		log.Int("targetScale", int(req.TargetScale)))
+
+	if req.ServiceName == "" {
+		return status.Error(codes.InvalidArgument, "service name is required")
+	}
+
+	namespace := req.Namespace
+	if namespace == "" {
+		namespace = DefaultNamespace
+	}
+
+	ctx := stream.Context()
+
+	// Setup a ticker for checking the service status
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	// Use a map to track instance status counts
+	instanceCache := make(map[string]types.InstanceStatus)
+
+	// Keep track of whether we've sent a completion message
+	var completionSent bool
+	// Track consecutive completions to ensure stability
+	consecutiveCompletions := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Client canceled the stream
+			return nil
+
+		case <-ticker.C:
+			// Get the service
+			var service types.Service
+			err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.ServiceName, &service)
+			if err != nil {
+				if IsNotFound(err) {
+					return status.Errorf(codes.NotFound, "service not found: %s/%s", namespace, req.ServiceName)
+				}
+				s.logger.Error("Failed to get service for scaling watch", log.Err(err))
+				return status.Errorf(codes.Internal, "failed to get service: %v", err)
+			}
+
+			// Get service instances
+			instances, err := s.getServiceInstances(ctx, namespace, service.ID)
+			if err != nil {
+				s.logger.Error("Failed to get service instances", log.Err(err))
+				return status.Errorf(codes.Internal, "failed to get service instances: %v", err)
+			}
+
+			// Count instance statuses
+			runningCount, pendingCount := s.countInstanceStatus(instances, instanceCache)
+
+			// For scale to zero, explicitly check for zero instances
+			var isComplete bool
+			var targetScale int32
+
+			if req.TargetScale == 0 && len(instances) == 0 {
+				// Special case for scale to zero - if there are no instances, we're done
+				isComplete = true
+				targetScale = 0
+			} else {
+				// Normal case - use determineScalingStatus
+				targetScale, isComplete, err = s.determineScalingStatus(ctx, namespace, req.ServiceName, &service, instances, req.TargetScale)
+				if err != nil {
+					s.logger.Error("Failed to determine scaling status", log.Err(err))
+					return status.Errorf(codes.Internal, "failed to determine scaling status: %v", err)
+				}
+			}
+
+			// Create the status response
+			response := &generated.ScalingStatusResponse{
+				CurrentScale:     int32(service.Scale),
+				TargetScale:      targetScale,
+				RunningInstances: int32(runningCount),
+				PendingInstances: int32(pendingCount),
+				Complete:         isComplete,
+				Status: &generated.Status{
+					Code:    int32(codes.OK),
+					Message: fmt.Sprintf("Service '%s' scaling progress", req.ServiceName),
+				},
+			}
+
+			// Send the response
+			if err := stream.Send(response); err != nil {
+				s.logger.Error("Failed to send scaling status", log.Err(err))
+				return err
+			}
+
+			// If scaling is complete
+			if isComplete {
+				consecutiveCompletions++
+
+				// After seeing complete state for 2 consecutive checks, we can be confident
+				if consecutiveCompletions >= 2 {
+					if !completionSent {
+						completionSent = true
+						s.logger.Info("Scaling completed",
+							log.Str("service", req.ServiceName),
+							log.Str("namespace", namespace),
+							log.Int("scale", int(targetScale)))
+					}
+
+					// After 3 consecutive completions, exit the loop to signal true completion
+					if consecutiveCompletions >= 3 {
+						// Send one final confirmation message then exit
+						finalResponse := &generated.ScalingStatusResponse{
+							CurrentScale:     int32(service.Scale),
+							TargetScale:      targetScale,
+							RunningInstances: int32(runningCount),
+							PendingInstances: int32(pendingCount),
+							Complete:         true,
+							Status: &generated.Status{
+								Code:    int32(codes.OK),
+								Message: fmt.Sprintf("Service '%s' scaling completed successfully", req.ServiceName),
+							},
+						}
+
+						// Ignore error since we're exiting anyway
+						_ = stream.Send(finalResponse)
+
+						// Exit the loop to close the stream
+						return nil
+					}
+
+					// Slow down checks after we're confident scaling is complete
+					ticker.Reset(3 * time.Second)
+				}
+			} else {
+				// If we previously detected completion but now it's not complete,
+				// reset the counter (handles flapping states)
+				consecutiveCompletions = 0
 			}
 		}
 	}

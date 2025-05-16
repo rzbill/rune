@@ -191,3 +191,85 @@ func TestTransaction(t *testing.T) {
 	assert.NoError(t, err, "GetInstance after transaction should not return an error")
 	assert.Equal(t, "tx-instance", instance.Name, "Instance name should match")
 }
+
+func TestWatchScalingOperations(t *testing.T) {
+	store := NewTestStore()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up a watch for scaling operations
+	watchCh, err := store.Watch(ctx, types.ResourceTypeScalingOperation, "default")
+	assert.NoError(t, err, "Watch should not return an error")
+
+	// Add an event receiver
+	events := make([]WatchEvent, 0)
+	done := make(chan struct{})
+
+	go func() {
+		for event := range watchCh {
+			events = append(events, event)
+			if event.Type == WatchEventDeleted {
+				close(done)
+				return
+			}
+		}
+	}()
+
+	// Create a scaling operation
+	op := &types.ScalingOperation{
+		ID:           "test-scaling-op",
+		Namespace:    "default",
+		ServiceName:  "test-service",
+		CurrentScale: 1,
+		TargetScale:  5,
+		StepSize:     2,
+		Interval:     1,
+		StartTime:    time.Now(),
+		Status:       types.ScalingOperationStatusInProgress,
+		Mode:         types.ScalingModeGradual,
+	}
+
+	err = store.Create(ctx, types.ResourceTypeScalingOperation, op.Namespace, op.ID, op)
+	assert.NoError(t, err, "Create should not return an error")
+
+	// Update the scaling operation
+	op.Status = types.ScalingOperationStatusCompleted
+	op.EndTime = time.Now()
+	err = store.Update(ctx, types.ResourceTypeScalingOperation, op.Namespace, op.ID, op)
+	assert.NoError(t, err, "Update should not return an error")
+
+	// Delete the scaling operation
+	err = store.Delete(ctx, types.ResourceTypeScalingOperation, op.Namespace, op.ID)
+	assert.NoError(t, err, "Delete should not return an error")
+
+	// Wait for all events to be received
+	select {
+	case <-done:
+		// Continue
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for delete event")
+	}
+
+	// Check events
+	assert.Len(t, events, 3, "Should have received 3 events")
+	assert.Equal(t, WatchEventCreated, events[0].Type, "First event should be a create event")
+	assert.Equal(t, WatchEventUpdated, events[1].Type, "Second event should be an update event")
+	assert.Equal(t, WatchEventDeleted, events[2].Type, "Third event should be a delete event")
+
+	// Check the resource in the event is a ScalingOperation
+	createEvent := events[0]
+	if scalingOp, ok := createEvent.Resource.(*types.ScalingOperation); ok {
+		assert.Equal(t, "test-scaling-op", scalingOp.ID, "Resource ID should match")
+		assert.Equal(t, types.ScalingOperationStatusInProgress, scalingOp.Status, "Initial status should be in progress")
+	} else {
+		t.Errorf("Expected resource to be a *types.ScalingOperation, got %T", createEvent.Resource)
+	}
+
+	updateEvent := events[1]
+	if scalingOp, ok := updateEvent.Resource.(*types.ScalingOperation); ok {
+		assert.Equal(t, "test-scaling-op", scalingOp.ID, "Resource ID should match")
+		assert.Equal(t, types.ScalingOperationStatusCompleted, scalingOp.Status, "Updated status should be completed")
+	} else {
+		t.Errorf("Expected resource to be a *types.ScalingOperation, got %T", updateEvent.Resource)
+	}
+}

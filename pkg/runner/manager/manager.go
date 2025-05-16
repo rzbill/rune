@@ -8,6 +8,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner/docker"
 	"github.com/rzbill/rune/pkg/runner/process"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -33,11 +34,41 @@ type RunnerManager struct {
 	initialized   bool
 }
 
+// RunnerManagerOptions holds configuration for the runner manager
+type RunnerManagerOptions struct {
+	Logger       log.Logger
+	DockerConfig *docker.DockerConfig
+}
+
 // NewRunnerManager creates a new runner manager
 func NewRunnerManager(logger log.Logger) *RunnerManager {
 	return &RunnerManager{
 		logger: logger.WithComponent("runner-manager"),
 	}
+}
+
+// getDockerConfig loads Docker configuration from Viper, which consolidates
+// settings from config files, environment variables, and flags
+func getDockerConfig() *docker.DockerConfig {
+	config := docker.DefaultDockerConfig()
+	
+	// In Viper, environment variables are automatically bound with a prefix
+	// and proper naming conventions, so we don't need separate env handling
+
+	// Load configuration values with precedence already handled by Viper
+	if viper.IsSet("docker.api_version") {
+		config.APIVersion = viper.GetString("docker.api_version")
+	}
+	
+	if viper.IsSet("docker.fallback_api_version") {
+		config.FallbackAPIVersion = viper.GetString("docker.fallback_api_version")
+	}
+	
+	if viper.IsSet("docker.negotiation_timeout_seconds") {
+		config.NegotiationTimeoutSeconds = viper.GetInt("docker.negotiation_timeout_seconds")
+	}
+	
+	return config
 }
 
 // Initialize initializes all runners
@@ -48,13 +79,23 @@ func (m *RunnerManager) Initialize() error {
 	if m.initialized {
 		return nil
 	}
+	
+	// Get Docker configuration via Viper (which already handles env vars and config files)
+	dockerConfig := getDockerConfig()
 
-	// Create Docker runner
-	dockerRunner, err := docker.NewDockerRunner(m.logger.WithComponent("docker-runner"))
+	// Create Docker runner with configuration
+	dockerRunner, err := docker.NewDockerRunnerWithConfig(
+		m.logger.WithComponent("docker-runner"),
+		dockerConfig,
+	)
 	if err != nil {
 		m.logger.Warn("Failed to initialize Docker runner", log.Err(err))
 	} else {
 		m.dockerRunner = dockerRunner
+		m.logger.Info("Docker runner initialized",
+			log.Str("api_version", dockerConfig.APIVersion),
+			log.Str("fallback_version", dockerConfig.FallbackAPIVersion),
+			log.Int("timeout_seconds", dockerConfig.NegotiationTimeoutSeconds))
 	}
 
 	// Create Process runner

@@ -94,6 +94,35 @@ func (s *TestStore) CreateResource(ctx context.Context, resourceType types.Resou
 	return s.Create(ctx, resourceType, nn.Namespace, nn.Name, resource)
 }
 
+// Helper method for deep copying resources to avoid reference issues
+func (s *TestStore) deepCopy(resource interface{}) interface{} {
+	var copy interface{}
+
+	switch v := resource.(type) {
+	case *types.Service:
+		// Create a copy to store
+		copied := *v
+		copy = &copied
+	case *types.Instance:
+		// Create a copy to store
+		copied := *v
+		copy = &copied
+	case *types.ScalingOperation:
+		// Create a copy to store
+		copied := *v
+		copy = &copied
+	case *types.Namespace:
+		// Create a copy to store
+		copied := *v
+		copy = &copied
+	default:
+		// For other types, just use as-is (not ideal but works for basic types)
+		copy = resource
+	}
+
+	return copy
+}
+
 // Create implements the Store interface.
 func (s *TestStore) Create(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error {
 	s.mutex.Lock()
@@ -122,8 +151,11 @@ func (s *TestStore) Create(ctx context.Context, resourceType types.ResourceType,
 		return fmt.Errorf("resource %s/%s/%s already exists", resourceType, namespace, name)
 	}
 
-	// Make a copy of the resource to avoid reference issues
-	s.data[resourceType][namespace][name] = resource
+	// Create a deep copy of the resource
+	storeCopy := s.deepCopy(resource)
+
+	// Store the copy
+	s.data[resourceType][namespace][name] = storeCopy
 
 	// Record history
 	version := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -131,14 +163,14 @@ func (s *TestStore) Create(ctx context.Context, resourceType types.ResourceType,
 		{
 			Version:   version,
 			Timestamp: time.Now(),
-			Resource:  resource,
+			Resource:  storeCopy,
 		},
 	}
 
 	fmt.Println("After Create", s.data[resourceType])
 
-	// Send watch event
-	s.sendWatchEvent(resourceType, namespace, WatchEventCreated, name, resource)
+	// Send watch event with a copy
+	s.sendWatchEvent(resourceType, namespace, WatchEventCreated, name, storeCopy)
 
 	return nil
 }
@@ -193,6 +225,13 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 				return nil
 			}
 
+		case *types.ScalingOperation:
+			// If the target is a ScalingOperation pointer
+			if targetOp, ok := resource.(*types.ScalingOperation); ok && storedData != nil {
+				*targetOp = *storedData
+				return nil
+			}
+
 		case types.Service:
 			// If stored as value but target is pointer
 			if targetSvc, ok := resource.(*types.Service); ok {
@@ -204,6 +243,13 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 			// If stored as value but target is pointer
 			if targetInst, ok := resource.(*types.Instance); ok {
 				*targetInst = storedData
+				return nil
+			}
+
+		case types.ScalingOperation:
+			// If stored as value but target is pointer
+			if targetOp, ok := resource.(*types.ScalingOperation); ok {
+				*targetOp = storedData
 				return nil
 			}
 		}
@@ -273,19 +319,22 @@ func (s *TestStore) Update(ctx context.Context, resourceType types.ResourceType,
 		return fmt.Errorf("resource %s/%s/%s not found", resourceType, namespace, name)
 	}
 
+	// Create a deep copy of the resource
+	storeCopy := s.deepCopy(resource)
+
 	// Update resource
-	s.data[resourceType][namespace][name] = resource
+	s.data[resourceType][namespace][name] = storeCopy
 
 	// Record history
 	version := fmt.Sprintf("%d", time.Now().UnixNano())
 	s.history[resourceType][namespace][name] = append(s.history[resourceType][namespace][name], HistoricalVersion{
 		Version:   version,
 		Timestamp: time.Now(),
-		Resource:  resource,
+		Resource:  storeCopy,
 	})
 
-	// Send watch event with source info
-	s.sendWatchEventWithSource(resourceType, namespace, WatchEventUpdated, name, resource, options.Source)
+	// Send watch event with source info and a copy
+	s.sendWatchEventWithSource(resourceType, namespace, WatchEventUpdated, name, storeCopy, options.Source)
 
 	return nil
 }
@@ -314,11 +363,14 @@ func (s *TestStore) Delete(ctx context.Context, resourceType types.ResourceType,
 	// Get resource before deleting for watch event
 	resource := s.data[resourceType][namespace][name]
 
+	// Create a deep copy for the watch event
+	eventCopy := s.deepCopy(resource)
+
 	// Delete resource
 	delete(s.data[resourceType][namespace], name)
 
-	// Send watch event
-	s.sendWatchEvent(resourceType, namespace, WatchEventDeleted, name, resource)
+	// Send watch event with a copy
+	s.sendWatchEvent(resourceType, namespace, WatchEventDeleted, name, eventCopy)
 
 	return nil
 }
@@ -327,6 +379,8 @@ func (s *TestStore) Delete(ctx context.Context, resourceType types.ResourceType,
 func (s *TestStore) Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error) {
 	s.watchMutex.Lock()
 	defer s.watchMutex.Unlock()
+
+	fmt.Printf("Setting up watch for %s, namespace=%s\n", resourceType, namespace)
 
 	if !s.opened {
 		return nil, errors.New("store is not opened")
@@ -341,8 +395,10 @@ func (s *TestStore) Watch(ctx context.Context, resourceType types.ResourceType, 
 	// Add the channel to the watch channels
 	if _, exists := s.watchChans[watchKey]; !exists {
 		s.watchChans[watchKey] = make([]chan WatchEvent, 0)
+		fmt.Printf("Created new watcher list for %s\n", watchKey)
 	}
 	s.watchChans[watchKey] = append(s.watchChans[watchKey], ch)
+	fmt.Printf("Added watcher for %s, now have %d watchers\n", watchKey, len(s.watchChans[watchKey]))
 
 	// Set up cancellation handling
 	go func() {
@@ -355,6 +411,7 @@ func (s *TestStore) Watch(ctx context.Context, resourceType types.ResourceType, 
 			if c == ch {
 				s.watchChans[watchKey] = append(s.watchChans[watchKey][:i], s.watchChans[watchKey][i+1:]...)
 				close(ch)
+				fmt.Printf("Watch context cancelled, removed watcher for %s\n", watchKey)
 				break
 			}
 		}
@@ -443,8 +500,7 @@ func (s *TestStore) sendWatchEventWithSource(resourceType types.ResourceType, na
 	s.watchMutex.RLock()
 	defer s.watchMutex.RUnlock()
 
-	watchKey := fmt.Sprintf("%s/%s", resourceType, namespace)
-
+	// Create the event
 	event := WatchEvent{
 		Type:         eventType,
 		ResourceType: resourceType,
@@ -454,16 +510,44 @@ func (s *TestStore) sendWatchEventWithSource(resourceType types.ResourceType, na
 		Source:       source,
 	}
 
-	// Send the event to all watching channels
-	if chans, exists := s.watchChans[watchKey]; exists {
+	// First try exact namespace match
+	exactWatchKey := fmt.Sprintf("%s/%s", resourceType, namespace)
+	fmt.Printf("Sending watch event: %s, %s, %s, key=%s\n", eventType, resourceType, name, exactWatchKey)
+
+	// Check for exact namespace match watchers
+	if chans, exists := s.watchChans[exactWatchKey]; exists {
+		fmt.Printf("Found %d watchers for exact match %s\n", len(chans), exactWatchKey)
 		for _, ch := range chans {
 			// Non-blocking send
 			select {
 			case ch <- event:
-				// Sent successfully
+				fmt.Printf("Event sent successfully to exact watcher for %s\n", exactWatchKey)
 			default:
-				// Channel is full, log this in a real implementation
+				fmt.Printf("Channel full, skipping event for exact watcher %s\n", exactWatchKey)
 			}
+		}
+	} else {
+		fmt.Printf("No exact watchers found for %s\n", exactWatchKey)
+	}
+
+	// Also check for resource-wide watchers (with empty namespace)
+	wildcardWatchKey := fmt.Sprintf("%s/", resourceType)
+	if namespace != "" && wildcardWatchKey != exactWatchKey {
+		fmt.Printf("Also checking for wildcard watchers %s\n", wildcardWatchKey)
+
+		if chans, exists := s.watchChans[wildcardWatchKey]; exists {
+			fmt.Printf("Found %d wildcard watchers for %s\n", len(chans), wildcardWatchKey)
+			for _, ch := range chans {
+				// Non-blocking send
+				select {
+				case ch <- event:
+					fmt.Printf("Event sent successfully to wildcard watcher for %s\n", wildcardWatchKey)
+				default:
+					fmt.Printf("Channel full, skipping event for wildcard watcher %s\n", wildcardWatchKey)
+				}
+			}
+		} else {
+			fmt.Printf("No wildcard watchers found for %s\n", wildcardWatchKey)
 		}
 	}
 }

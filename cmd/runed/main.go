@@ -77,6 +77,10 @@ func loadConfig() {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "text")
 	v.SetDefault("auth.api_keys", "")
+	
+	// Docker related defaults
+	v.SetDefault("docker.fallback_api_version", "1.43")
+	v.SetDefault("docker.negotiation_timeout_seconds", 3)
 
 	// 2. Try to load config file if specified or look in standard locations
 	configFileSpecified := *configFile != ""
@@ -107,6 +111,32 @@ func loadConfig() {
 	v.SetEnvPrefix("RUNE")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	
+	// Explicitly bind key environment variables
+	// This is the Kubernetes approach - explicitly declare the env vars we care about
+	envVarMappings := map[string]string{
+		// Server config
+		"RUNE_SERVER_GRPC_ADDRESS": "server.grpc_address",
+		"RUNE_SERVER_HTTP_ADDRESS": "server.http_address",
+		"RUNE_DATA_DIR":            "data_dir",
+		
+		// Docker config - explicitly support the earlier direct env var
+		"RUNE_DOCKER_API_VERSION":              "docker.api_version",
+		"RUNE_DOCKER_FALLBACK_API_VERSION":     "docker.fallback_api_version",
+		"RUNE_DOCKER_NEGOTIATION_TIMEOUT":      "docker.negotiation_timeout_seconds",
+		
+		// Log config
+		"RUNE_LOG_LEVEL":       "log.level",
+		"RUNE_LOG_FORMAT":      "log.format",
+		
+		// Auth config
+		"RUNE_AUTH_API_KEYS":   "auth.api_keys",
+	}
+
+	// Explicitly bind environment variables to configuration keys
+	for env, configKey := range envVarMappings {
+		_ = v.BindEnv(configKey, env)
+	}
 
 	// 4. Track which parameters were explicitly set via command-line flags
 	// These will override everything else

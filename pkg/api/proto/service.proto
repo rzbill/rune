@@ -3,6 +3,7 @@ syntax = "proto3";
 package rune.api;
 
 import "pkg/api/proto/common.proto";
+import "pkg/api/proto/instance.proto";
 
 option go_package = "github.com/rzbill/rune/pkg/api/generated";
 
@@ -199,6 +200,60 @@ message ScaleServiceRequest {
   
   // Number of instances to scale to
   int32 scale = 3;
+
+  // Scaling mode (immediate or gradual)
+  ScalingMode mode = 4;
+
+  // Step size for gradual scaling (only used when mode is SCALING_MODE_GRADUAL)
+  int32 step_size = 5;
+
+  // Interval between scaling steps in seconds (only used when mode is SCALING_MODE_GRADUAL)
+  int32 interval_seconds = 6;
+}
+
+// WatchScalingRequest requests to watch the scaling progress of a service.
+message WatchScalingRequest {
+  // Name of the service to watch
+  string service_name = 1;
+  
+  // Namespace of the service (optional, default: "default")
+  string namespace = 2;
+  
+  // Target scale to watch for (optional, if not specified, just watch current scaling operation)
+  int32 target_scale = 3;
+}
+
+// ScalingStatusResponse returns the current scaling status.
+message ScalingStatusResponse {
+  // The current scale
+  int32 current_scale = 1;
+  
+  // The target scale
+  int32 target_scale = 2;
+  
+  // The number of running instances
+  int32 running_instances = 3;
+  
+  // The number of pending instances
+  int32 pending_instances = 4;
+  
+  // Whether the scaling operation is complete
+  bool complete = 5;
+  
+  // Status message
+  Status status = 6;
+}
+
+// ScalingMode defines how the scaling operation should be performed.
+enum ScalingMode {
+  // Scaling mode not specified (defaults to SCALING_MODE_IMMEDIATE)
+  SCALING_MODE_UNSPECIFIED = 0;
+
+  // Scale to the target immediately
+  SCALING_MODE_IMMEDIATE = 1;
+
+  // Scale gradually using the specified step size and interval
+  SCALING_MODE_GRADUAL = 2;
 }
 
 // ServiceService manages services within the platform.
@@ -223,4 +278,10 @@ service ServiceService {
   
   // ScaleService changes the scale of a service.
   rpc ScaleService(ScaleServiceRequest) returns (ServiceResponse);
+  
+  // WatchScaling watches the scaling progress of a service.
+  rpc WatchScaling(WatchScalingRequest) returns (stream ScalingStatusResponse);
+  
+  // ListInstances lists instances for a service.
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
 } 

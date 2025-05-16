@@ -35,8 +35,9 @@ func setupTestOrchestrator(t *testing.T) (context.Context, *store.TestStore, *ru
 
 	instanceController := controllers.NewInstanceController(testStore, testRunnerMgr, testLogger)
 	healthController := controllers.NewHealthController(testLogger, testStore, testRunnerMgr)
+	scalingController := controllers.NewScalingController(testStore, testLogger)
 
-	orchestrator := NewOrchestrator(testStore, instanceController, healthController, testRunnerMgr, testLogger)
+	orchestrator := NewOrchestrator(testStore, instanceController, healthController, scalingController, testRunnerMgr, testLogger)
 	return ctx, testStore, testRunner, orchestrator
 }
 

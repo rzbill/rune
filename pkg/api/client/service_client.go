@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -275,6 +276,19 @@ func (s *ServiceClient) ScaleService(namespace, name string, scale int) error {
 	}
 
 	// Send the request to the API server
+	_, err := s.ScaleServiceWithRequest(req)
+	return err
+}
+
+// ScaleServiceWithRequest changes the scale of a service with the full request object.
+func (s *ServiceClient) ScaleServiceWithRequest(req *generated.ScaleServiceRequest) (*generated.ServiceResponse, error) {
+	s.logger.Debug("Scaling service with options",
+		log.Str("name", req.Name),
+		log.Str("namespace", req.Namespace),
+		log.Int("scale", int(req.Scale)),
+	)
+
+	// Send the request to the API server
 	ctx, cancel := s.client.Context()
 	defer cancel()
 
@@ -282,20 +296,20 @@ func (s *ServiceClient) ScaleService(namespace, name string, scale int) error {
 	if err != nil {
 		statusErr, ok := status.FromError(err)
 		if ok && statusErr.Code() == codes.NotFound {
-			return fmt.Errorf("service not found: %s/%s", namespace, name)
+			return nil, fmt.Errorf("service not found: %s/%s", req.Namespace, req.Name)
 		}
-		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", name))
-		return convertGRPCError("scale service", err)
+		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", req.Name))
+		return nil, convertGRPCError("scale service", err)
 	}
 
 	// Check if the API returned an error status
 	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
 		err := fmt.Errorf("API error: %s", resp.Status.Message)
-		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", name))
-		return err
+		s.logger.Error("Failed to scale service", log.Err(err), log.Str("name", req.Name))
+		return nil, err
 	}
 
-	return nil
+	return resp, nil
 }
 
 // Helper functions for converting between types.Service and generated.Service
@@ -729,4 +743,103 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 	}()
 
 	return eventCh, nil
+}
+
+// ListInstances lists instances for a service.
+func (s *ServiceClient) ListInstances(req *generated.ListInstancesRequest) (*generated.ListInstancesResponse, error) {
+	s.logger.Debug("Listing instances",
+		log.Str("service", req.ServiceName),
+		log.Str("namespace", req.Namespace))
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.ListInstances(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to list instances", log.Err(err))
+		return nil, convertGRPCError("list instances", err)
+	}
+
+	return resp, nil
+}
+
+// WatchScaling observes the scaling progress of a service and returns a channel of status updates.
+// The caller should close the cancel function when done watching to prevent resource leaks.
+func (s *ServiceClient) WatchScaling(namespace, name string, targetScale int) (<-chan *generated.ScalingStatusResponse, context.CancelFunc, error) {
+	s.logger.Debug("Watching scaling for service",
+		log.Str("name", name),
+		log.Str("namespace", namespace),
+		log.Int("targetScale", targetScale))
+
+	// Create a request for the API server
+	req := &generated.WatchScalingRequest{
+		ServiceName: name,
+		Namespace:   namespace,
+		TargetScale: int32(targetScale),
+	}
+
+	// Create a context with cancel
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create a channel to send events to the caller
+	eventCh := make(chan *generated.ScalingStatusResponse, 10)
+
+	// Call the API in a separate goroutine
+	go func() {
+		defer close(eventCh)
+
+		stream, err := s.svc.WatchScaling(ctx, req)
+		if err != nil {
+			statusErr, ok := status.FromError(err)
+			errMsg := err.Error()
+			if ok {
+				errMsg = statusErr.Message()
+			}
+			s.logger.Error("Failed to watch scaling", log.Err(err), log.Str("name", name))
+			// Send an error status
+			eventCh <- &generated.ScalingStatusResponse{
+				Status: &generated.Status{
+					Code:    int32(codes.Internal),
+					Message: fmt.Sprintf("Failed to watch scaling: %s", errMsg),
+				},
+			}
+			return
+		}
+
+		// Continuously receive messages until the context is canceled or the stream ends
+		for {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				// Stream ended normally
+				return
+			}
+			if err != nil {
+				// Check if context was canceled
+				if ctx.Err() != nil {
+					return
+				}
+				s.logger.Error("Error receiving scaling status", log.Err(err), log.Str("name", name))
+				// Send error to channel
+				eventCh <- &generated.ScalingStatusResponse{
+					Status: &generated.Status{
+						Code:    int32(codes.Internal),
+						Message: fmt.Sprintf("Stream error: %s", err.Error()),
+					},
+				}
+				return
+			}
+
+			// Send the event to the caller
+			select {
+			case eventCh <- resp:
+				// Sent successfully
+			case <-ctx.Done():
+				// Context was canceled, exit the goroutine
+				return
+			}
+		}
+	}()
+
+	return eventCh, cancel, nil
 }
