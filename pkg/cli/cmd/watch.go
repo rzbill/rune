@@ -525,7 +525,7 @@ type ServiceWatcherAdapter struct {
 
 // Watch implements the ResourceToWatch interface
 func (a ServiceWatcherAdapter) Watch(ctx context.Context, namespace, labelSelector, fieldSelector string) (<-chan WatchEvent, error) {
-	svcCh, err := a.WatchServices(namespace, labelSelector, fieldSelector)
+	svcCh, cancelWatch, err := a.WatchServices(namespace, labelSelector, fieldSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -534,22 +534,32 @@ func (a ServiceWatcherAdapter) Watch(ctx context.Context, namespace, labelSelect
 	eventCh := make(chan WatchEvent)
 	go func() {
 		defer close(eventCh)
+		defer cancelWatch() // Ensure we clean up the watch when done
 
-		for event := range svcCh {
-			if event.Error != nil {
-				eventCh <- WatchEvent{
-					Error: event.Error,
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-svcCh:
+				if !ok {
+					return
 				}
-				continue
-			}
 
-			// Convert service to ServiceResource
-			svcResource := ServiceResource{event.Service}
+				if event.Error != nil {
+					eventCh <- WatchEvent{
+						Error: event.Error,
+					}
+					continue
+				}
 
-			eventCh <- WatchEvent{
-				Resource:  svcResource,
-				EventType: event.EventType,
-				Error:     nil,
+				// Convert service to ServiceResource
+				svcResource := ServiceResource{event.Service}
+
+				eventCh <- WatchEvent{
+					Resource:  svcResource,
+					EventType: event.EventType,
+					Error:     nil,
+				}
 			}
 		}
 	}()

@@ -37,7 +37,8 @@ func setupTestOrchestrator(t *testing.T) (context.Context, *store.TestStore, *ru
 	healthController := controllers.NewHealthController(testLogger, testStore, testRunnerMgr)
 	scalingController := controllers.NewScalingController(testStore, testLogger)
 
-	orchestrator := NewOrchestrator(testStore, instanceController, healthController, scalingController, testRunnerMgr, testLogger)
+	orchestrator, err := NewOrchestrator(testStore, instanceController, healthController, scalingController, testRunnerMgr, testLogger)
+	require.NoError(t, err, "Failed to create orchestrator")
 	return ctx, testStore, testRunner, orchestrator
 }
 
@@ -56,6 +57,9 @@ func TestServiceCreation(t *testing.T) {
 		Args:          []string{"arg1", "arg2"},
 		RestartPolicy: types.RestartPolicyAlways,
 		Scale:         2, // Want 2 instances
+		Metadata: &types.ServiceMetadata{
+			Generation: 1,
+		},
 	}
 
 	err := testStore.Create(ctx, "services", "default", service.Name, service)
@@ -113,6 +117,9 @@ func createTestServiceWithInstances(ctx context.Context, t *testing.T, testStore
 			"ENV_VAR2": "value2",
 		},
 		Scale: count,
+		Metadata: &types.ServiceMetadata{
+			Generation: 1,
+		},
 	}
 
 	err := testStore.CreateService(ctx, service)
@@ -208,6 +215,9 @@ func TestExecInInstance(t *testing.T) {
 		Name:      "exec-test-service",
 		Namespace: "default",
 		Runtime:   "container",
+		Metadata: &types.ServiceMetadata{
+			Generation: 1,
+		},
 	}
 	err := testStore.Create(ctx, types.ResourceTypeService, "default", service.Name, service)
 	require.NoError(t, err, "Failed to create test service")

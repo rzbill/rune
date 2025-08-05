@@ -27,17 +27,25 @@ const (
 type ServiceService struct {
 	generated.UnimplementedServiceServiceServer
 
-	store      store.Store
-	logger     log.Logger
-	scalingOps *ScalingOps
+	store        store.Store
+	orchestrator OrchestratorInterface
+	logger       log.Logger
+	scalingOps   *ScalingOps
+}
+
+// OrchestratorInterface defines the operations needed from the orchestrator
+type OrchestratorInterface interface {
+	DeleteService(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error)
+	GetDeletionStatus(ctx context.Context, deletionID string) (*types.DeletionOperation, error)
 }
 
 // NewServiceService creates a new ServiceService with the given store and logger.
-func NewServiceService(store store.Store, logger log.Logger) *ServiceService {
+func NewServiceService(store store.Store, orchestrator OrchestratorInterface, logger log.Logger) *ServiceService {
 	return &ServiceService{
-		store:      store,
-		logger:     logger.WithComponent("service-service"),
-		scalingOps: NewScalingOps(store, logger),
+		store:        store,
+		orchestrator: orchestrator,
+		logger:       logger,
+		scalingOps:   NewScalingOps(store, logger),
 	}
 }
 
@@ -419,31 +427,248 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 		namespace = DefaultNamespace
 	}
 
-	// Check if the service exists
-	var existingService types.Service
-	err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &existingService)
-	if err != nil {
-		if IsNotFound(err) {
-			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
+	// Check if the service exists (unless ignore_not_found is set)
+	if !req.IgnoreNotFound {
+		var existingService types.Service
+		err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &existingService)
+		if err != nil {
+			if IsNotFound(err) {
+				return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
+			}
+			s.logger.Error("Failed to get service", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to get service: %v", err)
 		}
-		s.logger.Error("Failed to get service", log.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to get service: %v", err)
 	}
 
-	// TODO: Check if service has instances and force parameter is provided
+	// Create deletion request
+	deletionRequest := &types.DeletionRequest{
+		Name:           req.Name,
+		Namespace:      namespace,
+		Force:          req.Force,
+		TimeoutSeconds: req.TimeoutSeconds,
+		Detach:         req.Detach,
+		DryRun:         req.DryRun,
+		GracePeriod:    req.GracePeriod,
+		Now:            req.Now,
+		IgnoreNotFound: req.IgnoreNotFound,
+		Finalizers:     req.Finalizers,
+	}
 
-	// Delete the service
-	if err := s.store.Delete(ctx, types.ResourceTypeService, namespace, req.Name); err != nil {
-		s.logger.Error("Failed to delete service", log.Err(err))
+	// Use the deletion controller to handle the deletion
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.Internal, "deletion controller not available")
+	}
+
+	deletionResponse, err := s.orchestrator.DeleteService(ctx, deletionRequest)
+	if err != nil {
+		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", req.Name))
 		return nil, status.Errorf(codes.Internal, "failed to delete service: %v", err)
 	}
 
-	return &generated.DeleteServiceResponse{
+	// Convert the deletion response to the gRPC response
+	response := &generated.DeleteServiceResponse{
+		DeletionId: deletionResponse.DeletionID,
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
-			Message: "Service deleted successfully",
+			Message: deletionResponse.Status,
 		},
+		Warnings:   deletionResponse.Warnings,
+		Errors:     deletionResponse.Errors,
+		Finalizers: convertFinalizersToProto(deletionResponse.Finalizers),
+	}
+
+	return response, nil
+}
+
+// convertFinalizersToProto converts domain finalizers to protobuf finalizers
+func convertFinalizersToProto(finalizers []types.Finalizer) []*generated.Finalizer {
+	result := make([]*generated.Finalizer, len(finalizers))
+	for i, finalizer := range finalizers {
+		protoFinalizer := &generated.Finalizer{
+			Id:        finalizer.ID,
+			Type:      string(finalizer.Type),
+			Status:    string(finalizer.Status),
+			Error:     finalizer.Error,
+			CreatedAt: finalizer.CreatedAt.Unix(),
+			UpdatedAt: finalizer.UpdatedAt.Unix(),
+		}
+
+		// Set completion time if not nil
+		if finalizer.CompletedAt != nil {
+			protoFinalizer.CompletedAt = finalizer.CompletedAt.Unix()
+		}
+
+		// Convert dependencies
+		protoDependencies := make([]*generated.FinalizerDependency, 0, len(finalizer.Dependencies))
+		for _, dependency := range finalizer.Dependencies {
+			protoDependencies = append(protoDependencies, &generated.FinalizerDependency{
+				DependsOn: string(dependency.DependsOn),
+				Required:  dependency.Required,
+			})
+		}
+		protoFinalizer.Dependencies = protoDependencies
+
+		result[i] = protoFinalizer
+	}
+	return result
+}
+
+// GetDeletionStatus gets the status of a deletion operation.
+func (s *ServiceService) GetDeletionStatus(ctx context.Context, req *generated.GetDeletionStatusRequest) (*generated.GetDeletionStatusResponse, error) {
+	s.logger.Debug("GetDeletionStatus called", log.Str("deletion_id", req.DeletionId))
+
+	if req.DeletionId == "" {
+		return nil, status.Error(codes.InvalidArgument, "deletion_id is required")
+	}
+
+	if s.orchestrator == nil {
+		return nil, status.Error(codes.Internal, "orchestrator not available")
+	}
+
+	// Get deletion operation from orchestrator
+	operation, err := s.orchestrator.GetDeletionStatus(ctx, req.DeletionId)
+	if err != nil {
+		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", req.DeletionId))
+		return nil, status.Errorf(codes.Internal, "failed to get deletion status: %v", err)
+	}
+
+	if operation == nil {
+		return nil, status.Errorf(codes.NotFound, "deletion operation not found: %s", req.DeletionId)
+	}
+
+	// Convert to protobuf message
+	protoOperation, err := s.deletionOperationToProto(operation)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to convert deletion operation: %v", err)
+	}
+
+	return &generated.GetDeletionStatusResponse{
+		Operation: protoOperation,
 	}, nil
+}
+
+// ListDeletionOperations lists deletion operations with optional filtering.
+func (s *ServiceService) ListDeletionOperations(ctx context.Context, req *generated.ListDeletionOperationsRequest) (*generated.ListDeletionOperationsResponse, error) {
+	s.logger.Debug("ListDeletionOperations called",
+		log.Str("namespace", req.Namespace),
+		log.Str("status", req.Status))
+
+	// Query deletion operations directly from the store
+	var deletionOps []types.DeletionOperation
+
+	// Determine which namespace to query
+	listNamespace := req.Namespace
+	if req.Namespace == "" || req.Namespace == "*" {
+		// List from all namespaces - use empty string for store
+		listNamespace = ""
+	}
+
+	err := s.store.List(ctx, types.ResourceTypeDeletionOperation, listNamespace, &deletionOps)
+	if err != nil {
+		s.logger.Error("Failed to list deletion operations from store", log.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to list deletion operations: %v", err)
+	}
+
+	// Filter by namespace and status
+	var filteredOps []*types.DeletionOperation
+	for _, op := range deletionOps {
+		// Apply namespace filter if we listed from all namespaces
+		if req.Namespace != "" && req.Namespace != "*" && op.Namespace != req.Namespace {
+			continue
+		}
+
+		// Apply status filter if specified
+		if req.Status != "" && string(op.Status) != req.Status {
+			continue
+		}
+
+		// Make a copy to avoid issues with slice iteration
+		opCopy := op
+		filteredOps = append(filteredOps, &opCopy)
+	}
+
+	// Convert to protobuf operations
+	protoOperations := make([]*generated.DeletionOperation, 0, len(filteredOps))
+	for _, op := range filteredOps {
+		protoOp, err := s.deletionOperationToProto(op)
+		if err != nil {
+			s.logger.Error("Failed to convert deletion operation to proto", log.Err(err))
+			continue // Skip this operation but continue with others
+		}
+		protoOperations = append(protoOperations, protoOp)
+	}
+
+	s.logger.Debug("Listed deletion operations",
+		log.Int("total", len(deletionOps)),
+		log.Int("filtered", len(filteredOps)),
+		log.Int("returned", len(protoOperations)))
+
+	return &generated.ListDeletionOperationsResponse{
+		Operations: protoOperations,
+	}, nil
+}
+
+// deletionOperationToProto converts a domain model deletion operation to a protobuf message.
+func (s *ServiceService) deletionOperationToProto(operation *types.DeletionOperation) (*generated.DeletionOperation, error) {
+	if operation == nil {
+		return nil, fmt.Errorf("operation is nil")
+	}
+
+	protoOperation := &generated.DeletionOperation{
+		Id:                operation.ID,
+		Namespace:         operation.Namespace,
+		ServiceName:       operation.ServiceName,
+		TotalInstances:    int32(operation.TotalInstances),
+		DeletedInstances:  int32(operation.DeletedInstances),
+		FailedInstances:   int32(operation.FailedInstances),
+		StartTime:         operation.StartTime.Unix(),
+		Status:            string(operation.Status),
+		FailureReason:     operation.FailureReason,
+		PendingOperations: operation.PendingOperations,
+	}
+
+	// Set end time if not nil
+	if operation.EndTime != nil {
+		protoOperation.EndTime = operation.EndTime.Unix()
+	}
+
+	// Set estimated completion time if not nil
+	if operation.EstimatedCompletion != nil {
+		protoOperation.EstimatedCompletion = operation.EstimatedCompletion.Unix()
+	}
+
+	// Convert finalizers
+	protoFinalizers := make([]*generated.Finalizer, 0, len(operation.Finalizers))
+	for _, finalizer := range operation.Finalizers {
+		protoFinalizer := &generated.Finalizer{
+			Id:        finalizer.ID,
+			Type:      string(finalizer.Type),
+			Status:    string(finalizer.Status),
+			Error:     finalizer.Error,
+			CreatedAt: finalizer.CreatedAt.Unix(),
+			UpdatedAt: finalizer.UpdatedAt.Unix(),
+		}
+
+		// Set completion time if not nil
+		if finalizer.CompletedAt != nil {
+			protoFinalizer.CompletedAt = finalizer.CompletedAt.Unix()
+		}
+
+		// Convert dependencies
+		protoDependencies := make([]*generated.FinalizerDependency, 0, len(finalizer.Dependencies))
+		for _, dependency := range finalizer.Dependencies {
+			protoDependencies = append(protoDependencies, &generated.FinalizerDependency{
+				DependsOn: string(dependency.DependsOn),
+				Required:  dependency.Required,
+			})
+		}
+		protoFinalizer.Dependencies = protoDependencies
+
+		protoFinalizers = append(protoFinalizers, protoFinalizer)
+	}
+	protoOperation.Finalizers = protoFinalizers
+
+	return protoOperation, nil
 }
 
 // ScaleService changes the scale of a service.
@@ -479,7 +704,14 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 
 	// Check if we're already at the target scale
 	if currentScale == targetScale {
+		// Convert service to proto and return it
+		protoService, err := s.serviceModelToProto(&service)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
+		}
+
 		return &generated.ServiceResponse{
+			Service: protoService,
 			Status: &generated.Status{
 				Code:    int32(codes.OK),
 				Message: fmt.Sprintf("Service already at scale %d", targetScale),
@@ -512,7 +744,21 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 		return nil, status.Errorf(codes.Internal, "failed to initiate scaling: %v", err)
 	}
 
+	// Update the service scale in the store
+	service.Scale = targetScale
+	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
+		s.logger.Error("Failed to update service scale", log.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to update service scale: %v", err)
+	}
+
+	// Convert updated service to proto and return it
+	protoService, err := s.serviceModelToProto(&service)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
+	}
+
 	return &generated.ServiceResponse{
+		Service: protoService,
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
 			Message: fmt.Sprintf("Service scaling to %d instances initiated", req.Scale),

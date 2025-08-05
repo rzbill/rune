@@ -23,6 +23,9 @@ const (
 
 	// ResourceTypeScalingOperation is the resource type for scaling operations.
 	ResourceTypeScalingOperation ResourceType = "scaling_operation"
+
+	// ResourceTypeDeletionOperation is the resource type for deletion operations.
+	ResourceTypeDeletionOperation ResourceType = "deletion_operation"
 )
 
 // RunnerType is the type of runner for an instance.

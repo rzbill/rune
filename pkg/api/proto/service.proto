@@ -180,14 +180,115 @@ message DeleteServiceRequest {
   // Namespace of the service (optional, default: "default")
   string namespace = 2;
   
-  // Force deletion even if instances are running
+  // Force deletion without confirmation
   bool force = 3;
+  
+  // Timeout for graceful shutdown in seconds
+  int32 timeout_seconds = 4;
+  
+  // Detach and return immediately
+  bool detach = 5;
+  
+  // Dry run mode - show what would be deleted without actually deleting
+  bool dry_run = 6;
+  
+  // Grace period for graceful shutdown in seconds
+  int32 grace_period = 7;
+  
+  // Immediate deletion without graceful shutdown
+  bool now = 8;
+  
+  // Don't error if service doesn't exist
+  bool ignore_not_found = 9;
+  
+  // Optional finalizers to run
+  repeated string finalizers = 10;
 }
 
 // DeleteServiceResponse returns the result of a service deletion.
 message DeleteServiceResponse {
-  // Status message
-  Status status = 1;
+  // ID of the deletion operation
+  string deletion_id = 1;
+  
+  // Status of the deletion
+  Status status = 2;
+  
+  // Warning messages
+  repeated string warnings = 3;
+  
+  // Error messages
+  repeated string errors = 4;
+  
+  // Cleanup operations that will be performed
+  repeated string cleanup_operations = 5;
+  
+  // Whether cleanup was partial
+  bool partial_cleanup = 6;
+  
+  // Finalizers that will be executed
+  repeated Finalizer finalizers = 7;
+}
+
+// GetDeletionStatusRequest represents a request to get deletion status
+message GetDeletionStatusRequest {
+  string deletion_id = 1;
+}
+
+// GetDeletionStatusResponse represents the response from getting deletion status
+message GetDeletionStatusResponse {
+  DeletionOperation operation = 1;
+}
+
+// ListDeletionOperationsRequest represents a request to list deletion operations
+message ListDeletionOperationsRequest {
+  string namespace = 1;
+  string status = 2;
+}
+
+// ListDeletionOperationsResponse represents the response from listing deletion operations
+message ListDeletionOperationsResponse {
+  repeated DeletionOperation operations = 1;
+}
+
+
+
+// DeletionOperation represents a deletion operation for a service
+message DeletionOperation {
+  string id = 1;
+  string namespace = 2;
+  string service_name = 3;
+  int32 total_instances = 4;
+  int32 deleted_instances = 5;
+  int32 failed_instances = 6;
+  int64 start_time = 7;
+  int64 end_time = 8;
+  string status = 9;
+  string phase = 10;
+  string failure_reason = 11;
+  repeated string pending_operations = 12;
+  int64 estimated_completion = 13;
+  repeated Finalizer finalizers = 14;
+  repeated string finalizer_order = 15;
+  string finalizer_status = 16;
+}
+
+// Finalizer represents a cleanup operation that must complete before deletion
+message Finalizer {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+  string status = 4;
+  string error = 5;
+  repeated FinalizerDependency dependencies = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+  int64 completed_at = 9;
+}
+
+// FinalizerDependency represents a dependency between finalizers
+message FinalizerDependency {
+  string depends_on = 1;
+  bool required = 2;
 }
 
 // ScaleServiceRequest requests a change in service scale.
@@ -276,6 +377,12 @@ service ServiceService {
   // DeleteService removes a service.
   rpc DeleteService(DeleteServiceRequest) returns (DeleteServiceResponse);
   
+  // GetDeletionStatus gets the status of a deletion operation
+  rpc GetDeletionStatus(GetDeletionStatusRequest) returns (GetDeletionStatusResponse);
+
+  // ListDeletionOperations lists all deletion operations
+  rpc ListDeletionOperations(ListDeletionOperationsRequest) returns (ListDeletionOperationsResponse);
+
   // ScaleService changes the scale of a service.
   rpc ScaleService(ScaleServiceRequest) returns (ServiceResponse);
   

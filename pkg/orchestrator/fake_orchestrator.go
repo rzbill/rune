@@ -33,6 +33,8 @@ type FakeOrchestrator struct {
 	RestartInstanceCalls   []OrchestratorRestartInstanceCall
 	StopServiceCalls       []StopServiceCall
 	StopInstanceCalls      []OrchestratorStopInstanceCall
+	DeleteServiceCalls     []DeleteServiceCall
+	GetDeletionStatusCalls []GetDeletionStatusCall
 
 	// Custom behavior options
 	StartFunc             func(ctx context.Context) error
@@ -47,6 +49,8 @@ type FakeOrchestrator struct {
 	RestartInstanceFunc   func(ctx context.Context, namespace, serviceName, instanceID string) error
 	StopServiceFunc       func(ctx context.Context, namespace, serviceName string) error
 	StopInstanceFunc      func(ctx context.Context, namespace, serviceName, instanceID string) error
+	DeleteServiceFunc     func(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error)
+	GetDeletionStatusFunc func(ctx context.Context, deletionID string) (*types.DeletionOperation, error)
 
 	// Default error responses
 	StartError             error
@@ -61,6 +65,8 @@ type FakeOrchestrator struct {
 	RestartInstanceError   error
 	StopServiceError       error
 	StopInstanceError      error
+	DeleteServiceError     error
+	GetDeletionStatusError error
 
 	// Mock responses
 	LogsOutput   []byte
@@ -128,6 +134,14 @@ type OrchestratorStopInstanceCall struct {
 	Namespace   string
 	ServiceName string
 	InstanceID  string
+}
+
+type DeleteServiceCall struct {
+	Request *types.DeletionRequest
+}
+
+type GetDeletionStatusCall struct {
+	DeletionID string
 }
 
 // NewFakeOrchestrator creates a new fake orchestrator for testing
@@ -517,8 +531,117 @@ func (o *FakeOrchestrator) ListServiceInstances(namespace, serviceName string) [
 	return result
 }
 
-// DeleteService removes a service from the fake storage
-func (o *FakeOrchestrator) DeleteService(namespace, name string) {
+// DeleteService implementation for testing
+func (o *FakeOrchestrator) DeleteService(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.DeleteServiceCalls = append(o.DeleteServiceCalls, DeleteServiceCall{
+		Request: request,
+	})
+
+	if o.DeleteServiceFunc != nil {
+		return o.DeleteServiceFunc(ctx, request)
+	}
+
+	if o.DeleteServiceError != nil {
+		return nil, o.DeleteServiceError
+	}
+
+	// Default behavior - verify service exists first
+	nsServices, ok := o.services[request.Namespace]
+	if !ok {
+		if request.IgnoreNotFound {
+			return &types.DeletionResponse{
+				Status:   "not_found",
+				Warnings: []string{fmt.Sprintf("Service %s/%s not found", request.Namespace, request.Name)},
+			}, nil
+		}
+		return nil, fmt.Errorf("namespace %s not found", request.Namespace)
+	}
+
+	_, ok = nsServices[request.Name]
+	if !ok {
+		if request.IgnoreNotFound {
+			return &types.DeletionResponse{
+				Status:   "not_found",
+				Warnings: []string{fmt.Sprintf("Service %s/%s not found", request.Namespace, request.Name)},
+			}, nil
+		}
+		return nil, fmt.Errorf("service %s not found in namespace %s", request.Name, request.Namespace)
+	}
+
+	// Handle dry run
+	if request.DryRun {
+		// Create finalizers for dry run - these show what operations would be performed
+		// They are not actually pending execution, but represent the cleanup plan
+		finalizers := []types.Finalizer{
+			{
+				ID:        "dry-run-finalizer-1",
+				Type:      types.FinalizerTypeInstanceCleanup,
+				Status:    types.FinalizerStatusPending, // Shows this operation would be performed
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			},
+			{
+				ID:        "dry-run-finalizer-2",
+				Type:      types.FinalizerTypeServiceDeregister,
+				Status:    types.FinalizerStatusPending, // Shows this operation would be performed
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			},
+		}
+
+		return &types.DeletionResponse{
+			DeletionID: "dry-run",
+			Status:     "dry_run",
+			Finalizers: finalizers,
+		}, nil
+	}
+
+	// Remove the service from fake storage
+	delete(nsServices, request.Name)
+
+	// Remove all instances for this service
+	for _, nsInstances := range o.instances {
+		for id, instance := range nsInstances {
+			if instance.Namespace == request.Namespace && instance.ServiceName == request.Name {
+				delete(nsInstances, id)
+			}
+		}
+	}
+
+	return &types.DeletionResponse{
+		Status: "completed",
+	}, nil
+}
+
+// GetDeletionStatus implementation for testing
+func (o *FakeOrchestrator) GetDeletionStatus(ctx context.Context, deletionID string) (*types.DeletionOperation, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.GetDeletionStatusCalls = append(o.GetDeletionStatusCalls, GetDeletionStatusCall{
+		DeletionID: deletionID,
+	})
+
+	if o.GetDeletionStatusFunc != nil {
+		return o.GetDeletionStatusFunc(ctx, deletionID)
+	}
+
+	if o.GetDeletionStatusError != nil {
+		return nil, o.GetDeletionStatusError
+	}
+
+	// Default behavior - return a completed operation
+	return &types.DeletionOperation{
+		ID:     deletionID,
+		Status: types.DeletionOperationStatusCompleted,
+	}, nil
+}
+
+// RemoveService removes a service from the fake storage (legacy method for backward compatibility)
+func (o *FakeOrchestrator) RemoveService(namespace, name string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -659,6 +782,8 @@ func (o *FakeOrchestrator) Reset() {
 	o.RestartInstanceCalls = nil
 	o.StopServiceCalls = nil
 	o.StopInstanceCalls = nil
+	o.DeleteServiceCalls = nil
+	o.GetDeletionStatusCalls = nil
 }
 
 // RestartService implementation for testing

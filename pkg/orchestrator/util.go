@@ -39,3 +39,19 @@ func parseWorkItemKey(key string) (*workItemKey, error) {
 		EventType:    parts[3],
 	}, nil
 }
+
+// determineRequiredFinalizers determines which finalizers are needed for a service
+func determineRequiredFinalizers(service *types.Service) []types.FinalizerType {
+	var finalizers []types.FinalizerType
+
+	// Always cleanup instances first
+	finalizers = append(finalizers, types.FinalizerTypeInstanceCleanup)
+
+	// Then deregister the service
+	finalizers = append(finalizers, types.FinalizerTypeServiceDeregister)
+
+	// Add other finalizers based on service configuration
+	// TODO: Add volume cleanup, network cleanup, etc. when those features are implemented
+
+	return finalizers
+}

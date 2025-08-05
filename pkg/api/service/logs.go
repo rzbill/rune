@@ -70,25 +70,38 @@ func (s *LogService) parseLogLine(line, serviceName, fallbackInstanceName string
 
 // processSingleLine processes a single log line from the reader
 func (s *LogService) readLogsFromReader(ctx context.Context, logReader io.ReadCloser, logCh chan<- *generated.LogResponse, errCh chan<- error, serviceName, instanceName string) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Debug("Recovered from panic in readLogsFromReader", log.Any("recover", r))
+		}
+	}()
+
 	scanner := bufio.NewScanner(logReader)
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Parse the log line and send it to the channel
-		logCh <- s.parseLogLine(line, serviceName, instanceName)
-
-		// Check if context is cancelled
+		// Check if context is cancelled before sending
 		select {
 		case <-ctx.Done():
+			s.logger.Debug("Context cancelled, stopping log reading")
 			return
-		default:
-			// Continue
+		case logCh <- s.parseLogLine(line, serviceName, instanceName):
+			// Successfully sent
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			// Context was cancelled, don't treat as error
+			s.logger.Debug("Scanner error after context cancellation", log.Err(err))
+			return
+		}
 		s.logger.Error("Failed to scan logs", log.Err(err))
-		errCh <- fmt.Errorf("failed to scan logs: %v", err)
+		select {
+		case <-ctx.Done():
+			return
+		case errCh <- fmt.Errorf("failed to scan logs: %v", err):
+		}
 		return
 	}
 
@@ -194,6 +207,12 @@ func (s *LogService) getLogReader(ctx context.Context, req *generated.LogRequest
 
 // handleParameterUpdates listens for parameter updates from the client
 func (s *LogService) handleParameterUpdates(ctx context.Context, stream generated.LogService_StreamLogsServer, errCh chan<- error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Debug("Recovered from panic in handleParameterUpdates", log.Any("recover", r))
+		}
+	}()
+
 	for {
 		newReq, err := stream.Recv()
 		if err == io.EOF {
@@ -201,15 +220,28 @@ func (s *LogService) handleParameterUpdates(ctx context.Context, stream generate
 			return
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				// Context was cancelled, don't treat as error
+				s.logger.Debug("Receive error after context cancellation", log.Err(err))
+				return
+			}
 			s.logger.Error("Failed to receive log request update", log.Err(err))
-			errCh <- fmt.Errorf("failed to receive request update: %v", err)
+			select {
+			case <-ctx.Done():
+				return
+			case errCh <- fmt.Errorf("failed to receive request update: %v", err):
+			}
 			return
 		}
 
 		// Handle parameter update
 		if newReq.ParameterUpdate {
 			// Signal that we need to update parameters
-			errCh <- fmt.Errorf("parameter update requested")
+			select {
+			case <-ctx.Done():
+				return
+			case errCh <- fmt.Errorf("parameter update requested"):
+			}
 			return
 		}
 

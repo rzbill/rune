@@ -122,7 +122,7 @@ func (s *APIServer) Start() error {
 	}
 
 	// Create service implementations
-	s.serviceService = service.NewServiceService(s.store, s.logger)
+	s.serviceService = service.NewServiceService(s.store, s.orchestrator, s.logger)
 	s.instanceService = service.NewInstanceService(s.store, s.runnerManager, s.logger)
 	s.logService = service.NewLogService(s.store, s.logger, s.orchestrator)
 	s.execService = service.NewExecService(s.store, s.logger, s.orchestrator)

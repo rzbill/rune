@@ -5,6 +5,7 @@
 *.so
 *.dylib
 bin/
+rune
 
 # Test binary, built with `go test -c`
 *.test
@@ -23,6 +24,7 @@ vendor/
 *.swp
 *.swo
 .project/
+.cursor/
 
 # OS-specific files
 .DS_Store

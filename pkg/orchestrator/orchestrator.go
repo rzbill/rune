@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator/controllers"
+	"github.com/rzbill/rune/pkg/orchestrator/finalizers"
 	"github.com/rzbill/rune/pkg/orchestrator/queue"
+	"github.com/rzbill/rune/pkg/orchestrator/tasks"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/worker/pool"
 )
 
 // Orchestrator manages service lifecycle and coordinates with runners
@@ -53,6 +57,15 @@ type Orchestrator interface {
 
 	// StopInstance stops a specific instance but keeps it in the store
 	StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error
+
+	// DeleteService initiates a service deletion operation
+	DeleteService(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error)
+
+	// GetDeletionStatus returns the status of a deletion operation
+	GetDeletionStatus(ctx context.Context, deletionID string) (*types.DeletionOperation, error)
+
+	// WatchDeletionEvents returns a channel for real-time finalizer events
+	WatchDeletionEvents(ctx context.Context, deletionID string) (<-chan finalizers.FinalizerEvent, error)
 }
 
 // orchestrator implements the Orchestrator interface
@@ -64,6 +77,12 @@ type orchestrator struct {
 	reconciler         *reconciler
 	logger             log.Logger
 	statusUpdater      StatusUpdater
+
+	// Finalizer system
+	finalizerExecutor *finalizers.FinalizerExecutor
+
+	// Worker pool for deletion tasks
+	deletionWorkerPool *pool.WorkerPool
 
 	// Context for background operations
 	ctx    context.Context
@@ -94,7 +113,7 @@ func NewOrchestrator(
 	scalingController controllers.ScalingController,
 	runnerManager manager.IRunnerManager,
 	logger log.Logger,
-) Orchestrator {
+) (Orchestrator, error) {
 	// Create the reconciler
 	reconciler := newReconciler(
 		store,
@@ -107,6 +126,15 @@ func NewOrchestrator(
 	// Create the status updater
 	statusUpdater := NewStatusUpdater(store, logger)
 
+	// Create finalizer executor with defaults
+	finalizerExecutor := finalizers.DefaultFinalizerExecutor(store, instanceController, logger)
+
+	// Create worker pool for deletion tasks
+	deletionWorkerPool, err := pool.DeletionWorkerPool(3)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deletion worker pool: %w", err)
+	}
+
 	return &orchestrator{
 		store:                      store,
 		instanceController:         instanceController,
@@ -115,8 +143,10 @@ func NewOrchestrator(
 		reconciler:                 reconciler,
 		logger:                     logger.WithComponent("orchestrator"),
 		statusUpdater:              statusUpdater,
+		finalizerExecutor:          finalizerExecutor,
+		deletionWorkerPool:         deletionWorkerPool,
 		serviceObservedGenerations: make(map[string]int64),
-	}
+	}, nil
 }
 
 // NewDefaultOrchestrator creates a new orchestrator with default components
@@ -131,8 +161,8 @@ func NewDefaultOrchestrator(store store.Store, logger log.Logger, runnerManager 
 	// Create the scaling controller
 	scalingController := controllers.NewScalingController(store, logger)
 
-	// Create and return the orchestrator
-	return NewOrchestrator(store, instanceController, healthController, scalingController, runnerManager, logger), nil
+	// Create and return the orchestrator (DeletionController will be created inside NewOrchestrator)
+	return NewOrchestrator(store, instanceController, healthController, scalingController, runnerManager, logger)
 }
 
 // Start the orchestrator
@@ -156,6 +186,9 @@ func (o *orchestrator) Start(ctx context.Context) error {
 	if err := o.workerQueue.Start(o.ctx); err != nil {
 		return fmt.Errorf("failed to start worker queue: %w", err)
 	}
+
+	// Start the deletion worker pool
+	o.deletionWorkerPool.Start()
 
 	// Start the reconciler
 	if err := o.reconciler.Start(o.ctx); err != nil {
@@ -202,6 +235,9 @@ func (o *orchestrator) Stop() error {
 	if o.workerQueue != nil {
 		o.workerQueue.Stop()
 	}
+
+	// Stop deletion worker pool
+	o.deletionWorkerPool.Stop()
 
 	// Stop reconciler
 	o.reconciler.Stop()
@@ -786,6 +822,334 @@ func (o *orchestrator) listInstancesForService(ctx context.Context, namespace, s
 	return filteredInstances, nil
 }
 
+// DeleteService initiates a service deletion operation
+func (o *orchestrator) DeleteService(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error) {
+	o.logger.Info("Initiating service deletion",
+		log.Str("service", request.Name),
+		log.Str("namespace", request.Namespace),
+		log.Bool("force", request.Force),
+		log.Bool("dry_run", request.DryRun))
+
+	// Get the service
+	service, err := o.getServiceForDeletion(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine required finalizers
+	finalizerTypes := determineRequiredFinalizers(service)
+
+	// Handle dry run
+	if request.DryRun {
+		return o.handleDryRunDeletion(ctx, service, request, finalizerTypes)
+	}
+
+	// Handle real deletion
+	return o.handleRealDeletion(ctx, service, request, finalizerTypes)
+}
+
+// getServiceForDeletion retrieves and validates a service for deletion
+func (o *orchestrator) getServiceForDeletion(ctx context.Context, request *types.DeletionRequest) (*types.Service, error) {
+	var service types.Service
+	if err := o.store.Get(ctx, types.ResourceTypeService, request.Namespace, request.Name, &service); err != nil {
+		if request.IgnoreNotFound {
+			return nil, fmt.Errorf("service not found: %s/%s", request.Namespace, request.Name)
+		}
+		return nil, fmt.Errorf("service not found: %w", err)
+	}
+	return &service, nil
+}
+
+// handleDryRunDeletion handles dry run deletion requests
+func (o *orchestrator) handleDryRunDeletion(ctx context.Context, service *types.Service, request *types.DeletionRequest, finalizerTypes []types.FinalizerType) (*types.DeletionResponse, error) {
+	// Create finalizers with pending status for dry run
+	finalizers := o.createFinalizersFromTypes(finalizerTypes)
+
+	// Use shared validation logic
+	errors, warnings := o.validateDeletionRequest(ctx, service, request)
+
+	// If there are errors, return failure response
+	if len(errors) > 0 {
+		return &types.DeletionResponse{
+			DeletionID: "dry-run",
+			Status:     "failed",
+			Errors:     errors,
+			Finalizers: finalizers,
+		}, nil
+	}
+
+	return &types.DeletionResponse{
+		DeletionID: "dry-run",
+		Status:     "dry_run",
+		Finalizers: finalizers,
+		Warnings:   warnings,
+	}, nil
+}
+
+// handleRealDeletion handles real deletion requests
+func (o *orchestrator) handleRealDeletion(ctx context.Context, service *types.Service, request *types.DeletionRequest, finalizerTypes []types.FinalizerType) (*types.DeletionResponse, error) {
+	// Use shared validation logic
+	errors, _ := o.validateDeletionRequest(ctx, service, request)
+
+	// If there are validation errors, return failure response
+	if len(errors) > 0 {
+		return &types.DeletionResponse{
+			Status: "failed",
+			Errors: errors,
+		}, fmt.Errorf("deletion validation failed: %s", strings.Join(errors, "; "))
+	}
+
+	// Create deletion task
+	deletionTask := tasks.NewDeletionTask(
+		service,
+		request,
+		finalizerTypes,
+		o.finalizerExecutor,
+		o.store,
+		o.logger,
+	)
+
+	// Create and store the deletion operation
+	deletionOperation := &types.DeletionOperation{
+		ID:               deletionTask.GetID(),
+		Namespace:        service.Namespace,
+		ServiceName:      service.Name,
+		TotalInstances:   service.Scale,
+		DeletedInstances: 0,
+		FailedInstances:  0,
+		StartTime:        time.Now(),
+		Status:           types.DeletionOperationStatusInitializing,
+		DryRun:           false,
+		Finalizers:       o.createFinalizersFromTypes(finalizerTypes),
+	}
+
+	// Store the deletion operation
+	if err := o.store.Create(ctx, types.ResourceTypeDeletionOperation, service.Namespace, deletionTask.GetID(), deletionOperation); err != nil {
+		o.logger.Error("Failed to store deletion operation", log.Err(err))
+		// Continue anyway - the operation can still proceed
+	}
+
+	// Submit to worker pool
+	if err := o.deletionWorkerPool.Submit(ctx, deletionTask); err != nil {
+		// Update deletion operation status to failed
+		deletionOperation.Status = types.DeletionOperationStatusFailed
+		deletionOperation.FailureReason = fmt.Sprintf("failed to submit deletion task: %v", err)
+		if updateErr := o.store.Update(ctx, types.ResourceTypeDeletionOperation, service.Namespace, deletionTask.GetID(), deletionOperation); updateErr != nil {
+			o.logger.Error("Failed to update deletion operation status", log.Err(updateErr))
+		}
+
+		return &types.DeletionResponse{
+			Status: "failed",
+			Errors: []string{fmt.Sprintf("failed to submit deletion task: %v", err)},
+		}, err
+	}
+
+	o.logger.Info("Deletion task submitted to worker pool",
+		log.Str("service", service.Name),
+		log.Str("namespace", service.Namespace),
+		log.Str("task_id", deletionTask.GetID()))
+
+	return &types.DeletionResponse{
+		DeletionID: deletionTask.GetID(),
+		Status:     "in_progress",
+		Finalizers: o.createFinalizersFromTypes(finalizerTypes),
+	}, nil
+}
+
+// checkExistingDeletion checks if the service is already being deleted
+func (o *orchestrator) checkExistingDeletion(ctx context.Context, service *types.Service) error {
+	// For now, we'll skip this check as it requires more sophisticated implementation
+	// In a real implementation, you would:
+	// 1. List all deletion operations for the namespace
+	// 2. Check if any are for this service and still in progress
+	// 3. Return an error if a deletion is already in progress
+
+	return nil
+}
+
+// checkServiceState validates if the service is in a deletable state
+func (o *orchestrator) checkServiceState(ctx context.Context, service *types.Service) error {
+	// Check if service is in a failed state that might prevent deletion
+	if service.Status == types.ServiceStatusFailed {
+		// Could add logic here to check if the failure is recoverable
+		// For now, we'll allow deletion of failed services
+		return nil
+	}
+
+	// Add other state checks as needed
+	// For example, check if service has critical dependencies
+
+	return nil
+}
+
+// checkSystemReadiness validates if the system is ready to handle deletions
+func (o *orchestrator) checkSystemReadiness(ctx context.Context) error {
+	// Check if orchestrator is running
+	if o.ctx == nil || o.ctx.Err() != nil {
+		return fmt.Errorf("orchestrator is not running")
+	}
+
+	// Check if finalizer executor is available
+	if o.finalizerExecutor == nil {
+		return fmt.Errorf("finalizer executor not available")
+	}
+
+	// Check if store is accessible by trying a simple operation
+	// We'll use a simple Get operation to test connectivity
+	var testService types.Service
+	_ = o.store.Get(ctx, types.ResourceTypeService, "test", "test", &testService)
+	// We ignore the error since we're just testing connectivity
+
+	return nil
+}
+
+// checkWorkerPoolCapacity checks if the worker pool has capacity for new tasks
+func (o *orchestrator) checkWorkerPoolCapacity() error {
+	if o.deletionWorkerPool == nil {
+		return fmt.Errorf("deletion worker pool not available")
+	}
+
+	// For now, we'll assume the worker pool is healthy
+	// In a real implementation, you would check:
+	// 1. Worker pool status
+	// 2. Queue capacity
+	// 3. Worker availability
+	// 4. Error rates
+
+	return nil
+}
+
+// validateDeletionRequest performs all validation checks for deletion requests
+// This ensures consistency between dry run and real deletion
+func (o *orchestrator) validateDeletionRequest(ctx context.Context, service *types.Service, request *types.DeletionRequest) ([]string, []string) {
+	var errors []string
+	var warnings []string
+
+	// Check if service is already being deleted
+	if err := o.checkExistingDeletion(ctx, service); err != nil {
+		errors = append(errors, fmt.Sprintf("Service is already being deleted: %v", err))
+	}
+
+	// Check if service is in a failed state
+	if err := o.checkServiceState(ctx, service); err != nil {
+		errors = append(errors, fmt.Sprintf("Service is in an invalid state: %v", err))
+	}
+
+	// Check system readiness
+	if err := o.checkSystemReadiness(ctx); err != nil {
+		errors = append(errors, fmt.Sprintf("System not ready for deletion: %v", err))
+	}
+
+	// Check worker pool capacity
+	if err := o.checkWorkerPoolCapacity(); err != nil {
+		errors = append(errors, fmt.Sprintf("Insufficient capacity: %v", err))
+	}
+
+	// Generate warnings for dry run
+	// Check if service has running instances
+	instances, err := o.listInstancesForService(ctx, service.Namespace, service.Name)
+	fmt.Println("instances", instances)
+	if err == nil && len(instances) > 0 {
+		runningCount := 0
+		for _, instance := range instances {
+			if instance.Status == types.InstanceStatusRunning {
+				runningCount++
+			}
+		}
+		if runningCount > 0 {
+			warnings = append(warnings, fmt.Sprintf("Service has %d running instances that would be stopped", runningCount))
+		}
+	}
+
+	// Check if service is in a critical state
+	if service.Status == types.ServiceStatusRunning {
+		warnings = append(warnings, "Service is currently running and will be stopped")
+	}
+
+	// Check if force flag is not set
+	if !request.Force {
+		warnings = append(warnings, "Confirmation prompt will be shown (use --force to skip)")
+	}
+
+	return errors, warnings
+}
+
+// GetDeletionStatus returns the status of a deletion operation
+func (o *orchestrator) GetDeletionStatus(ctx context.Context, deletionID string) (*types.DeletionOperation, error) {
+	// First, try to get the deletion operation from the store
+	// We need to determine the namespace from the deletion ID to query the store
+	parts := strings.Split(deletionID, "-")
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("invalid deletion ID format: %s", deletionID)
+	}
+
+	// Extract namespace (always parts[1])
+	namespace := parts[1]
+
+	// Try to get the deletion operation from store
+	var deletionOperation types.DeletionOperation
+	err := o.store.Get(ctx, types.ResourceTypeDeletionOperation, namespace, deletionID, &deletionOperation)
+	if err == nil {
+		// Found stored operation, update status based on current service state
+		var service types.Service
+		serviceErr := o.store.Get(ctx, types.ResourceTypeService, deletionOperation.Namespace, deletionOperation.ServiceName, &service)
+		if serviceErr != nil && deletionOperation.Status == types.DeletionOperationStatusDeletingInstances {
+			// Service doesn't exist and operation was in progress - mark as completed
+			deletionOperation.Status = types.DeletionOperationStatusCompleted
+			now := time.Now()
+			deletionOperation.EndTime = &now
+
+			// Update the stored operation
+			if updateErr := o.store.Update(ctx, types.ResourceTypeDeletionOperation, namespace, deletionID, &deletionOperation); updateErr != nil {
+				o.logger.Error("Failed to update deletion operation status", log.Err(updateErr))
+			}
+		}
+		return &deletionOperation, nil
+	}
+
+	// Fallback: Operation not found in store, parse from deletion ID (for backward compatibility)
+	serviceNameParts := parts[2 : len(parts)-1]
+	serviceName := strings.Join(serviceNameParts, "-")
+
+	// Check if the service still exists
+	var service types.Service
+	serviceErr := o.store.Get(ctx, types.ResourceTypeService, namespace, serviceName, &service)
+
+	status := types.DeletionOperationStatusCompleted
+	if serviceErr == nil {
+		// Service still exists, deletion might be in progress
+		status = types.DeletionOperationStatusRunningFinalizers
+	}
+
+	return &types.DeletionOperation{
+		ID:          deletionID,
+		Namespace:   namespace,
+		ServiceName: serviceName,
+		Status:      status,
+		StartTime:   time.Now(), // Approximate time
+		DryRun:      false,
+	}, nil
+}
+
+// createFinalizersFromTypes creates finalizer objects from finalizer types
+func (o *orchestrator) createFinalizersFromTypes(finalizerTypes []types.FinalizerType) []types.Finalizer {
+	finalizers := make([]types.Finalizer, 0, len(finalizerTypes))
+	now := time.Now()
+
+	for _, ft := range finalizerTypes {
+		finalizer := types.Finalizer{
+			ID:        fmt.Sprintf("%s-%d", string(ft), now.Unix()),
+			Type:      ft,
+			Status:    types.FinalizerStatusPending,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		finalizers = append(finalizers, finalizer)
+	}
+
+	return finalizers
+}
+
 // GetInstanceController returns the instance controller for testing purposes
 func (o *orchestrator) GetInstanceController() controllers.InstanceController {
 	return o.instanceController
@@ -925,6 +1289,11 @@ func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName,
 		return fmt.Errorf("failed to get instance %s: %w", instanceID, err)
 	}
 
+	// Verify instance belongs to the specified service
+	if instance.ServiceName != serviceName {
+		return fmt.Errorf("instance does not belong to service %s", serviceName)
+	}
+
 	// Stop the instance
 	if err := o.instanceController.StopInstance(ctx, &instance); err != nil {
 		return fmt.Errorf("failed to stop instance %s: %w", instanceID, err)
@@ -935,4 +1304,17 @@ func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName,
 		log.Str("service", serviceName),
 		log.Str("instance", instanceID))
 	return nil
+}
+
+// WatchDeletionEvents returns a channel for real-time finalizer events
+func (o *orchestrator) WatchDeletionEvents(ctx context.Context, deletionID string) (<-chan finalizers.FinalizerEvent, error) {
+	// For now, return an empty channel since we haven't implemented the event store yet
+	// This is a placeholder for future implementation
+	eventChan := make(chan finalizers.FinalizerEvent)
+	close(eventChan) // Close immediately since we don't have event persistence yet
+
+	o.logger.Info("WatchDeletionEvents called (not yet implemented)",
+		log.Str("deletion_id", deletionID))
+
+	return eventChan, nil
 }

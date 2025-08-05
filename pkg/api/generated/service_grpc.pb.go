@@ -34,6 +34,10 @@ type ServiceServiceClient interface {
 	UpdateService(ctx context.Context, in *UpdateServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
 	// DeleteService removes a service.
 	DeleteService(ctx context.Context, in *DeleteServiceRequest, opts ...grpc.CallOption) (*DeleteServiceResponse, error)
+	// GetDeletionStatus gets the status of a deletion operation
+	GetDeletionStatus(ctx context.Context, in *GetDeletionStatusRequest, opts ...grpc.CallOption) (*GetDeletionStatusResponse, error)
+	// ListDeletionOperations lists all deletion operations
+	ListDeletionOperations(ctx context.Context, in *ListDeletionOperationsRequest, opts ...grpc.CallOption) (*ListDeletionOperationsResponse, error)
 	// ScaleService changes the scale of a service.
 	ScaleService(ctx context.Context, in *ScaleServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error)
 	// WatchScaling watches the scaling progress of a service.
@@ -127,6 +131,24 @@ func (c *serviceServiceClient) DeleteService(ctx context.Context, in *DeleteServ
 	return out, nil
 }
 
+func (c *serviceServiceClient) GetDeletionStatus(ctx context.Context, in *GetDeletionStatusRequest, opts ...grpc.CallOption) (*GetDeletionStatusResponse, error) {
+	out := new(GetDeletionStatusResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.ServiceService/GetDeletionStatus", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serviceServiceClient) ListDeletionOperations(ctx context.Context, in *ListDeletionOperationsRequest, opts ...grpc.CallOption) (*ListDeletionOperationsResponse, error) {
+	out := new(ListDeletionOperationsResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.ServiceService/ListDeletionOperations", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *serviceServiceClient) ScaleService(ctx context.Context, in *ScaleServiceRequest, opts ...grpc.CallOption) (*ServiceResponse, error) {
 	out := new(ServiceResponse)
 	err := c.cc.Invoke(ctx, "/rune.api.ServiceService/ScaleService", in, out, opts...)
@@ -193,6 +215,10 @@ type ServiceServiceServer interface {
 	UpdateService(context.Context, *UpdateServiceRequest) (*ServiceResponse, error)
 	// DeleteService removes a service.
 	DeleteService(context.Context, *DeleteServiceRequest) (*DeleteServiceResponse, error)
+	// GetDeletionStatus gets the status of a deletion operation
+	GetDeletionStatus(context.Context, *GetDeletionStatusRequest) (*GetDeletionStatusResponse, error)
+	// ListDeletionOperations lists all deletion operations
+	ListDeletionOperations(context.Context, *ListDeletionOperationsRequest) (*ListDeletionOperationsResponse, error)
 	// ScaleService changes the scale of a service.
 	ScaleService(context.Context, *ScaleServiceRequest) (*ServiceResponse, error)
 	// WatchScaling watches the scaling progress of a service.
@@ -223,6 +249,12 @@ func (UnimplementedServiceServiceServer) UpdateService(context.Context, *UpdateS
 }
 func (UnimplementedServiceServiceServer) DeleteService(context.Context, *DeleteServiceRequest) (*DeleteServiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteService not implemented")
+}
+func (UnimplementedServiceServiceServer) GetDeletionStatus(context.Context, *GetDeletionStatusRequest) (*GetDeletionStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeletionStatus not implemented")
+}
+func (UnimplementedServiceServiceServer) ListDeletionOperations(context.Context, *ListDeletionOperationsRequest) (*ListDeletionOperationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeletionOperations not implemented")
 }
 func (UnimplementedServiceServiceServer) ScaleService(context.Context, *ScaleServiceRequest) (*ServiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ScaleService not implemented")
@@ -357,6 +389,42 @@ func _ServiceService_DeleteService_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ServiceService_GetDeletionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeletionStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServiceServer).GetDeletionStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.ServiceService/GetDeletionStatus",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServiceServer).GetDeletionStatus(ctx, req.(*GetDeletionStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServiceService_ListDeletionOperations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDeletionOperationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceServiceServer).ListDeletionOperations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.ServiceService/ListDeletionOperations",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceServiceServer).ListDeletionOperations(ctx, req.(*ListDeletionOperationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ServiceService_ScaleService_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ScaleServiceRequest)
 	if err := dec(in); err != nil {
@@ -440,6 +508,14 @@ var ServiceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteService",
 			Handler:    _ServiceService_DeleteService_Handler,
+		},
+		{
+			MethodName: "GetDeletionStatus",
+			Handler:    _ServiceService_GetDeletionStatus_Handler,
+		},
+		{
+			MethodName: "ListDeletionOperations",
+			Handler:    _ServiceService_ListDeletionOperations_Handler,
 		},
 		{
 			MethodName: "ScaleService",

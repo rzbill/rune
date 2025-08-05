@@ -7,6 +7,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -20,9 +21,10 @@ func TestScaleService(t *testing.T) {
 	store := store.NewMemoryStore()
 	require.NotNil(t, store)
 
-	// Create service service with logger
+	// Create service service with logger and fake orchestrator
 	logger := log.NewTestLogger()
-	svc := NewServiceService(store, logger)
+	fakeOrchestrator := orchestrator.NewFakeOrchestrator()
+	svc := NewServiceService(store, fakeOrchestrator, logger)
 
 	// Create test service
 	testService := &types.Service{

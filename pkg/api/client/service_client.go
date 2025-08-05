@@ -150,6 +150,20 @@ func (s *ServiceClient) DeleteService(namespace, name string) error {
 		Namespace: namespace,
 	}
 
+	// Use the enhanced delete method
+	_, err := s.DeleteServiceWithRequest(req)
+	return err
+}
+
+// DeleteServiceWithRequest deletes a service with the full request object.
+func (s *ServiceClient) DeleteServiceWithRequest(req *generated.DeleteServiceRequest) (*generated.DeleteServiceResponse, error) {
+	s.logger.Debug("Deleting service with options",
+		log.Str("name", req.Name),
+		log.Str("namespace", req.Namespace),
+		log.Bool("force", req.Force),
+		log.Bool("dry_run", req.DryRun),
+		log.Bool("detach", req.Detach))
+
 	// Send the request to the API server
 	ctx, cancel := s.client.Context()
 	defer cancel()
@@ -158,20 +172,65 @@ func (s *ServiceClient) DeleteService(namespace, name string) error {
 	if err != nil {
 		statusErr, ok := status.FromError(err)
 		if ok && statusErr.Code() == codes.NotFound {
-			return fmt.Errorf("service not found: %s/%s", namespace, name)
+			return nil, fmt.Errorf("service not found: %s/%s", req.Namespace, req.Name)
 		}
-		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", name))
-		return convertGRPCError("delete service", err)
+		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", req.Name))
+		return nil, convertGRPCError("delete service", err)
 	}
 
 	// Check if the API returned an error status
 	if resp.Status != nil && resp.Status.Code != int32(codes.OK) {
 		err := fmt.Errorf("API error: %s", resp.Status.Message)
-		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", name))
-		return err
+		s.logger.Error("Failed to delete service", log.Err(err), log.Str("name", req.Name))
+		return nil, err
 	}
 
-	return nil
+	return resp, nil
+}
+
+// GetDeletionStatus gets the status of a deletion operation.
+func (s *ServiceClient) GetDeletionStatus(deletionID string) (*generated.GetDeletionStatusResponse, error) {
+	s.logger.Debug("Getting deletion status", log.Str("deletion_id", deletionID))
+
+	// Create the gRPC request
+	req := &generated.GetDeletionStatusRequest{
+		DeletionId: deletionID,
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.GetDeletionStatus(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", deletionID))
+		return nil, convertGRPCError("get deletion status", err)
+	}
+
+	return resp, nil
+}
+
+// ListDeletionOperations lists all deletion operations.
+func (s *ServiceClient) ListDeletionOperations(namespace, status string) (*generated.ListDeletionOperationsResponse, error) {
+	s.logger.Debug("Listing deletion operations", log.Str("namespace", namespace), log.Str("status", status))
+
+	// Create the gRPC request
+	req := &generated.ListDeletionOperationsRequest{
+		Namespace: namespace,
+		Status:    status,
+	}
+
+	// Send the request to the API server
+	ctx, cancel := s.client.Context()
+	defer cancel()
+
+	resp, err := s.svc.ListDeletionOperations(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to list deletion operations", log.Err(err))
+		return nil, convertGRPCError("list deletion operations", err)
+	}
+
+	return resp, nil
 }
 
 // ListServices lists services in a namespace with optional filtering.
@@ -626,7 +685,8 @@ type WatchEvent struct {
 }
 
 // WatchServices watches services for changes and returns a channel of events.
-func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fieldSelector string) (<-chan WatchEvent, error) {
+// The caller should call the cancel function when done watching to prevent resource leaks.
+func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fieldSelector string) (<-chan WatchEvent, context.CancelFunc, error) {
 	s.logger.Debug("Watching services",
 		log.Str("namespace", namespace),
 		log.Str("labelSelector", labelSelector),
@@ -643,7 +703,7 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 	if labelSelector != "" {
 		labels, err := parseSelector(labelSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid label selector: %w", err)
+			return nil, nil, fmt.Errorf("invalid label selector: %w", err)
 		}
 		req.LabelSelector = labels
 	}
@@ -652,20 +712,20 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 	if fieldSelector != "" {
 		fields, err := parseSelector(fieldSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid field selector: %w", err)
+			return nil, nil, fmt.Errorf("invalid field selector: %w", err)
 		}
 		req.FieldSelector = fields
 	}
 
-	// Create context with client timeout
-	ctx, cancel := s.client.Context()
+	// Create context with cancel
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Establish the streaming connection
 	stream, err := s.svc.WatchServices(ctx, req)
 	if err != nil {
 		cancel()
 		s.logger.Error("Failed to establish watch connection", log.Err(err))
-		return nil, convertGRPCError("watch services", err)
+		return nil, nil, convertGRPCError("watch services", err)
 	}
 
 	// Create channel for watch events
@@ -673,7 +733,6 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 
 	// Start goroutine to receive watch events and send them to the channel
 	go func() {
-		defer cancel()
 		defer close(eventCh)
 
 		for {
@@ -693,6 +752,11 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 				return
 			}
 			if err != nil {
+				// Check if error is due to context cancellation (expected behavior)
+				if ctx.Err() != nil {
+					s.logger.Debug("Watch cancelled", log.Err(err))
+					return
+				}
 				s.logger.Error("Error receiving watch event", log.Err(err))
 				eventCh <- WatchEvent{
 					Error: fmt.Errorf("watch error: %w", err),
@@ -742,7 +806,7 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 		}
 	}()
 
-	return eventCh, nil
+	return eventCh, cancel, nil
 }
 
 // ListInstances lists instances for a service.

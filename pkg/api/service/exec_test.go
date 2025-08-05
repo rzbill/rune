@@ -43,8 +43,10 @@ func TestExecServiceStreamExec(t *testing.T) {
 	// Set up the instance record
 	instance := &types.Instance{
 		ID:          "instance123",
+		Namespace:   "default",
 		Name:        "test-instance",
 		ServiceID:   "service123",
+		ServiceName: "test-service",
 		ContainerID: "container123", // Has container ID, so we'll use Docker runner
 		Status:      types.InstanceStatusRunning,
 	}

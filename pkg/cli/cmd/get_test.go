@@ -288,9 +288,11 @@ type mockServiceClient struct {
 }
 
 // WatchServices implements the ServiceClient.WatchServices method for testing
-func (m *mockServiceClient) WatchServices(namespace, labelSelector, fieldSelector string) (<-chan client.WatchEvent, error) {
+func (m *mockServiceClient) WatchServices(namespace, labelSelector, fieldSelector string) (<-chan client.WatchEvent, context.CancelFunc, error) {
 	if m.watchErr != nil {
-		return nil, m.watchErr
+		return nil, nil, m.watchErr
 	}
-	return m.watchCh, nil
+	// Return a no-op cancel function for testing
+	cancelFunc := func() {}
+	return m.watchCh, cancelFunc, nil
 }

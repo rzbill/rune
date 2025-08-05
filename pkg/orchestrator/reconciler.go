@@ -18,6 +18,9 @@ import (
 // The amount of time to keep deleted instances before removing them from store
 const deletedInstanceRetentionTime = 10 * time.Minute
 
+// The amount of time to wait before running garbage collection
+const garbageCollectionInterval = 10 * time.Minute
+
 // reconciler is responsible for ensuring the actual state of instances
 // matches the desired state defined in the services
 type reconciler struct {
@@ -103,7 +106,7 @@ func (r *reconciler) Start(ctx context.Context) error {
 				}
 
 				// Run garbage collection roughly once per hour
-				if time.Since(lastGC) > time.Hour {
+				if time.Since(lastGC) > garbageCollectionInterval {
 					if err := r.runGarbageCollection(r.ctx); err != nil {
 						r.logger.Error("Garbage collection failed", log.Err(err))
 					}
