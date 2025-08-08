@@ -29,26 +29,44 @@ type deleteOptions struct {
 
 // newDeleteCmd creates the delete command
 func newDeleteCmd() *cobra.Command {
+	// Add flags for shorthand usage
+	var shorthandNamespace string
+	var shorthandForce bool
+	var shorthandTimeout int32
+	var shorthandDetach bool
+	var shorthandDryRun bool
+	var shorthandGracePeriod int32
+	var shorthandNow bool
+	var shorthandIgnoreNotFound bool
+	var shorthandFinalizers []string
+	var shorthandOutput string
+
 	cmd := &cobra.Command{
 		Use:     "delete",
 		Aliases: []string{"remove", "rm"},
-		Short:   "Delete services and manage deletion operations",
-		Long: `Delete services and manage deletion operations.
+		Short:   "Delete targets and manage deletion operations",
+		Long: `Delete targets and manage deletion operations.
 
-This command provides a safe and controlled way to remove services from the Rune platform
-and manage ongoing deletion operations.
+This command provides a safe and controlled way to remove targets (services, functions, etc.) 
+from the Rune platform and manage ongoing deletion operations.
 
 Available subcommands:
   delete service <service-name>  - Delete a service and its resources
   delete list                    - List deletion operations
   delete status <deletion-id>    - Get status of a deletion operation
 
+Shorthand usage:
+  delete <target>                - Direct target deletion (currently supports services)
+
 Examples:
-  # Delete a service
+  # Delete a service using shorthand
+  rune delete my-service
+
+  # Delete a service using full command
   rune delete service my-service
 
   # Delete a service with flags
-  rune delete service my-service --force --output json
+  rune delete my-service --force --output json
 
   # List all deletion operations
   rune delete list
@@ -60,7 +78,50 @@ Examples:
   rune delete status abc123-def456`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// If no subcommand is specified and a target is provided, treat it as shorthand
+			if len(args) > 0 {
+				target := args[0]
+
+				// Create options for shorthand usage using the flag variables
+				opts := &deleteOptions{
+					namespace:      shorthandNamespace,
+					force:          shorthandForce,
+					timeoutSeconds: shorthandTimeout,
+					detach:         shorthandDetach,
+					dryRun:         shorthandDryRun,
+					gracePeriod:    shorthandGracePeriod,
+					now:            shorthandNow,
+					ignoreNotFound: shorthandIgnoreNotFound,
+					finalizers:     shorthandFinalizers,
+					output:         shorthandOutput,
+				}
+
+				// For now, treat all targets as services
+				// In the future, this could be extended to detect target type
+				// or use a flag to specify the target type
+				return runDelete(cmd.Context(), target, opts)
+			}
+
+			// If no args provided, show help
+			return cmd.Help()
+		},
 	}
+
+	cmd.Flags().StringVarP(&shorthandNamespace, "namespace", "n", "default", "Namespace of the target")
+	cmd.Flags().BoolVarP(&shorthandForce, "force", "f", false, "Skip confirmation prompt")
+	cmd.Flags().Int32VarP(&shorthandTimeout, "timeout", "t", 30, "Graceful shutdown timeout in seconds")
+	cmd.Flags().BoolVar(&shorthandDetach, "detach", false, "Start deletion and return immediately")
+	cmd.Flags().BoolVar(&shorthandDryRun, "dry-run", false, "Show what would be deleted without actually deleting")
+	cmd.Flags().Int32Var(&shorthandGracePeriod, "grace-period", 0, "Grace period for graceful shutdown (alternative to --timeout)")
+	cmd.Flags().BoolVar(&shorthandNow, "now", false, "Immediate deletion without graceful shutdown")
+	cmd.Flags().BoolVar(&shorthandIgnoreNotFound, "ignore-not-found", false, "Don't error if target doesn't exist")
+	cmd.Flags().StringSliceVar(&shorthandFinalizers, "finalizers", nil, "Optional finalizers to run")
+	cmd.Flags().StringVarP(&shorthandOutput, "output", "o", "text", "Output format (text, json, yaml)")
+
+	// Mark mutually exclusive flags
+	cmd.MarkFlagsMutuallyExclusive("detach", "now")
+	cmd.MarkFlagsMutuallyExclusive("timeout", "grace-period")
 
 	// Add subcommands
 	cmd.AddCommand(newDeleteServiceCmd())
