@@ -391,6 +391,51 @@ func calculateServiceHash(service *types.Service) string {
 		fmt.Fprintf(h, "memory:%s:%s\n", service.Resources.Memory.Request, service.Resources.Memory.Limit)
 	}
 
+	// Health checks
+	if service.Health != nil {
+		if service.Health.Liveness != nil {
+			fmt.Fprintf(h, "liveness:%s:%s:%d:%d:%d:%d\n",
+				service.Health.Liveness.Type,
+				service.Health.Liveness.Path,
+				service.Health.Liveness.Port,
+				service.Health.Liveness.IntervalSeconds,
+				service.Health.Liveness.TimeoutSeconds,
+				service.Health.Liveness.FailureThreshold)
+			if len(service.Health.Liveness.Command) > 0 {
+				fmt.Fprintf(h, "liveness_cmd:[")
+				for i, cmd := range service.Health.Liveness.Command {
+					if i > 0 {
+						fmt.Fprintf(h, ",")
+					}
+					fmt.Fprintf(h, "%s", cmd)
+				}
+				fmt.Fprintf(h, "]\n")
+			}
+		}
+		if service.Health.Readiness != nil {
+			fmt.Fprintf(h, "readiness:%s:%s:%d:%d:%d:%d\n",
+				service.Health.Readiness.Type,
+				service.Health.Readiness.Path,
+				service.Health.Readiness.Port,
+				service.Health.Readiness.IntervalSeconds,
+				service.Health.Readiness.TimeoutSeconds,
+				service.Health.Readiness.FailureThreshold)
+			if len(service.Health.Readiness.Command) > 0 {
+				fmt.Fprintf(h, "readiness_cmd:[")
+				for i, cmd := range service.Health.Readiness.Command {
+					if i > 0 {
+						fmt.Fprintf(h, ",")
+					}
+					fmt.Fprintf(h, "%s", cmd)
+				}
+				fmt.Fprintf(h, "]\n")
+			}
+		}
+	} else {
+		// Explicitly include "no health checks" in the hash
+		fmt.Fprintf(h, "health:nil\n")
+	}
+
 	// Add more fields as needed that should trigger reconciliation when changed
 
 	return fmt.Sprintf("%x", h.Sum(nil))
@@ -1150,10 +1195,10 @@ func (s *ServiceService) getServiceInstances(ctx context.Context, namespace, ser
 		return nil, err
 	}
 
-	// Filter instances that belong to this service
+	// Filter instances that belong to this service and are not deleted
 	var instances []*types.Instance
 	for _, inst := range allInstances {
-		if inst.ServiceID == serviceID {
+		if inst.ServiceID == serviceID && inst.Status != types.InstanceStatusDeleted {
 			instances = append(instances, inst)
 		}
 	}

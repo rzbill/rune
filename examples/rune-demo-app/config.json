@@ -1,0 +1,34 @@
+{
+  "app": {
+    "name": "rune-demo-app",
+    "version": "1.0.0",
+    "description": "Rune Demo Application for testing MVP features"
+  },
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0",
+    "timeout": 30
+  },
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "output": "stdout"
+  },
+  "features": {
+    "debug": true,
+    "metrics": true,
+    "health_checks": true,
+    "interactive": true
+  },
+  "health": {
+    "liveness_path": "/health",
+    "readiness_path": "/health",
+    "timeout": 5,
+    "interval": 30
+  },
+  "metrics": {
+    "enabled": true,
+    "path": "/metrics",
+    "collectors": ["requests", "memory", "goroutines"]
+  }
+}

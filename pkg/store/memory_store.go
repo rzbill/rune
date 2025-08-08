@@ -69,6 +69,16 @@ func (m *MemoryStore) Get(ctx context.Context, resourceType types.ResourceType, 
 	return nil
 }
 
+// GetInstance retrieves an instance by ID.
+func (m *MemoryStore) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
+	var instance types.Instance
+	err := m.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance)
+	if err != nil {
+		return nil, err
+	}
+	return &instance, nil
+}
+
 // List lists objects from the memory store.
 func (m *MemoryStore) List(ctx context.Context, resourceType types.ResourceType, namespace string, value interface{}) error {
 	m.mutex.RLock()

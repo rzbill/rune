@@ -50,7 +50,7 @@ func TestTestStore(t *testing.T) {
 	assert.NoError(t, err, "CreateInstance should not return an error")
 
 	// Test GetInstance
-	retrievedInstance, err := store.GetInstance(ctx, "default", "test-instance")
+	retrievedInstance, err := store.GetInstanceByID(ctx, "default", "test-instance")
 	assert.NoError(t, err, "GetInstance should not return an error")
 	assert.Equal(t, instance.ID, retrievedInstance.ID, "Instance IDs should match")
 	assert.Equal(t, instance.ServiceID, retrievedInstance.ServiceID, "Instance ServiceIDs should match")
@@ -187,7 +187,7 @@ func TestTransaction(t *testing.T) {
 	assert.NoError(t, err, "GetService after transaction should not return an error")
 	assert.Equal(t, "tx-service", service.Name, "Service name should match")
 
-	instance, err := store.GetInstance(ctx, "default", "tx-instance")
+	instance, err := store.GetInstanceByID(ctx, "default", "tx-instance")
 	assert.NoError(t, err, "GetInstance after transaction should not return an error")
 	assert.Equal(t, "tx-instance", instance.Name, "Instance name should match")
 }

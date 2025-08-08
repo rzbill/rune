@@ -379,8 +379,7 @@ func (s *LogService) identifyResourceType(ctx context.Context, arg string, names
 	}
 
 	// Try to fetch as an instance
-	var instance types.Instance
-	err = s.store.Get(ctx, types.ResourceTypeInstance, namespace, arg, &instance)
+	instance, err := s.store.GetInstanceByID(ctx, namespace, arg)
 	if err != nil {
 		return "", nil, err
 	}
@@ -398,8 +397,7 @@ func (s *LogService) getResourceByType(ctx context.Context, resourceType string,
 	}
 
 	if resourceType == string(types.ResourceTypeInstance) {
-		var instance types.Instance
-		err := s.store.Get(ctx, types.ResourceTypeInstance, namespace, resourceName, &instance)
+		instance, err := s.store.GetInstanceByID(ctx, namespace, resourceName)
 		if err == nil {
 			return instance, nil
 		}

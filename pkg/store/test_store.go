@@ -686,7 +686,7 @@ func (s *TestStore) CreateInstance(ctx context.Context, instance *types.Instance
 }
 
 // GetInstance retrieves an instance from the test store
-func (s *TestStore) GetInstance(ctx context.Context, namespace, id string) (*types.Instance, error) {
+func (s *TestStore) GetInstanceByID(ctx context.Context, namespace, id string) (*types.Instance, error) {
 	if namespace == "" {
 		namespace = "default"
 	}

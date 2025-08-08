@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -103,6 +104,11 @@ func NewFakeInstanceController() *FakeInstanceController {
 	}
 }
 
+// GetInstanceByID implements InstanceController interface
+func (c *FakeInstanceController) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
+	return nil, nil
+}
+
 // ListInstances records a call to list instances
 func (c *FakeInstanceController) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	c.mu.Lock()
@@ -116,6 +122,20 @@ func (c *FakeInstanceController) ListInstances(ctx context.Context, namespace st
 		i++
 	}
 	return result, nil
+}
+
+func (c *FakeInstanceController) ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	instances, err := c.collectRunningInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list running instances: %w", err)
+	}
+	runningInstances := make([]*types.Instance, 0, len(instances))
+	for _, instance := range instances {
+		if instance.Instance.Status == types.InstanceStatusRunning && instance.Instance.Namespace == namespace {
+			runningInstances = append(runningInstances, instance.Instance)
+		}
+	}
+	return runningInstances, nil
 }
 
 // CreateInstance records a call to create an instance and returns a predefined or mocked result
@@ -295,7 +315,11 @@ func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance
 
 }
 
-func (c *FakeInstanceController) CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
+func (c *FakeInstanceController) isInstanceCompatibleWithService(ctx context.Context, instance *types.Instance, service *types.Service) (bool, string) {
+	return true, ""
+}
+
+func (c *FakeInstanceController) collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
 	instances := make(map[string]*RunningInstance)
 	for id, instance := range c.instances {
 		instances[id] = &RunningInstance{
@@ -423,12 +447,16 @@ func (c *FakeInstanceController) AddInstance(instance *types.Instance) {
 }
 
 // GetInstance allows tests to retrieve an instance from the controller's storage
-func (c *FakeInstanceController) GetInstance(instanceID string) (*types.Instance, bool) {
+func (c *FakeInstanceController) GetInstance(ctx context.Context, namespace, instanceID string, instance *types.Instance) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	instance, exists := c.instances[instanceID]
-	return instance, exists
+	if !exists {
+		return fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	return nil
 }
 
 // Reset clears all recorded calls and stored instances

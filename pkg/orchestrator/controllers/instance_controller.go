@@ -31,8 +31,14 @@ type execStreamAdapter struct {
 
 // InstanceController manages instance lifecycle
 type InstanceController interface {
+	// GetInstanceByID gets an instance by ID
+	GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error)
+
 	// ListInstances lists all instances in a namespace
 	ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error)
+
+	// GetRunningInstances lists all running instances
+	ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error)
 
 	// CreateInstance creates a new instance for a service
 	CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error)
@@ -59,12 +65,15 @@ type InstanceController interface {
 	// RestartInstance restarts an instance with respect to the service's restart policy
 	RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 
-	// CollectRunningInstances gathers all running instances from all runners
-	CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error)
-
 	// Exec executes a command in a running instance
 	// Returns an ExecStream for bidirectional communication
 	Exec(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error)
+
+	// collectRunningInstances gathers all running instances from all runners
+	collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error)
+
+	// isInstanceCompatibleWithService checks if an instance is compatible with a service
+	isInstanceCompatibleWithService(ctx context.Context, instance *types.Instance, service *types.Service) (bool, string)
 }
 
 // instanceController implements the InstanceController interface
@@ -83,6 +92,10 @@ func NewInstanceController(store store.Store, runnerManager manager.IRunnerManag
 	}
 }
 
+func (c *instanceController) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
+	return c.store.GetInstanceByID(ctx, namespace, instanceID)
+}
+
 func (c *instanceController) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	var instances []*types.Instance
 	err := c.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
@@ -91,6 +104,32 @@ func (c *instanceController) ListInstances(ctx context.Context, namespace string
 	}
 
 	return instances, nil
+}
+
+func (c *instanceController) ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	runningInstances, err := c.collectRunningInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list running instances: %w", err)
+	}
+
+	// get all instances from store
+	var storeInstances []types.Instance
+	err = c.store.List(ctx, types.ResourceTypeInstance, "", &storeInstances)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	// filter instances by running instances
+	runningInstancesPointers := make([]*types.Instance, 0, len(runningInstances))
+	for _, instance := range runningInstances {
+		for _, storeInstance := range storeInstances {
+			if instance.Instance.ID == storeInstance.ID && storeInstance.Namespace == namespace {
+				runningInstancesPointers = append(runningInstancesPointers, &storeInstance)
+			}
+		}
+	}
+
+	return runningInstancesPointers, nil
 }
 
 // CreateInstance creates a new instance for a service
@@ -521,9 +560,24 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 		log.Str("instance", instance.ID),
 		log.Str("reason", string(reason)))
 
+	// First, verify the instance still exists and is in a valid state
+	currentInstance, err := c.store.GetInstanceByID(ctx, instance.Namespace, instance.ID)
+	if err != nil {
+		return fmt.Errorf("instance no longer exists: %w", err)
+	}
+
+	// Check if the instance is in a state that can be restarted
+	if currentInstance.Status == types.InstanceStatusDeleted ||
+		currentInstance.Status == types.InstanceStatusFailed {
+		c.logger.Info("Instance is in terminal state, skipping restart",
+			log.Str("instance", instance.ID),
+			log.Str("status", string(currentInstance.Status)))
+		return nil
+	}
+
 	// Get the service to check its restart policy
 	var service types.Service
-	if err := c.store.Get(ctx, types.ResourceTypeService, instance.Namespace, instance.ServiceID, &service); err != nil {
+	if err := c.store.Get(ctx, types.ResourceTypeService, instance.Namespace, instance.ServiceName, &service); err != nil {
 		return fmt.Errorf("failed to get service for restart policy: %w", err)
 	}
 
@@ -583,15 +637,18 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 		c.logger.Warn("Failed to stop instance gracefully, will force restart",
 			log.Str("instance", instance.ID),
 			log.Err(err))
-
-		// Try to forcefully remove if stop fails
-		if err := runner.Remove(ctx, instance, true); err != nil {
-			c.logger.Error("Failed to remove instance during restart",
-				log.Str("instance", instance.ID),
-				log.Err(err))
-			// Continue anyway
-		}
 	}
+
+	// Always remove the container to ensure clean restart
+	if err := runner.Remove(ctx, instance, true); err != nil {
+		c.logger.Error("Failed to remove instance during restart",
+			log.Str("instance", instance.ID),
+			log.Err(err))
+		// Continue anyway, but this might cause container name conflicts
+	}
+
+	// Clear the container ID to ensure a fresh container is created
+	instance.ContainerID = ""
 
 	// Create the instance again
 	if err := runner.Create(ctx, instance); err != nil {
@@ -617,7 +674,13 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 		return fmt.Errorf("failed to start instance: %w", err)
 	}
 
-	// Update instance with running status
+	// Increment restart count in instance metadata
+	if instance.Metadata == nil {
+		instance.Metadata = &types.InstanceMetadata{}
+	}
+	instance.Metadata.RestartCount++
+
+	// Update instance with running status and restart count
 	instance.Status = types.InstanceStatusRunning
 	instance.StatusMessage = "Restarted successfully"
 	instance.UpdatedAt = time.Now()
@@ -629,13 +692,14 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 	}
 
 	c.logger.Info("Instance restarted successfully",
-		log.Str("instance", instance.ID))
+		log.Str("instance", instance.ID),
+		log.Int("restart_count", instance.Metadata.RestartCount))
 
 	return nil
 }
 
 // collectRunningInstances gathers all running instances from all runners
-func (c *instanceController) CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
+func (c *instanceController) collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
 	instances := make(map[string]*RunningInstance)
 
 	// Collect instances from docker runner

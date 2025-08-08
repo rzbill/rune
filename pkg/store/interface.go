@@ -25,6 +25,9 @@ type Store interface {
 	// Get retrieves a resource by type, namespace, and name.
 	Get(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}) error
 
+	// GetInstanceByID retrieves an instance by namespace and instanceID.
+	GetInstanceByID(ctx context.Context, namespace string, instanceID string) (*types.Instance, error)
+
 	// List retrieves all resources of a given type in a namespace.
 	List(ctx context.Context, resourceType types.ResourceType, namespace string, resource interface{}) error
 

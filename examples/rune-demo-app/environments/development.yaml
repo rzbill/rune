@@ -1,0 +1,66 @@
+service:
+  name: rune-demo-app
+  namespace: development
+  labels:
+    app: rune-demo-app
+    environment: development
+    team: platform
+  image: rune-demo-app:latest
+  scale: 2
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: tcp
+  env:
+    # Development-specific configuration
+    ENVIRONMENT: "development"
+    VERSION: "1.0.0-dev"
+    LOG_LEVEL: "debug"
+    DEBUG_MODE: "true"
+    
+    # Development database
+    DATABASE_URL: "postgresql://dev-user:dev-pass@localhost:5432/rune_demo_dev"
+    API_KEY: "dev-api-key-12345"
+    
+    # Development features
+    FEATURE_FLAGS: "basic,debug,experimental"
+    CUSTOM_MESSAGE: "Hello from Development Environment! 🛠️"
+    
+    # Development performance settings
+    MAX_CONNECTIONS: "50"
+    TIMEOUT_SECONDS: "60"
+    
+    # Development-specific variables
+    NODE_ENV: "development"
+    BUILD_DATE: "2024-01-01"
+    GIT_COMMIT: "dev-abc123"
+    DEPLOYMENT_ID: "dev-deployment-001"
+    
+  health:
+    liveness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 60s
+      timeout: 10s
+      initialDelay: 30s
+      failureThreshold: 5
+      successThreshold: 1
+    readiness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 30s
+      timeout: 5s
+      initialDelay: 15s
+      failureThreshold: 3
+      successThreshold: 1
+  
+  resources:
+    cpu:
+      request: "50m"
+      limit: "200m"
+    memory:
+      request: "64Mi"
+      limit: "128Mi"

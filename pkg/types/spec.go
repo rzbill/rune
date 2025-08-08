@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -116,6 +117,13 @@ func ParseServiceData(data []byte) (*ServiceFile, error) {
 		return nil, fmt.Errorf("no services defined in the file")
 	}
 
+	// Validate structure for each service
+	for _, service := range serviceFile.GetServices() {
+		if err := service.ValidateStructure(data); err != nil {
+			return nil, fmt.Errorf("structure validation failed: %w", err)
+		}
+	}
+
 	return &serviceFile, nil
 }
 
@@ -222,6 +230,144 @@ func (s *ServiceSpec) Validate() error {
 	}
 
 	return nil
+}
+
+// ValidateStructure validates the YAML structure against the service specification
+func (s *ServiceSpec) ValidateStructure(data []byte) error {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Define valid service fields based on ServiceSpec
+	validServiceFields := map[string]bool{
+		"name":          true,
+		"namespace":     true,
+		"labels":        true,
+		"image":         true,
+		"command":       true,
+		"args":          true,
+		"env":           true,
+		"scale":         true,
+		"ports":         true,
+		"resources":     true,
+		"health":        true,
+		"networkPolicy": true,
+		"expose":        true,
+		"affinity":      true,
+		"autoscale":     true,
+		"secretMounts":  true,
+		"configMounts":  true,
+		"discovery":     true,
+	}
+
+	// Define valid health check fields
+	validHealthFields := map[string]bool{
+		"liveness":  true,
+		"readiness": true,
+	}
+
+	// Define valid probe fields
+	validProbeFields := map[string]bool{
+		"type":                true,
+		"path":                true,
+		"port":                true,
+		"command":             true,
+		"initialDelaySeconds": true,
+		"intervalSeconds":     true,
+		"timeoutSeconds":      true,
+		"failureThreshold":    true,
+		"successThreshold":    true,
+	}
+
+	// Define valid port fields
+	validPortFields := map[string]bool{
+		"name":       true,
+		"port":       true,
+		"targetPort": true,
+		"protocol":   true,
+	}
+
+	var errors []string
+	collectValidationErrors(&node, "service", validServiceFields, validHealthFields, validProbeFields, validPortFields, &errors)
+
+	if len(errors) > 0 {
+		return fmt.Errorf("validation errors:\n%s", strings.Join(errors, "\n"))
+	}
+
+	return nil
+}
+
+// collectValidationErrors recursively collects validation errors for YAML structure
+func collectValidationErrors(node *yaml.Node, context string, validFields map[string]bool, validHealthFields map[string]bool, validProbeFields map[string]bool, validPortFields map[string]bool, errors *[]string) {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		collectValidationErrors(node.Content[0], context, validFields, validHealthFields, validProbeFields, validPortFields, errors)
+		return
+	}
+
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+
+			if key.Value == "service" && value.Kind == yaml.MappingNode {
+				// Validate service fields
+				for j := 0; j < len(value.Content); j += 2 {
+					fieldKey := value.Content[j]
+					fieldValue := value.Content[j+1]
+
+					if !validFields[fieldKey.Value] {
+						*errors = append(*errors, fmt.Sprintf("unknown field '%s' in service specification at line %d", fieldKey.Value, fieldKey.Line))
+					}
+
+					// Recursively validate nested structures
+					if fieldKey.Value == "health" && fieldValue.Kind == yaml.MappingNode {
+						collectHealthErrors(fieldValue, validHealthFields, validProbeFields, errors)
+					}
+
+					if fieldKey.Value == "ports" && fieldValue.Kind == yaml.SequenceNode {
+						collectPortsErrors(fieldValue, validPortFields, errors)
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectHealthErrors collects validation errors for health check structure
+func collectHealthErrors(healthNode *yaml.Node, validHealthFields map[string]bool, validProbeFields map[string]bool, errors *[]string) {
+	for i := 0; i < len(healthNode.Content); i += 2 {
+		key := healthNode.Content[i]
+		value := healthNode.Content[i+1]
+
+		if !validHealthFields[key.Value] {
+			*errors = append(*errors, fmt.Sprintf("unknown field '%s' in health check specification at line %d", key.Value, key.Line))
+		}
+
+		// Validate probe structure
+		if value.Kind == yaml.MappingNode {
+			for j := 0; j < len(value.Content); j += 2 {
+				probeKey := value.Content[j]
+				if !validProbeFields[probeKey.Value] {
+					*errors = append(*errors, fmt.Sprintf("unknown field '%s' in probe specification at line %d", probeKey.Value, probeKey.Line))
+				}
+			}
+		}
+	}
+}
+
+// collectPortsErrors collects validation errors for ports structure
+func collectPortsErrors(portsNode *yaml.Node, validPortFields map[string]bool, errors *[]string) {
+	for _, portNode := range portsNode.Content {
+		if portNode.Kind == yaml.MappingNode {
+			for i := 0; i < len(portNode.Content); i += 2 {
+				key := portNode.Content[i]
+				if !validPortFields[key.Value] {
+					*errors = append(*errors, fmt.Sprintf("unknown field '%s' in port specification at line %d", key.Value, key.Line))
+				}
+			}
+		}
+	}
 }
 
 // ToService converts a ServiceSpec to a Service.

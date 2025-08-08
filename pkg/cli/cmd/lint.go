@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -434,22 +435,43 @@ func validateResource(formatter *format.ErrorFormatter, resourceType string, dat
 func validateService(formatter *format.ErrorFormatter, data []byte) error {
 	serviceFile, err := types.ParseServiceData(data)
 	if err != nil {
+		formatter.PrintErrorHeader()
+
 		var yamlErr *yaml.TypeError
 		if errors.As(err, &yamlErr) {
-			formatter.PrintErrorHeader()
-
 			for _, e := range yamlErr.Errors {
 				errMsg := e
 				lineNum := formatter.ExtractLineNumber(errMsg)
 				formatter.PrintError(errMsg, lineNum)
+				formatter.ErrorCount++
 			}
 		} else {
-			formatter.PrintErrorHeader()
-
-			// Try to extract line number from regular errors
+			// Handle structure validation errors
 			errStr := err.Error()
-			lineNum := formatter.ExtractLineNumber(errStr)
-			formatter.PrintError(errStr, lineNum)
+			if strings.Contains(errStr, "structure validation failed") {
+				// Parse the multi-line error message from ValidateStructure
+				lines := strings.Split(errStr, "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "unknown field") {
+						// Extract line number from the error message
+						// Format: "unknown field 'fieldName' in service specification at line X"
+						parts := strings.Split(line, "at line ")
+						if len(parts) == 2 {
+							if lineNum, parseErr := strconv.Atoi(strings.TrimSpace(parts[1])); parseErr == nil {
+								formatter.PrintError(line, lineNum)
+							} else {
+								formatter.PrintError(line, 0)
+							}
+						} else {
+							formatter.PrintError(line, 0)
+						}
+					}
+				}
+			} else {
+				// Try to extract line number from regular errors
+				lineNum := formatter.ExtractLineNumber(errStr)
+				formatter.PrintError(errStr, lineNum)
+			}
 		}
 		return fmt.Errorf("validation failed in %s", formatter.FileName)
 	}

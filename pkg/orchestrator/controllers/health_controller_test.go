@@ -29,7 +29,10 @@ func setupHealthController(t *testing.T) (context.Context, *store.TestStore, *ru
 	testRunnerMgr.SetProcessRunner(testRunner)
 	testLogger := log.NewLogger()
 
-	controller := NewHealthController(testLogger, testStore, testRunnerMgr)
+	// Create a mock instance controller
+	instanceController := NewInstanceController(testStore, testRunnerMgr, testLogger)
+
+	controller := NewHealthController(testLogger, testStore, testRunnerMgr, instanceController)
 	return ctx, testStore, testRunner, controller
 }
 
@@ -81,7 +84,7 @@ func TestHealthControllerAddRemoveInstance(t *testing.T) {
 	require.NoError(t, err, "Failed to create test instance")
 
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err, "Adding instance to health monitoring should not error")
 
 	// Get health status
@@ -203,16 +206,8 @@ func TestHTTPHealthCheck(t *testing.T) {
 	err = testStore.CreateInstance(ctx, instance)
 	require.NoError(t, err)
 
-	// Cast the controller to get access to SetInstanceController
-	hc, ok := controller.(*healthController)
-	require.True(t, ok, "Controller should be a healthController")
-
-	// Create a mock instance controller
-	instanceController := NewInstanceController(testStore, hc.runnerManager, log.NewLogger())
-	hc.SetInstanceController(instanceController)
-
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err)
 
 	// Wait for health check to run
@@ -277,16 +272,8 @@ func TestTCPHealthCheck(t *testing.T) {
 	err = testStore.CreateInstance(ctx, instance)
 	require.NoError(t, err)
 
-	// Cast the controller to get access to SetInstanceController
-	hc, ok := controller.(*healthController)
-	require.True(t, ok, "Controller should be a healthController")
-
-	// Create a mock instance controller
-	instanceController := NewInstanceController(testStore, hc.runnerManager, log.NewLogger())
-	hc.SetInstanceController(instanceController)
-
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err)
 
 	// Wait for health check to run
@@ -347,16 +334,8 @@ func TestExecHealthCheck(t *testing.T) {
 	err = testStore.CreateInstance(ctx, instance)
 	require.NoError(t, err)
 
-	// Cast the controller to get access to internal methods
-	hc, ok := controller.(*healthController)
-	require.True(t, ok, "Controller should be a healthController")
-
-	// Create a mock instance controller
-	instanceController := NewInstanceController(testStore, hc.runnerManager, log.NewLogger())
-	hc.SetInstanceController(instanceController)
-
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err)
 
 	// Just verify that exec was called after a while
@@ -412,16 +391,8 @@ func TestRestartAfterHealthCheckFailure(t *testing.T) {
 	err = testStore.CreateInstance(ctx, instance)
 	require.NoError(t, err)
 
-	// Cast the controller to get access to SetInstanceController
-	hc, ok := controller.(*healthController)
-	require.True(t, ok, "Controller should be a healthController")
-
-	// Create a mock instance controller and set it
-	instanceController := NewInstanceController(testStore, hc.runnerManager, log.NewLogger())
-	hc.SetInstanceController(instanceController)
-
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err)
 
 	// Wait for multiple health checks to run and trigger a restart
@@ -466,7 +437,7 @@ func TestNoHealthCheckService(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add instance to health monitoring - should not error
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err, "Adding instance without health checks should not error")
 
 	// Get health status - should not error but show as healthy due to no health check
@@ -519,7 +490,7 @@ func TestInvalidHealthCheckType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add instance to health monitoring
-	err = controller.AddInstance(instance)
+	err = controller.AddInstance(service, instance)
 	require.NoError(t, err)
 
 	// Wait for health check to run
@@ -529,4 +500,50 @@ func TestInvalidHealthCheckType(t *testing.T) {
 	status, err := controller.GetHealthStatus(ctx, instance.ID)
 	require.NoError(t, err)
 	assert.False(t, status.Liveness, "Invalid health check type should report as unhealthy")
+}
+
+// TestHealthControllerNilContext tests that the health controller handles nil context gracefully
+func TestHealthControllerNilContext(t *testing.T) {
+	ctx, _, _, controller := setupHealthController(t)
+
+	// Start the controller
+	err := controller.Start(ctx)
+	assert.NoError(t, err)
+
+	// Stop the controller (this sets context to nil)
+	err = controller.Stop()
+	assert.NoError(t, err)
+
+	// Try to add an instance after stopping - this should not panic
+	service := &types.Service{
+		ID:   "test-service",
+		Name: "test-service",
+		Health: &types.HealthCheck{
+			Liveness: &types.Probe{
+				Type:             "http",
+				Path:             "/health",
+				Port:             8080,
+				IntervalSeconds:  5,
+				TimeoutSeconds:   3,
+				FailureThreshold: 3,
+			},
+		},
+	}
+
+	instance := &types.Instance{
+		ID:        "test-instance",
+		Name:      "test-instance",
+		ServiceID: "test-service",
+		Status:    "Running",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// This should not panic even though the context is nil
+	err = controller.AddInstance(service, instance)
+	assert.NoError(t, err)
+
+	// Remove the instance
+	err = controller.RemoveInstance("test-instance")
+	assert.NoError(t, err)
 }

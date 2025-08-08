@@ -16,7 +16,7 @@ import (
 // ExecClient demonstrates how to use the bidirectional streaming exec functionality.
 func main() {
 	// Connect to the Rune gRPC server
-	conn, err := grpc.Dial("localhost:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial("localhost:8443", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Printf("Failed to connect to server: %v\n", err)
 		os.Exit(1)

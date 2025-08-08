@@ -265,7 +265,7 @@ func (r *reconciler) reconcileSingleService(ctx context.Context, service *types.
 // Marks running instances that belong to this service as not orphaned
 func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Service) (*ServiceInstanceData, error) {
 	// Get running instances from all runners
-	runningInstances, err := r.instanceController.CollectRunningInstances(ctx)
+	runningInstances, err := r.instanceController.collectRunningInstances(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect running instances: %w", err)
 	}
@@ -342,10 +342,9 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 			log.Str("service", service.Name),
 			log.Str("instance", instance.ID))
 
-		// Remove from health monitoring
-		if service.Health != nil {
-			r.healthController.RemoveInstance(instance.ID)
-		}
+		// Always remove from health monitoring
+		// (regardless of current service.Health configuration)
+		r.healthController.RemoveInstance(instance.ID)
 
 		if err := r.instanceController.DeleteInstance(ctx, &instance); err != nil {
 			r.logger.Error("Failed to remove excess instance",
@@ -374,12 +373,30 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 		// Generate instance name
 		instanceName := generateInstanceName(service, i)
 
-		// Check if this instance already exists
+		// Check if this instance already exists and is compatible
 		var existingInstance *types.Instance
 		for j := range instanceData.Instances {
 			if instanceData.Instances[j].Name == instanceName {
-				existingInstance = &instanceData.Instances[j]
-				break
+				// Use the existing compatibility check function
+				isCompatible, reason := r.instanceController.isInstanceCompatibleWithService(ctx, &instanceData.Instances[j], service)
+				if isCompatible {
+					existingInstance = &instanceData.Instances[j]
+					break
+				} else {
+					r.logger.Info("Instance incompatible, will recreate",
+						log.Str("service", service.Name),
+						log.Str("instance", instanceName),
+						log.Str("reason", reason))
+					// Always remove the old instance from health monitoring
+					// (regardless of current service.Health configuration)
+					r.healthController.RemoveInstance(instanceData.Instances[j].ID)
+					// Delete the old instance
+					if err := r.instanceController.DeleteInstance(ctx, &instanceData.Instances[j]); err != nil {
+						r.logger.Error("Failed to delete old instance during recreation",
+							log.Str("instance", instanceData.Instances[j].ID),
+							log.Err(err))
+					}
+				}
 			}
 		}
 
@@ -425,6 +442,18 @@ func (r *reconciler) reconcileExistingInstance(ctx context.Context, service *typ
 		return fmt.Errorf("failed to update instance: %w", err)
 	}
 
+	// Add instance to health monitoring if needed
+	if service.Health != nil {
+		if err := r.healthController.AddInstance(service, instance); err != nil {
+			r.logger.Error("Failed to add instance to health monitoring",
+				log.Str("instance", instance.ID),
+				log.Err(err))
+		}
+		r.logger.Info("Added instance to health monitoring",
+			log.Str("instance", instance.Name),
+			log.Str("service", service.Name))
+	}
+
 	return nil
 }
 
@@ -452,7 +481,7 @@ func (r *reconciler) recreateInstance(ctx context.Context, service *types.Servic
 
 	// Add the new instance to health monitoring if needed
 	if service.Health != nil {
-		if err := r.healthController.AddInstance(newInstance); err != nil {
+		if err := r.healthController.AddInstance(service, newInstance); err != nil {
 			r.logger.Error("Failed to add recreated instance to health monitoring",
 				log.Str("instance", instanceName),
 				log.Err(err))
@@ -475,7 +504,7 @@ func (r *reconciler) createNewInstance(ctx context.Context, service *types.Servi
 
 	// Add the instance to health monitoring if applicable
 	if service.Health != nil {
-		if err := r.healthController.AddInstance(newInstance); err != nil {
+		if err := r.healthController.AddInstance(service, newInstance); err != nil {
 			r.logger.Error("Failed to add instance to health monitoring",
 				log.Str("instance", instanceName),
 				log.Err(err))

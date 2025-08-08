@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21 AS builder
 
 WORKDIR /app
 
@@ -8,8 +8,8 @@ COPY ./examples/logging/log-generator/main.go .
 # Build the application
 RUN go build -o /log-generator main.go
 
-# Use a smaller image for the final stage
-FROM alpine:latest
+# Use Ubuntu for the final stage (has bash by default)
+FROM ubuntu:22.04
 
 WORKDIR /app
 

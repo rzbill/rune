@@ -70,7 +70,7 @@ func TestCreateInstance(t *testing.T) {
 	assert.Equal(t, types.InstanceStatusRunning, instance.Status, "Instance should be running")
 
 	// Verify instance was stored
-	storedInstance, err := testStore.GetInstance(ctx, "default", instance.ID)
+	storedInstance, err := testStore.GetInstanceByID(ctx, "default", instance.ID)
 	require.NoError(t, err, "Instance should be in the store")
 	assert.Equal(t, instance.ID, storedInstance.ID, "Stored instance ID should match")
 
@@ -114,7 +114,7 @@ func TestDeleteInstance(t *testing.T) {
 	require.NoError(t, err, "DeleteInstance should not return an error")
 
 	// Verify instance status was updated
-	storedInstance, err := testStore.GetInstance(ctx, "default", "test-instance")
+	storedInstance, err := testStore.GetInstanceByID(ctx, "default", "test-instance")
 	require.NoError(t, err, "Instance should still be in store")
 	assert.Equal(t, types.InstanceStatusDeleted, storedInstance.Status, "Instance status should be deleted")
 
@@ -153,7 +153,7 @@ func TestStopInstance(t *testing.T) {
 	require.NoError(t, err, "StopInstance should not return an error")
 
 	// Verify instance status was updated to stopped
-	storedInstance, err := testStore.GetInstance(ctx, "default", "test-instance-stop")
+	storedInstance, err := testStore.GetInstanceByID(ctx, "default", "test-instance-stop")
 	require.NoError(t, err, "Instance should still be in store")
 	assert.Equal(t, types.InstanceStatusStopped, storedInstance.Status, "Instance status should be stopped")
 	assert.Equal(t, "Stopped by user", storedInstance.StatusMessage, "Status message should indicate stopped by user")
@@ -545,7 +545,7 @@ func TestUpdateInstance(t *testing.T) {
 	require.NoError(t, err, "UpdateInstance should not return an error")
 
 	// Verify instance was updated in store
-	updatedInstance, err := testStore.GetInstance(ctx, "default", instance.ID)
+	updatedInstance, err := testStore.GetInstanceByID(ctx, "default", instance.ID)
 	require.NoError(t, err, "Instance should be in the store")
 
 	// Check that the environment was updated correctly

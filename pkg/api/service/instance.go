@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/api/utils"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
@@ -44,8 +45,7 @@ func (s *InstanceService) GetInstance(ctx context.Context, req *generated.GetIns
 		req.Namespace = DefaultNamespace
 	}
 
-	var instance *types.Instance
-	err := s.store.Get(ctx, types.ResourceTypeInstance, req.Namespace, req.Id, &instance)
+	instance, err := s.store.GetInstanceByID(ctx, req.Namespace, req.Id)
 	if err != nil {
 		// Handle error case
 		return nil, status.Errorf(codes.Internal, "failed to get instance: %v", err)
@@ -279,6 +279,8 @@ func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.
 		Environment:   protoInstance.Environment,
 		Metadata: &types.InstanceMetadata{
 			ServiceGeneration: int64(protoInstance.Metadata.Generation),
+			RestartCount:      int(protoInstance.Metadata.RestartCount),
+			DeletionTimestamp: utils.ProtoStringToTimestamp(protoInstance.Metadata.DeletionTimestamp),
 		},
 	}
 
@@ -306,14 +308,6 @@ func (s *InstanceService) ProtoInstanceToInstanceModel(protoInstance *generated.
 		instance.UpdatedAt = updatedAt
 	} else {
 		instance.UpdatedAt = instance.CreatedAt // Default to created time if not provided
-	}
-
-	if protoInstance.Metadata.DeletionTimestamp != "" {
-		deletionTimestamp, err := time.Parse(time.RFC3339, protoInstance.Metadata.DeletionTimestamp)
-		if err != nil {
-			return nil, fmt.Errorf("invalid deletion_timestamp: %w", err)
-		}
-		instance.Metadata.DeletionTimestamp = &deletionTimestamp
 	}
 
 	// Convert status
@@ -387,9 +381,16 @@ func (s *InstanceService) instanceModelToProto(instance *types.Instance) (*gener
 		ContainerId:   instance.ContainerID,
 		Pid:           int32(instance.PID),
 		Environment:   instance.Environment,
-		Metadata:      &generated.InstanceMetadata{Generation: int32(instance.Metadata.ServiceGeneration)},
-		CreatedAt:     instance.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:     instance.UpdatedAt.Format(time.RFC3339),
+		Metadata: &generated.InstanceMetadata{
+			Generation:   int32(instance.Metadata.ServiceGeneration),
+			RestartCount: int32(instance.Metadata.RestartCount),
+		},
+		CreatedAt: instance.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: instance.UpdatedAt.Format(time.RFC3339),
+	}
+
+	if instance.Metadata.DeletionTimestamp != nil {
+		protoInstance.Metadata.DeletionTimestamp = instance.Metadata.DeletionTimestamp.Format(time.RFC3339)
 	}
 
 	// Convert status

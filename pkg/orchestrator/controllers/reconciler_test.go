@@ -27,8 +27,8 @@ func (m *MockHealthController) Stop() error {
 	return args.Error(0)
 }
 
-func (m *MockHealthController) AddInstance(instance *types.Instance) error {
-	args := m.Called(instance)
+func (m *MockHealthController) AddInstance(service *types.Service, instance *types.Instance) error {
+	args := m.Called(service, instance)
 	return args.Error(0)
 }
 
@@ -249,14 +249,12 @@ func TestReconcileScaleDown(t *testing.T) {
 	// Instead of using testStore.List which might not work as expected in tests,
 	// we'll directly check if instance2 was deleted by trying to get it
 	var deleted bool
-	var instance types.Instance
-	err = testStore.Get(ctx, types.ResourceTypeInstance, "default", "service1-1", &instance)
+	_, err = testStore.GetInstanceByID(ctx, "default", "service1-1")
 	deleted = err != nil // If we can't get it, it's deleted
 	assert.True(t, deleted, "Instance service1-1 should have been deleted")
 
 	// Verify we can still get instance1
-	var remainingInstance types.Instance
-	err = testStore.Get(ctx, types.ResourceTypeInstance, "default", "service1-0", &remainingInstance)
+	remainingInstance, err := testStore.GetInstanceByID(ctx, "default", "service1-0")
 	assert.NoError(t, err, "Instance service1-0 should still exist")
 	assert.Equal(t, "service1-0", remainingInstance.ID, "The remaining instance should be service1-0")
 }
@@ -292,6 +290,12 @@ func TestTestInstanceController(t *testing.T) {
 func TestHealthController(t *testing.T) {
 	// Create a mock health controller
 	mockCtrl := new(MockHealthController)
+	service := &types.Service{
+		ID:        "service1",
+		Name:      "service1",
+		Namespace: "default",
+		Image:     "test-image",
+	}
 
 	// Test AddInstance
 	instance := &types.Instance{
@@ -305,7 +309,7 @@ func TestHealthController(t *testing.T) {
 	mockCtrl.On("AddInstance", instance).Return(nil)
 
 	// Call the method
-	err := mockCtrl.AddInstance(instance)
+	err := mockCtrl.AddInstance(service, instance)
 
 	// Verify results
 	assert.NoError(t, err)
@@ -339,8 +343,8 @@ func TestDeleteInstanceFunction(t *testing.T) {
 	assert.Equal(t, instance, instanceCtrl.DeleteInstanceCalls[0].Instance)
 
 	// Verify the instance was removed
-	_, exists := instanceCtrl.GetInstance("instance1")
-	assert.False(t, exists, "Instance should be deleted after DeleteInstance call")
+	err = instanceCtrl.GetInstance(ctx, "default", "instance1", instance)
+	assert.Error(t, err, "Instance should be deleted after DeleteInstance call")
 }
 
 func TestReconcilerCreateInstance(t *testing.T) {

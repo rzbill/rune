@@ -63,9 +63,9 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
 		if t.AllNamespaces {
-			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "AGE"}
+			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "GENERATION", "AGE"}
 		} else {
-			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "AGE"}
+			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "GENERATION", "AGE"}
 		}
 	}
 
@@ -107,6 +107,12 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 		// Calculate age
 		age := formatAgeTable(service.Metadata.CreatedAt)
 
+		// Format generation
+		generation := "0"
+		if service.Metadata != nil && service.Metadata.Generation > 0 {
+			generation = fmt.Sprintf("%d", service.Metadata.Generation)
+		}
+
 		// Create the row
 		var row []string
 		if t.AllNamespaces {
@@ -117,6 +123,7 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				status,
 				instances,
 				imageOrCommand,
+				generation,
 				age,
 			}
 		} else {
@@ -126,6 +133,7 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				status,
 				instances,
 				imageOrCommand,
+				generation,
 				age,
 			}
 		}
@@ -156,9 +164,9 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
 		if t.AllNamespaces {
-			t.Headers = []string{"NAMESPACE", "NAME", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"}
+			t.Headers = []string{"NAMESPACE", "NAME", "INSTANCE ID", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"}
 		} else {
-			t.Headers = []string{"NAME", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"}
+			t.Headers = []string{"NAME", "INSTANCE ID", "SERVICE", "NODE", "STATUS", "RESTARTS", "AGE"}
 		}
 	}
 
@@ -170,8 +178,11 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 		// Format status using PTermStatusLabel
 		status := format.PTermStatusLabel(string(instance.Status))
 
-		// Format restarts (currently a placeholder as we don't track this yet)
-		restarts := "0" // Placeholder
+		// Format restarts from instance metadata
+		restarts := "0"
+		if instance.Metadata != nil {
+			restarts = fmt.Sprintf("%d", instance.Metadata.RestartCount)
+		}
 
 		// Calculate age
 		age := formatAgeTable(instance.CreatedAt)
@@ -182,7 +193,8 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 			row = []string{
 				instance.Namespace,
 				instance.Name,
-				fmt.Sprintf("%s(%s)", instance.ServiceName, instance.ServiceID),
+				instance.ID,
+				instance.ServiceName,
 				instance.NodeID,
 				status,
 				restarts,
@@ -191,7 +203,8 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 		} else {
 			row = []string{
 				instance.Name,
-				fmt.Sprintf("%s(%s)", instance.ServiceName, instance.ServiceID),
+				instance.ID,
+				instance.ServiceName,
 				instance.NodeID,
 				status,
 				restarts,

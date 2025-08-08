@@ -206,6 +206,18 @@ func (s *BadgerStore) Get(ctx context.Context, resourceType types.ResourceType, 
 	})
 }
 
+// GetInstance retrieves an instance by namespace and instanceID.
+func (s *BadgerStore) GetInstanceByID(ctx context.Context, namespace string, instanceID string) (*types.Instance, error) {
+	var instance types.Instance
+
+	err := s.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance)
+	if err != nil {
+		return nil, err
+	}
+
+	return &instance, nil
+}
+
 // Update updates an existing resource.
 func (s *BadgerStore) Update(ctx context.Context, resourceType types.ResourceType, namespace string, name string, resource interface{}, opts ...UpdateOption) error {
 	s.logger.Debug("Updating resource",

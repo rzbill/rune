@@ -125,7 +125,7 @@ func (s *APIServer) Start() error {
 	s.serviceService = service.NewServiceService(s.orchestrator, s.logger)
 	s.instanceService = service.NewInstanceService(s.store, s.runnerManager, s.logger)
 	s.logService = service.NewLogService(s.store, s.logger, s.orchestrator)
-	s.execService = service.NewExecService(s.store, s.logger, s.orchestrator)
+	s.execService = service.NewExecService(s.logger, s.orchestrator)
 	s.healthService = service.NewHealthService(s.store, s.logger)
 
 	// Start gRPC server

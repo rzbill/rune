@@ -107,7 +107,7 @@ func TestExecServiceStreamExec(t *testing.T) {
 
 	// Create ExecService
 	logger := log.NewLogger()
-	execService := NewExecService(testStore, logger, testOrchestrator)
+	execService := NewExecService(logger, testOrchestrator)
 
 	// Call StreamExec
 	err = execService.StreamExec(mockStream)
@@ -134,11 +134,10 @@ func (m *MockStdErrReader) Read(p []byte) (n int, err error) {
 // TestSimpleExecService is a minimal test to verify basic functionality
 func TestSimpleExecService(t *testing.T) {
 	// Create a simple exec service without using the store
-	testStore := store.NewTestStore()
 	logger := log.NewLogger()
 	testOrchestrator := orchestrator.NewFakeOrchestrator()
 
-	execService := NewExecService(testStore, logger, testOrchestrator)
+	execService := NewExecService(logger, testOrchestrator)
 
 	// This is just a placeholder test to ensure our interfaces are correct
 	assert.NotNil(t, execService)
@@ -146,11 +145,10 @@ func TestSimpleExecService(t *testing.T) {
 
 func TestExecServiceSimple(t *testing.T) {
 	// Create a simple exec service without using the store
-	testStore := store.NewTestStore()
 	logger := log.NewLogger()
 	testOrchestrator := orchestrator.NewFakeOrchestrator()
 
-	execService := NewExecService(testStore, logger, testOrchestrator)
+	execService := NewExecService(logger, testOrchestrator)
 
 	// This is just a placeholder test to ensure our Reader interface is working correctly
 	assert.NotNil(t, execService)
@@ -230,7 +228,7 @@ func TestExecServiceWithTestRunner(t *testing.T) {
 	mockStream.On("Recv").Return(nilReq, io.EOF).Once()
 
 	// Create ExecService using the orchestrator
-	execService := NewExecService(testStore, logger, testOrchestrator)
+	execService := NewExecService(logger, testOrchestrator)
 
 	// Call StreamExec
 	err = execService.StreamExec(mockStream)

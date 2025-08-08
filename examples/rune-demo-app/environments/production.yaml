@@ -1,0 +1,86 @@
+service:
+  name: rune-demo-app
+  namespace: production
+  labels:
+    app: rune-demo-app
+    environment: production
+    team: platform
+  image: rune-demo-app:latest
+  scale: 5
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: tcp
+  env:
+    # Production-specific configuration
+    ENVIRONMENT: "production"
+    VERSION: "1.0.0"
+    LOG_LEVEL: "info"
+    DEBUG_MODE: "false"
+    
+    # Production database
+    DATABASE_URL: "postgresql://prod-user:prod-pass@prod-db:5432/rune_demo_prod"
+    API_KEY: "prod-api-key-secure-12345"
+    
+    # Production features
+    FEATURE_FLAGS: "basic,advanced,stable"
+    CUSTOM_MESSAGE: "Hello from Production Environment! 🚀"
+    
+    # Production performance settings
+    MAX_CONNECTIONS: "500"
+    TIMEOUT_SECONDS: "30"
+    
+    # Production-specific variables
+    NODE_ENV: "production"
+    BUILD_DATE: "2024-01-01"
+    GIT_COMMIT: "prod-def456"
+    DEPLOYMENT_ID: "prod-deployment-001"
+    
+  health:
+    liveness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 30s
+      timeout: 5s
+      initialDelay: 10s
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 10s
+      timeout: 3s
+      initialDelay: 5s
+      failureThreshold: 3
+      successThreshold: 1
+  
+  resources:
+    cpu:
+      request: "200m"
+      limit: "1000m"
+    memory:
+      request: "256Mi"
+      limit: "512Mi"
+  
+  # Production network policy
+  networkPolicy:
+    ingress:
+      - from:
+          - cidr: 10.0.0.0/8
+        ports: [ http ]
+    egress:
+      - to:
+          - cidr: 0.0.0.0/0
+        ports: [ 80/tcp, 443/tcp, 5432/tcp ]
+  
+  # Production service discovery
+  discovery:
+    mode: load-balanced
+  
+  # Production external exposure
+  expose:
+    port: http
+    host: demo.rune.production

@@ -24,16 +24,13 @@ type HealthController interface {
 	Stop() error
 
 	// AddInstance adds an instance to be monitored
-	AddInstance(instance *types.Instance) error
+	AddInstance(service *types.Service, instance *types.Instance) error
 
 	// RemoveInstance removes an instance from monitoring
 	RemoveInstance(instanceID string) error
 
 	// GetHealthStatus gets the current health status of an instance
 	GetHealthStatus(ctx context.Context, instanceID string) (*types.InstanceHealthStatus, error)
-
-	// SetInstanceController sets the instance controller for restarting instances
-	SetInstanceController(controller InstanceController)
 }
 
 // healthController implements the HealthController interface
@@ -49,6 +46,9 @@ type healthController struct {
 	// Context for background operations
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Mutex for context access
+	ctxMu sync.RWMutex
 
 	// HTTP client for health checks
 	client *http.Client
@@ -84,16 +84,17 @@ type instanceHealth struct {
 	readinessStatus     bool
 	lastCheck           time.Time
 	consecutiveFailures int
-	restartCount        int
+	healthRestartCount  int // Separate count for health check restarts (backoff calculation)
 	lastRestartTime     time.Time
 	instanceController  InstanceController
 }
 
 // NewHealthController creates a new health controller
-func NewHealthController(logger log.Logger, store store.Store, runnerManager manager.IRunnerManager) HealthController {
+func NewHealthController(logger log.Logger, store store.Store, runnerManager manager.IRunnerManager, instanceController InstanceController) HealthController {
 	return &healthController{
-		logger:    logger.WithComponent("health-controller"),
-		instances: make(map[string]*instanceHealth),
+		logger:             logger.WithComponent("health-controller"),
+		instances:          make(map[string]*instanceHealth),
+		instanceController: instanceController,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -102,17 +103,14 @@ func NewHealthController(logger log.Logger, store store.Store, runnerManager man
 	}
 }
 
-// SetInstanceController sets the instance controller for restarting instances
-func (c *healthController) SetInstanceController(controller InstanceController) {
-	c.instanceController = controller
-}
-
 // Start the health controller
 func (c *healthController) Start(ctx context.Context) error {
 	c.logger.Info("Starting health controller")
 
 	// Create a context with cancel for all background operations
+	c.ctxMu.Lock()
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.ctxMu.Unlock()
 
 	return nil
 }
@@ -122,9 +120,12 @@ func (c *healthController) Stop() error {
 	c.logger.Info("Stopping health controller")
 
 	// Cancel context to stop all operations
+	c.ctxMu.Lock()
 	if c.cancel != nil {
 		c.cancel()
+		c.ctx = nil // Set context to nil after cancellation
 	}
+	c.ctxMu.Unlock()
 
 	// Wait for all goroutines to finish
 	c.wg.Wait()
@@ -133,7 +134,7 @@ func (c *healthController) Stop() error {
 }
 
 // AddInstance adds an instance to be monitored
-func (c *healthController) AddInstance(instance *types.Instance) error {
+func (c *healthController) AddInstance(service *types.Service, instance *types.Instance) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -147,32 +148,15 @@ func (c *healthController) AddInstance(instance *types.Instance) error {
 		return nil
 	}
 
-	// Get the service definition for this instance
-	var service types.Service
-	namespace := instance.Namespace
-	if namespace == "" {
-		namespace = "default" // Use default namespace as fallback
-	}
-
-	// Fetch from the store using service ID
-	err := c.store.Get(c.ctx, types.ResourceTypeService, namespace, instance.ServiceID, &service)
-	if err != nil {
-		c.logger.Error("Failed to get service definition for health check",
-			log.Str("instance", instance.ID),
-			log.Str("service", instance.ServiceID),
-			log.Err(err))
-		return fmt.Errorf("failed to get service definition for health check: %w", err)
-	}
-
 	// Create a health state entry for the instance
 	healthState := &instanceHealth{
 		instance:            instance,
-		service:             &service,
+		service:             service,
 		livenessResults:     make([]types.HealthCheckResult, 0),
 		readinessResults:    make([]types.HealthCheckResult, 0),
 		lastCheck:           time.Now(),
 		consecutiveFailures: 0,
-		restartCount:        0,
+		healthRestartCount:  0,           // Health restart count starts at 0
 		lastRestartTime:     time.Time{}, // Zero time represents no prior restarts
 	}
 
@@ -328,8 +312,19 @@ func (c *healthController) monitorInstance(instanceID string) {
 			defer readinessTicker.Stop()
 
 			for {
+				// Check if context is nil before using it
+				c.ctxMu.RLock()
+				ctx := c.ctx
+				c.ctxMu.RUnlock()
+
+				if ctx == nil {
+					c.logger.Debug("Context is nil, stopping readiness monitoring",
+						log.Str("instance", instanceID))
+					return
+				}
+
 				select {
-				case <-c.ctx.Done():
+				case <-ctx.Done():
 					return
 				case <-readinessTicker.C:
 					if readinessProbe != nil {
@@ -343,8 +338,19 @@ func (c *healthController) monitorInstance(instanceID string) {
 	// Main goroutine for liveness checks
 	defer livenessTicker.Stop()
 	for {
+		// Check if context is nil before using it
+		c.ctxMu.RLock()
+		ctx := c.ctx
+		c.ctxMu.RUnlock()
+
+		if ctx == nil {
+			c.logger.Debug("Context is nil, stopping liveness monitoring",
+				log.Str("instance", instanceID))
+			return
+		}
+
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			c.logger.Debug("Stopping health monitoring for instance",
 				log.Str("instance", instanceID))
 			return
@@ -398,9 +404,21 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 		return
 	}
 
+	// Check if context is nil before creating probe context
+	c.ctxMu.RLock()
+	ctx := c.ctx
+	c.ctxMu.RUnlock()
+
+	if ctx == nil {
+		c.logger.Debug("Context is nil, skipping health check",
+			log.Str("instance", instanceID),
+			log.Str("check_type", checkType))
+		return
+	}
+
 	// Create probe context with all necessary dependencies
 	probeCtx := &probes.ProbeContext{
-		Ctx:            c.ctx,
+		Ctx:            ctx,
 		Logger:         c.logger,
 		Instance:       instance,
 		ProbeConfig:    probe,
@@ -437,7 +455,8 @@ func (c *healthController) updateHealthStatus(instanceID string, result types.He
 	}
 
 	// Update status based on check type
-	if checkType == "liveness" {
+	switch checkType {
+	case "liveness":
 		ih.livenessResults = append(ih.livenessResults, result)
 		if len(ih.livenessResults) > 10 {
 			ih.livenessResults = ih.livenessResults[1:]
@@ -474,7 +493,7 @@ func (c *healthController) updateHealthStatus(instanceID string, result types.He
 				}
 			}
 		}
-	} else if checkType == "readiness" {
+	case "readiness":
 		ih.readinessResults = append(ih.readinessResults, result)
 		if len(ih.readinessResults) > 10 {
 			ih.readinessResults = ih.readinessResults[1:]
@@ -501,17 +520,12 @@ func (c *healthController) updateHealthStatus(instanceID string, result types.He
 
 // restartInstanceWithBackoff restarts an instance with exponential backoff
 func (c *healthController) restartInstanceWithBackoff(instanceID string, ih *instanceHealth) error {
-	// Check if we have an instance controller
-	if c.instanceController == nil {
-		return fmt.Errorf("cannot restart instance, no instance controller available")
-	}
-
 	// Get the current time
 	now := time.Now()
 
-	// Calculate the backoff duration based on restart count
+	// Calculate the backoff duration based on health restart count
 	// Base backoff is 10 seconds, doubles each restart up to a max of 5 minutes
-	backoff := 10 * time.Second * time.Duration(1<<uint(ih.restartCount))
+	backoff := 10 * time.Second * time.Duration(1<<uint(ih.healthRestartCount))
 	maxBackoff := 5 * time.Minute
 	if backoff > maxBackoff {
 		backoff = maxBackoff
@@ -527,7 +541,7 @@ func (c *healthController) restartInstanceWithBackoff(instanceID string, ih *ins
 	// Log the restart attempt
 	c.logger.Info("Restarting unhealthy instance",
 		log.Str("instance", instanceID),
-		log.Int("restart_count", ih.restartCount+1),
+		log.Int("health_restart_count", ih.healthRestartCount+1),
 		log.Duration("backoff", backoff))
 
 	// Get the instance
@@ -541,14 +555,14 @@ func (c *healthController) restartInstanceWithBackoff(instanceID string, ih *ins
 		return fmt.Errorf("failed to restart instance: %w", err)
 	}
 
-	// Update restart metrics
-	ih.restartCount++
+	// Update health restart metrics
+	ih.healthRestartCount++
 	ih.lastRestartTime = now
 	ih.consecutiveFailures = 0 // Reset failures after restart
 
 	c.logger.Info("Instance restart initiated successfully",
 		log.Str("instance", instanceID),
-		log.Int("restart_count", ih.restartCount))
+		log.Int("health_restart_count", ih.healthRestartCount))
 
 	return nil
 }

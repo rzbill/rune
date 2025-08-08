@@ -81,6 +81,9 @@ type InstanceMetadata struct {
 
 	// DeletionTimestamp is the timestamp when the instance was marked for deletion
 	DeletionTimestamp *time.Time `json:"deletionTimestamp,omitempty" yaml:"deletionTimestamp,omitempty"`
+
+	// RestartCount is the number of times this instance has been restarted
+	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
 }
 
 // Exec represents execution configuration for a command

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/api/utils"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -396,6 +397,8 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 		Environment:   proto.Environment,
 		Metadata: &types.InstanceMetadata{
 			ServiceGeneration: int64(proto.Metadata.Generation),
+			RestartCount:      int(proto.Metadata.RestartCount),
+			DeletionTimestamp: utils.ProtoStringToTimestamp(proto.Metadata.DeletionTimestamp),
 		},
 	}
 

@@ -81,6 +81,9 @@ message InstanceMetadata {
 
   // Deletion timestamp
   string deletion_timestamp = 2;
+
+  // Number of times the instance has been restarted
+  int32 restart_count = 3;
 }
 
 // GetInstanceRequest requests a specific instance.

@@ -1,0 +1,101 @@
+service:
+  name: rune-demo-app
+  namespace: demo
+  labels:
+    app: rune-demo-app
+    type: web-service
+    environment: development
+    team: platform
+  image: rune-demo-app:latest
+  scale: 3
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: tcp
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: tcp
+  env:
+    # Basic configuration
+    PORT: "8080"
+    HOST: "0.0.0.0"
+    ENVIRONMENT: "development"
+    VERSION: "1.0.0"
+    LOG_LEVEL: "info"
+    
+    # Service identification
+    SERVICE_NAME: "rune-demo-app"
+    INSTANCE_ID: ""  # Will be auto-generated
+    
+    # Database configuration
+    DATABASE_URL: "postgresql://demo-user:demo-pass@demo-db:5432/rune_demo"
+    API_KEY: "demo-api-key-12345"
+    
+    # Feature flags and debugging
+    DEBUG_MODE: "true"
+    FEATURE_FLAGS: "basic,advanced,experimental,metrics"
+    CUSTOM_MESSAGE: "Hello from Rune Demo App! 🚀"
+    
+    # Performance settings
+    MAX_CONNECTIONS: "200"
+    TIMEOUT_SECONDS: "30"
+    
+    # Additional environment variables for testing
+    NODE_ENV: "development"
+    APP_NAME: "rune-demo-app"
+    BUILD_DATE: "2024-01-01"
+    GIT_COMMIT: "abc123def456"
+    DEPLOYMENT_ID: "demo-deployment-001"
+    
+    # Rune-specific environment variables
+    REPLICA_INDEX: ""  # Will be set by Rune
+    
+  health:
+    liveness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 30s
+      timeout: 5s
+      initialDelay: 10s
+      failureThreshold: 3
+      successThreshold: 1
+    readiness:
+      type: http
+      path: /health
+      port: 8080
+      interval: 10s
+      timeout: 3s
+      initialDelay: 5s
+      failureThreshold: 3
+      successThreshold: 1
+  
+  resources:
+    cpu:
+      request: "100m"
+      limit: "500m"
+    memory:
+      request: "128Mi"
+      limit: "256Mi"
+  
+  # Network policy for demo
+  networkPolicy:
+    ingress:
+      - from:
+          - cidr: 0.0.0.0/0
+        ports: [ http ]
+    egress:
+      - to:
+          - cidr: 0.0.0.0/0
+        ports: [ 80/tcp, 443/tcp, 5432/tcp ]
+  
+  # Service discovery configuration
+  discovery:
+    mode: load-balanced
+  
+  # Expose service externally
+  expose:
+    port: http
+    host: demo.rune.local

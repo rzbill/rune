@@ -6,6 +6,19 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	// DefaultNamespace is the default namespace for services.
+	DefaultNamespace = "default"
+)
+
+// EnsureNamespace returns the namespace, defaulting to DefaultNamespace if empty
+func EnsureNamespace(namespace string) string {
+	if namespace == "" {
+		return DefaultNamespace
+	}
+	return namespace
+}
+
 // Namespace represents a logical boundary for isolation and scoping of resources.
 type Namespace struct {
 	// Unique identifier for the namespace

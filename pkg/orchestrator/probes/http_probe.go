@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/rzbill/rune/pkg/log"
 )
 
 // HTTPProber implements the HTTP health check probe
@@ -11,6 +13,7 @@ type HTTPProber struct{}
 
 // Execute implements the Prober interface for HTTP probes
 func (p *HTTPProber) Execute(ctx *ProbeContext) ProbeResult {
+	ctx.Logger.Info("Executing HTTP probe", log.Str("instance", ctx.Instance.Name), log.Str("probe_type", "http"))
 	start := time.Now()
 
 	// Determine endpoint for the check

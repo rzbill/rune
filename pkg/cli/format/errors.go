@@ -286,17 +286,20 @@ func (f *ErrorFormatter) AddError(err ValidationError) {
 
 // PrintError prints an error with context
 func (f *ErrorFormatter) PrintError(errStr string, lineNum int) {
-	// Determine error type
-	errType := "GENERAL_ERROR"
+	// Determine error type for categorization
+	errCategory := "GENERAL_ERROR"
 	for pattern, category := range ErrorCategoryMapping {
 		if strings.Contains(strings.ToLower(errStr), strings.ToLower(pattern)) {
-			errType = category
+			errCategory = category
 			break
 		}
 	}
 
+	// Always use "error" as the error type for counting purposes
+	errType := ErrorType
+
 	autoFixable := false
-	hint := f.GenerateHint(errStr, errType)
+	hint := f.GenerateHint(errStr, errCategory)
 
 	// YAML indentation errors are often auto-fixable
 	for _, pattern := range indentationPatterns {
@@ -380,6 +383,16 @@ func (f *ErrorFormatter) PrintError(errStr string, lineNum int) {
 			HintColor.Printf("%sHint: %s\n\n", indent, hint)
 		}
 	}
+
+	// Always add the error to the error count, regardless of output format
+	f.AddError(ValidationError{
+		FileName:    f.FileName,
+		LineNumber:  lineNum,
+		Message:     errStr,
+		ErrorType:   errType,
+		Hint:        hint,
+		AutoFixable: autoFixable,
+	})
 }
 
 // PrintServiceError prints an error specific to a service

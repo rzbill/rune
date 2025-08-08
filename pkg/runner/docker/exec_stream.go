@@ -294,6 +294,10 @@ func (s *DockerExecStream) startIOCopy() {
 			}
 		}
 
+		// Close the pipes to signal EOF to readers
+		s.stdout.Close()
+		s.stderr.Close()
+
 		// After I/O is done, get exit code
 		s.exitCodeMutex.Lock()
 		defer s.exitCodeMutex.Unlock()

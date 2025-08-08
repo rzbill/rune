@@ -69,6 +69,11 @@ func (fo *FakeOrchestrator) AddInstance(instance *types.Instance) {
 	fo.instances[instance.ID] = instance
 }
 
+// GetInstanceByID implements Orchestrator interface
+func (fo *FakeOrchestrator) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
+	return nil, nil
+}
+
 // ListDeletionOperations implements Orchestrator interface
 func (fo *FakeOrchestrator) ListDeletionOperations(ctx context.Context, namespace string) ([]*types.DeletionOperation, error) {
 	return nil, nil
@@ -76,6 +81,11 @@ func (fo *FakeOrchestrator) ListDeletionOperations(ctx context.Context, namespac
 
 // ListInstances implements Orchestrator interface
 func (fo *FakeOrchestrator) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	return nil, nil
+}
+
+// ListRunningInstances implements Orchestrator interface
+func (fo *FakeOrchestrator) ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	return nil, nil
 }
 

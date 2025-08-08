@@ -39,6 +39,7 @@ type Orchestrator interface {
 	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error)
 
 	// Lifecycle operations
+	GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error)
 	RestartService(ctx context.Context, namespace, serviceName string) error
 	RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error
 	StopService(ctx context.Context, namespace, serviceName string) error
@@ -53,6 +54,7 @@ type Orchestrator interface {
 
 	// Instance operations
 	ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error)
+	ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error)
 
 	// Scaling operations
 	CreateScalingOperation(ctx context.Context, service *types.Service, params types.ScalingOperationParams) error
@@ -134,6 +136,7 @@ func NewOrchestrator(options OrchestratorOptions) (Orchestrator, error) {
 		options.Logger,
 		options.Store,
 		options.RunnerManager,
+		instanceController,
 	)
 
 	scalingController := controllers.NewScalingController(
@@ -182,6 +185,11 @@ func (o *orchestrator) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start service controller: %w", err)
 	}
 
+	// Start health controller
+	if err := o.healthController.Start(o.ctx); err != nil {
+		return fmt.Errorf("failed to start health controller: %w", err)
+	}
+
 	o.started = true
 	o.logger.Info("Orchestrator started successfully")
 	return nil
@@ -206,6 +214,11 @@ func (o *orchestrator) Stop() error {
 	// Stop controllers
 	if err := o.serviceController.Stop(); err != nil {
 		o.logger.Error("Failed to stop service controller", log.Err(err))
+	}
+
+	// Stop health controller
+	if err := o.healthController.Stop(); err != nil {
+		o.logger.Error("Failed to stop health controller", log.Err(err))
 	}
 
 	// Wait for all goroutines to finish
@@ -285,8 +298,8 @@ func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name str
 
 func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error) {
 	// Get the instance from store
-	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
@@ -311,13 +324,13 @@ func (o *orchestrator) GetServiceLogs(ctx context.Context, namespace, name strin
 
 func (o *orchestrator) GetInstanceLogs(ctx context.Context, namespace, instanceID string, opts types.LogOptions) (io.ReadCloser, error) {
 	// Get the instance from store
-	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Delegate to instance controller for log retrieval
-	return o.instanceController.GetInstanceLogs(ctx, &instance, opts)
+	return o.instanceController.GetInstanceLogs(ctx, instance, opts)
 }
 
 // Execution operations
@@ -328,16 +341,20 @@ func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName
 
 func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
 	// Get the instance from store
-	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Delegate to instance controller for execution
-	return o.instanceController.Exec(ctx, &instance, options)
+	return o.instanceController.Exec(ctx, instance, options)
 }
 
 // Lifecycle operations
+
+func (o *orchestrator) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
+	return o.instanceController.GetInstanceByID(ctx, namespace, instanceID)
+}
 
 func (o *orchestrator) RestartService(ctx context.Context, namespace, serviceName string) error {
 	return o.serviceController.RestartService(ctx, namespace, serviceName)
@@ -345,13 +362,13 @@ func (o *orchestrator) RestartService(ctx context.Context, namespace, serviceNam
 
 func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
 	// Get the instance from store
-	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
+	if err != nil {
 		return fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Delegate to instance controller for restart
-	return o.instanceController.RestartInstance(ctx, &instance, controllers.InstanceRestartReasonManual)
+	return o.instanceController.RestartInstance(ctx, instance, controllers.InstanceRestartReasonManual)
 }
 
 func (o *orchestrator) StopService(ctx context.Context, namespace, serviceName string) error {
@@ -360,13 +377,13 @@ func (o *orchestrator) StopService(ctx context.Context, namespace, serviceName s
 
 func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
 	// Get the instance from store
-	var instance types.Instance
-	if err := o.store.Get(ctx, types.ResourceTypeInstance, namespace, instanceID, &instance); err != nil {
+	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
+	if err != nil {
 		return fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Delegate to instance controller for stop
-	return o.instanceController.StopInstance(ctx, &instance)
+	return o.instanceController.StopInstance(ctx, instance)
 }
 
 // Deletion operations
@@ -397,6 +414,10 @@ func (o *orchestrator) WatchServices(ctx context.Context, namespace string) (<-c
 
 func (o *orchestrator) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
 	return o.instanceController.ListInstances(ctx, namespace)
+}
+
+func (o *orchestrator) ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	return o.instanceController.ListRunningInstances(ctx, namespace)
 }
 
 // Scaling operations

@@ -1,0 +1,61 @@
+service:
+  name: rune-hello-world
+  namespace: default
+  labels:
+    app: rune-hello-world
+    type: web-service
+    environment: development
+  image: rune-hello-world:latest
+  scale: 1
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: tcp
+  env:
+    PORT: "8080"
+    HOST: "0.0.0.0"
+    ENVIRONMENT: "development"
+    VERSION: "1.0.0"
+    LOG_LEVEL: "info"
+    DATABASE_URL: "postgresql://localhost:5432/rune_hello_world"
+    API_KEY: "demo-api-key-12345"
+    DEBUG_MODE: "true"
+    FEATURE_FLAGS: "basic,advanced,experimental"
+    CUSTOM_MESSAGE: "Hello from Rune Hello World!"
+    MAX_CONNECTIONS: "100"
+    TIMEOUT_SECONDS: "30"
+    NODE_ENV: "development"
+    APP_NAME: "rune-hello-world"
+    BUILD_DATE: "2024-01-01"
+    GIT_COMMIT: "abc123def456"
+  
+  # Invalid field - should be rejected
+  invalidField: "this should cause an error"
+  
+  health:
+    # Invalid field - should be rejected
+    invalidHealthField:
+      type: http
+      path: /health
+      port: 8080
+    liveness:
+      type: http
+      path: /health
+      port: 8080
+      initialDelaySeconds: 5
+      intervalSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+      # Invalid field - should be rejected
+      invalidProbeField: "this should cause an error"
+    readiness:
+      type: http
+      path: /health
+      port: 8080
+      initialDelaySeconds: 5
+      intervalSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
