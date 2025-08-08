@@ -103,6 +103,21 @@ func NewFakeInstanceController() *FakeInstanceController {
 	}
 }
 
+// ListInstances records a call to list instances
+func (c *FakeInstanceController) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Convert to pointers
+	result := make([]*types.Instance, len(c.instances))
+	i := 0
+	for _, instance := range c.instances {
+		result[i] = instance
+		i++
+	}
+	return result, nil
+}
+
 // CreateInstance records a call to create an instance and returns a predefined or mocked result
 func (c *FakeInstanceController) CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error) {
 	c.mu.Lock()
@@ -277,6 +292,17 @@ func (c *FakeInstanceController) GetInstanceStatus(ctx context.Context, instance
 		NodeID:     storedInstance.NodeID,
 		CreatedAt:  storedInstance.CreatedAt,
 	}, nil
+
+}
+
+func (c *FakeInstanceController) CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
+	instances := make(map[string]*RunningInstance)
+	for id, instance := range c.instances {
+		instances[id] = &RunningInstance{
+			Instance: instance,
+		}
+	}
+	return instances, nil
 }
 
 // GetInstanceLogs records a call to get instance logs

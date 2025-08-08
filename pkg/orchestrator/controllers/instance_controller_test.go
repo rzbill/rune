@@ -30,7 +30,7 @@ func setupTestController(t *testing.T) (context.Context, *store.TestStore, *runn
 }
 
 // createTestService creates a test service in the store
-func createTestService(ctx context.Context, t *testing.T, testStore *store.TestStore, name string, restartPolicy types.RestartPolicy) *types.Service {
+func instanceControllerCreateTestService(ctx context.Context, t *testing.T, testStore *store.TestStore, name string, restartPolicy types.RestartPolicy) *types.Service {
 	service := &types.Service{
 		ID:            name,
 		Name:          name,
@@ -44,6 +44,9 @@ func createTestService(ctx context.Context, t *testing.T, testStore *store.TestS
 			"ENV_VAR1": "value1",
 			"ENV_VAR2": "value2",
 		},
+		Metadata: &types.ServiceMetadata{
+			Generation: 1,
+		},
 	}
 
 	err := testStore.CreateService(ctx, service)
@@ -56,7 +59,7 @@ func TestCreateInstance(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Test creating an instance for the service
 	instance, err := controller.CreateInstance(ctx, service, "test-instance-0")
@@ -86,7 +89,7 @@ func TestDeleteInstance(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service and instance
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store and runner
 	instance := &types.Instance{
@@ -125,7 +128,7 @@ func TestStopInstance(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service and instance
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store and runner
 	instance := &types.Instance{
@@ -164,7 +167,7 @@ func TestGetInstanceStatus(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service and instance
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store
 	instance := &types.Instance{
@@ -200,7 +203,7 @@ func TestGetInstanceLogs(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service and instance
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store
 	instance := &types.Instance{
@@ -245,7 +248,7 @@ func TestExec(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service and instance
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store
 	instance := &types.Instance{
@@ -505,7 +508,7 @@ func TestUpdateInstance(t *testing.T) {
 	ctx, testStore, testRunner, controller := setupTestController(t)
 
 	// Create a test service
-	service := createTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
+	service := instanceControllerCreateTestService(ctx, t, testStore, "test-service", types.RestartPolicyAlways)
 
 	// Create instance directly in store
 	originalUpdateTime := time.Now().Add(-1 * time.Hour) // Old update time
@@ -520,7 +523,8 @@ func TestUpdateInstance(t *testing.T) {
 			"ENV_VAR1":          "old-value", // This will be updated
 		},
 		Metadata: &types.InstanceMetadata{
-			Image: "original-image:latest",
+			Image:             "original-image:latest",
+			ServiceGeneration: 1, // Match the service generation
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: originalUpdateTime,
@@ -567,6 +571,9 @@ func TestUpdateInstanceIncompatible(t *testing.T) {
 		RestartPolicy: types.RestartPolicyAlways,
 		Image:         "original-image:latest",
 		Runtime:       "docker",
+		Metadata: &types.ServiceMetadata{
+			Generation: 1,
+		},
 	}
 
 	err := testStore.CreateService(ctx, service)
@@ -599,6 +606,9 @@ func TestUpdateInstanceIncompatible(t *testing.T) {
 		RestartPolicy: service.RestartPolicy,
 		Image:         "different-image:latest", // This should trigger incompatibility
 		Runtime:       "docker",
+		Metadata: &types.ServiceMetadata{
+			Generation: 2, // Increment generation to trigger incompatibility
+		},
 	}
 
 	// Update should fail due to incompatibility

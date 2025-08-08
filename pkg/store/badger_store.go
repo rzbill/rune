@@ -365,7 +365,7 @@ func (s *BadgerStore) List(ctx context.Context, resourceType types.ResourceType,
 		}
 	}
 
-	s.logger.Debug("Found resources", log.Int("count", len(resources)))
+	s.logger.Debug("Found resources", log.Any("resourceType", resourceType), log.Int("count", len(resources)))
 	return UnmarshalResource(resources, resource)
 }
 
@@ -491,6 +491,12 @@ func (s *BadgerStore) Watch(ctx context.Context, resourceType types.ResourceType
 
 	// Add to active watches
 	key := fmt.Sprintf("%s:%s", resourceType, namespace)
+
+	// Check if watchConns is nil (store might be closed)
+	if s.watchConns == nil {
+		return nil, fmt.Errorf("store is closed, cannot create new watch")
+	}
+
 	s.watchConns[key] = append(s.watchConns[key], watchChan)
 
 	// Remove from active watches when context is done

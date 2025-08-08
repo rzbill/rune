@@ -189,12 +189,13 @@ func (s *ServiceClient) DeleteServiceWithRequest(req *generated.DeleteServiceReq
 }
 
 // GetDeletionStatus gets the status of a deletion operation.
-func (s *ServiceClient) GetDeletionStatus(deletionID string) (*generated.GetDeletionStatusResponse, error) {
-	s.logger.Debug("Getting deletion status", log.Str("deletion_id", deletionID))
+func (s *ServiceClient) GetDeletionStatus(namespace, name string) (*generated.GetDeletionStatusResponse, error) {
+	s.logger.Debug("Getting deletion status", log.Str("namespace", namespace), log.Str("name", name))
 
 	// Create the gRPC request
 	req := &generated.GetDeletionStatusRequest{
-		DeletionId: deletionID,
+		Namespace: namespace,
+		Name:      name,
 	}
 
 	// Send the request to the API server
@@ -203,7 +204,7 @@ func (s *ServiceClient) GetDeletionStatus(deletionID string) (*generated.GetDele
 
 	resp, err := s.svc.GetDeletionStatus(ctx, req)
 	if err != nil {
-		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", deletionID))
+		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", name))
 		return nil, convertGRPCError("get deletion status", err)
 	}
 

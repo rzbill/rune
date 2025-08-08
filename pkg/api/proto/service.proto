@@ -231,7 +231,8 @@ message DeleteServiceResponse {
 
 // GetDeletionStatusRequest represents a request to get deletion status
 message GetDeletionStatusRequest {
-  string deletion_id = 1;
+  string namespace = 1;
+  string name = 2;
 }
 
 // GetDeletionStatusResponse represents the response from getting deletion status
@@ -263,13 +264,12 @@ message DeletionOperation {
   int64 start_time = 7;
   int64 end_time = 8;
   string status = 9;
-  string phase = 10;
-  string failure_reason = 11;
-  repeated string pending_operations = 12;
-  int64 estimated_completion = 13;
-  repeated Finalizer finalizers = 14;
-  repeated string finalizer_order = 15;
-  string finalizer_status = 16;
+  string failure_reason = 10;
+  repeated string pending_operations = 11;
+  int64 estimated_completion = 12;
+  repeated Finalizer finalizers = 13;
+  repeated string finalizer_order = 14;
+  string finalizer_status = 15;
 }
 
 // Finalizer represents a cleanup operation that must complete before deletion

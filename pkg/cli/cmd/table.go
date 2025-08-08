@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/rzbill/rune/pkg/types"
 )
@@ -222,6 +223,42 @@ func (t *ResourceTable) RenderNamespaces(namespaces []*types.Namespace) error {
 	// Placeholder message
 	fmt.Println("Namespace rendering not yet implemented")
 	return nil
+}
+
+// RenderDeletionOperations renders a table of deletion operations
+func (t *ResourceTable) RenderDeletionOperations(operations []*generated.DeletionOperation) error {
+	if len(operations) == 0 {
+		fmt.Println("No deletion operations found")
+		return nil
+	}
+
+	// Set default headers if not provided
+	if len(t.Headers) == 0 {
+		t.Headers = []string{"ID", "NAMESPACE", "SERVICE", "STATUS", "PROGRESS"}
+	}
+
+	// Create rows
+	rows := [][]string{t.Headers} // Start with headers
+
+	// Generate data rows
+	for _, operation := range operations {
+		progress := fmt.Sprintf("%d/%d", operation.DeletedInstances, operation.TotalInstances)
+		if operation.TotalInstances == 0 {
+			progress = "N/A"
+		}
+
+		row := []string{
+			operation.Id,
+			operation.Namespace,
+			operation.ServiceName,
+			string(operation.Status),
+			progress,
+		}
+		rows = append(rows, row)
+	}
+
+	// Render the table with pterm
+	return t.tableRenderer.WithData(rows).Render()
 }
 
 // Helper functions with unique names to avoid conflicts

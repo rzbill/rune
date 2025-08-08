@@ -273,6 +273,11 @@ func (c *healthController) monitorInstance(instanceID string) {
 
 	// Get health check configurations
 	service := ih.service
+	if service == nil {
+		c.mu.RUnlock()
+		c.logger.Error("Service is nil for instance, stopping monitoring", log.Str("instance", instanceID))
+		return
+	}
 
 	// If service has no health checks, we don't need to monitor it
 	// (it's already marked as healthy in AddInstance)
@@ -363,6 +368,11 @@ func (c *healthController) performHealthCheck(instanceID string, probe *types.Pr
 		return
 	}
 	instance := ih.instance
+	if instance == nil {
+		c.mu.RUnlock()
+		c.logger.Error("Instance is nil in health state, stopping health check", log.Str("instance", instanceID))
+		return
+	}
 	c.mu.RUnlock()
 
 	// Create a prober for this probe type

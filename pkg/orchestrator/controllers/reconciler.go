@@ -1,4 +1,4 @@
-package orchestrator
+package controllers
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
@@ -25,8 +24,8 @@ const garbageCollectionInterval = 10 * time.Minute
 // matches the desired state defined in the services
 type reconciler struct {
 	store              store.Store
-	instanceController controllers.InstanceController
-	healthController   controllers.HealthController
+	instanceController InstanceController
+	healthController   HealthController
 	runnerManager      manager.IRunnerManager
 	logger             log.Logger
 	reconcileInterval  time.Duration
@@ -41,16 +40,14 @@ type reconciler struct {
 // newReconciler creates a new reconciler.
 func newReconciler(
 	store store.Store,
-	instanceController controllers.InstanceController,
-	healthController controllers.HealthController,
-	runnerManager manager.IRunnerManager,
+	instanceController InstanceController,
+	healthController HealthController,
 	logger log.Logger,
 ) *reconciler {
 	return &reconciler{
 		store:              store,
 		instanceController: instanceController,
 		healthController:   healthController,
-		runnerManager:      runnerManager,
 		logger:             logger.WithComponent("reconciler"),
 		reconcileInterval:  30 * time.Second,
 		mu:                 sync.Mutex{},
@@ -158,97 +155,63 @@ func (r *reconciler) reconcileServices(ctx context.Context) error {
 
 	// Get desired state from store
 	var services []types.Service
-	err := r.store.ListAll(ctx, types.ResourceTypeService, &services)
-
-	if err != nil {
+	if err := r.store.ListAll(ctx, types.ResourceTypeService, &services); err != nil {
 		return fmt.Errorf("failed to list services: %w", err)
 	}
 
-	// Get actual state from runners
-	runningInstances, err := r.collectRunningInstances(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to collect running instances: %w", err)
-	}
+	// Collect all orphaned instances across all services
+	var allOrphanedInstances []*types.Instance
 
 	// Reconcile each service's desired state with actual state
 	for _, service := range services {
-		if err := r.reconcileService(ctx, &service, runningInstances); err != nil {
+		if err := r.reconcileService(ctx, &service); err != nil {
 			r.logger.Error("Failed to reconcile service",
 				log.Str("service", service.Name),
 				log.Str("namespace", service.Namespace),
 				log.Err(err))
 			// Continue with other services even if one fails
 		}
+
+		// Collect orphaned instances for this service
+		instanceData, err := r.getServiceInstances(ctx, &service)
+		if err != nil {
+			r.logger.Error("Failed to get service instances for orphaned detection",
+				log.Str("service", service.Name),
+				log.Err(err))
+			continue
+		}
+		allOrphanedInstances = append(allOrphanedInstances, instanceData.OrphanedInstances...)
 	}
 
 	r.logger.Debug("Completed reconciliation for services", log.Int("count", len(services)))
 
 	// Handle orphaned instances (running but not in desired state)
-	for id, instance := range runningInstances {
-		if instance.IsOrphaned {
-			r.logger.Info("Cleaning up orphaned instance",
-				log.Str("instance", id),
-				log.Str("service", instance.Instance.ServiceID))
-
-			if err := r.instanceController.DeleteInstance(ctx, instance.Instance); err != nil {
-				r.logger.Error("Failed to clean up orphaned instance",
-					log.Str("instance", id),
-					log.Err(err))
-			}
-		}
+	if err := r.cleanUpOrphanedInstances(ctx, allOrphanedInstances); err != nil {
+		r.logger.Error("Failed to clean up orphaned instances", log.Err(err))
 	}
 
 	r.logger.Debug("Service reconciliation completed")
 	return nil
 }
 
-// collectRunningInstances gathers all running instances from all runners
-func (r *reconciler) collectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
-	instances := make(map[string]*RunningInstance)
-
-	// Collect instances from docker runner
-	dockerRunner, err := r.runnerManager.GetDockerRunner()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get docker runner: %w", err)
-	}
-	dockerInstances, err := dockerRunner.List(ctx, "")
-	if err != nil {
-		r.logger.Error("Failed to list docker instances", log.Err(err))
-		// Continue with other runners even if one fails
-	} else {
-		for _, instance := range dockerInstances {
-			instances[instance.ID] = &RunningInstance{
-				Instance:   instance,
-				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
-				Runner:     dockerRunner.Type(),
+func (r *reconciler) cleanUpOrphanedInstances(ctx context.Context, orphanedInstances []*types.Instance) error {
+	for _, instance := range orphanedInstances {
+		if instance != nil {
+			r.logger.Info("Cleaning up orphaned instance",
+				log.Str("instance", instance.ID),
+				log.Str("service", instance.ServiceID))
+			if err := r.instanceController.DeleteInstance(ctx, instance); err != nil {
+				r.logger.Error("Failed to clean up orphaned instance",
+					log.Str("instance", instance.ID),
+					log.Err(err))
 			}
 		}
 	}
-
-	// Collect instances from process runner
-	processRunner, err := r.runnerManager.GetProcessRunner()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get process runner: %w", err)
-	}
-	processInstances, err := processRunner.List(ctx, "")
-	if err != nil {
-		r.logger.Error("Failed to list process instances", log.Err(err))
-		// Continue with other runners even if one fails
-	} else {
-		for _, instance := range processInstances {
-			instances[instance.ID] = &RunningInstance{
-				Instance:   instance,
-				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
-				Runner:     processRunner.Type(),
-			}
-		}
-	}
-
-	return instances, nil
+	return nil
 }
 
 // reconcileService ensures that a single service's instances match the desired state
-func (r *reconciler) reconcileService(ctx context.Context, service *types.Service, runningInstances map[string]*RunningInstance) error {
+func (r *reconciler) reconcileService(ctx context.Context, service *types.Service) error {
 	r.logger.Debug("Reconciling service",
 		log.Str("service", service.Name),
 		log.Str("namespace", service.Namespace))
@@ -261,14 +224,8 @@ func (r *reconciler) reconcileService(ctx context.Context, service *types.Servic
 		return nil
 	}
 
-	// Get existing instances for this service
-	serviceInstances, err := r.getServiceInstances(ctx, service, runningInstances)
-	if err != nil {
-		return err
-	}
-
 	// Scale down if needed
-	if err := r.scaleDownService(ctx, service, serviceInstances); err != nil {
+	if err := r.scaleDownService(ctx, service); err != nil {
 		r.logger.Error("Error scaling down service",
 			log.Str("service", service.Name),
 			log.Err(err))
@@ -276,7 +233,7 @@ func (r *reconciler) reconcileService(ctx context.Context, service *types.Servic
 	}
 
 	// Ensure we have the right number of instances and they're up to date
-	if err := r.ensureServiceInstances(ctx, service, serviceInstances); err != nil {
+	if err := r.ensureServiceInstances(ctx, service); err != nil {
 		r.logger.Error("Error ensuring service instances",
 			log.Str("service", service.Name),
 			log.Err(err))
@@ -293,12 +250,29 @@ func (r *reconciler) reconcileService(ctx context.Context, service *types.Servic
 	return nil
 }
 
+// reconcileSingleService reconciles a single service with running instances collection
+// This is used by the service controller for immediate reconciliation on service events
+func (r *reconciler) reconcileSingleService(ctx context.Context, service *types.Service) error {
+	r.logger.Debug("Reconciling single service",
+		log.Str("service", service.Name),
+		log.Str("namespace", service.Namespace))
+
+	// Reconcile the service using the existing logic
+	return r.reconcileService(ctx, service)
+}
+
 // getServiceInstances retrieves and filters instances for a specific service
 // Marks running instances that belong to this service as not orphaned
-func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Service, runningInstances map[string]*RunningInstance) ([]types.Instance, error) {
+func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Service) (*ServiceInstanceData, error) {
+	// Get running instances from all runners
+	runningInstances, err := r.instanceController.CollectRunningInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect running instances: %w", err)
+	}
+
 	// Get existing instances for this service from store
 	var storeInstances []types.Instance
-	err := r.store.List(ctx, types.ResourceTypeInstance, service.Namespace, &storeInstances)
+	err = r.store.List(ctx, types.ResourceTypeInstance, service.Namespace, &storeInstances)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instances for service: %w", err)
 	}
@@ -309,40 +283,60 @@ func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Ser
 
 	// Filter instances for this service, skipping deleted ones
 	var serviceInstances []types.Instance
-	for _, instance := range storeInstances {
+	var orphanedInstances []*types.Instance
 
+	// Track which running instances belong to this service
+	serviceRunningInstances := make(map[string]bool)
+
+	for _, instance := range storeInstances {
 		if instance.ServiceID == service.ID && instance.Status != types.InstanceStatusDeleted {
 			serviceInstances = append(serviceInstances, instance)
+			serviceRunningInstances[instance.ID] = true
+		}
+	}
 
-			// Mark running instances that belong to this service as not orphaned
-			if runningInst, exists := runningInstances[instance.ID]; exists {
-				runningInst.IsOrphaned = false
+	// Check for orphaned instances (running but not in store for this service)
+	for instanceID, runningInst := range runningInstances {
+		if !serviceRunningInstances[instanceID] {
+			// This instance is running but not in our service's store instances
+			// Check if it belongs to this service
+			if runningInst.Instance != nil && runningInst.Instance.ServiceID == service.ID {
+				orphanedInstances = append(orphanedInstances, runningInst.Instance)
 			}
 		}
 	}
 
-	return serviceInstances, nil
+	return &ServiceInstanceData{
+		Instances:         serviceInstances,
+		OrphanedInstances: orphanedInstances,
+	}, nil
 }
 
 // scaleDownService removes excess instances when the desired scale is lower than current
-func (r *reconciler) scaleDownService(ctx context.Context, service *types.Service, instances []types.Instance) error {
-	if len(instances) <= service.Scale {
+func (r *reconciler) scaleDownService(ctx context.Context, service *types.Service) error {
+	// Get existing instances for this service
+	instanceData, err := r.getServiceInstances(ctx, service)
+	if err != nil {
+		return err
+	}
+
+	if len(instanceData.Instances) <= service.Scale {
 		return nil // No scaling down needed
 	}
 
 	r.logger.Info("Scaling down service",
 		log.Str("service", service.Name),
-		log.Int("current", len(instances)),
+		log.Int("current", len(instanceData.Instances)),
 		log.Int("desired", service.Scale))
 
 	// Sort instances by creation time (newest first)
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].CreatedAt.After(instances[j].CreatedAt)
+	sort.Slice(instanceData.Instances, func(i, j int) bool {
+		return instanceData.Instances[i].CreatedAt.After(instanceData.Instances[j].CreatedAt)
 	})
 
 	// For now we'll use a simple approach removing from the end
-	for i := service.Scale; i < len(instances); i++ {
-		instance := instances[i]
+	for i := service.Scale; i < len(instanceData.Instances); i++ {
+		instance := instanceData.Instances[i]
 
 		r.logger.Info("Removing excess instance",
 			log.Str("service", service.Name),
@@ -365,11 +359,16 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 }
 
 // ensureServiceInstances makes sure we have the right number of instances and they're up to date
-func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.Service, instances []types.Instance) error {
+func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.Service) error {
+	// Get existing instances for this service
+	instanceData, err := r.getServiceInstances(ctx, service)
+	if err != nil {
+		return err
+	}
 	r.logger.Debug("Ensuring service instances",
 		log.Str("service", service.Name),
 		log.Int("desired", service.Scale),
-		log.Int("current", len(instances)))
+		log.Int("current", len(instanceData.Instances)))
 
 	for i := 0; i < service.Scale; i++ {
 		// Generate instance name
@@ -377,9 +376,9 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 
 		// Check if this instance already exists
 		var existingInstance *types.Instance
-		for j := range instances {
-			if instances[j].Name == instanceName {
-				existingInstance = &instances[j]
+		for j := range instanceData.Instances {
+			if instanceData.Instances[j].Name == instanceName {
+				existingInstance = &instanceData.Instances[j]
 				break
 			}
 		}
@@ -495,14 +494,14 @@ func (r *reconciler) updateServiceStatus(ctx context.Context, service *types.Ser
 	}
 
 	// Fetch the latest instance data directly from the store
-	serviceInstances, err := r.getServiceInstances(ctx, service, nil)
+	instanceData, err := r.getServiceInstances(ctx, service)
 	if err != nil {
 		return fmt.Errorf("failed to get latest instances for status update: %w", err)
 	}
 
 	var newStatus types.ServiceStatus
 
-	if len(serviceInstances) == 0 {
+	if len(instanceData.Instances) == 0 {
 		// No instances yet
 		newStatus = types.ServiceStatusPending
 	} else {
@@ -511,7 +510,7 @@ func (r *reconciler) updateServiceStatus(ctx context.Context, service *types.Ser
 		running := 0
 		failed := 0
 
-		for _, instance := range serviceInstances {
+		for _, instance := range instanceData.Instances {
 			switch instance.Status {
 			case types.InstanceStatusPending, types.InstanceStatusCreated, types.InstanceStatusStarting:
 				pending++
@@ -527,14 +526,14 @@ func (r *reconciler) updateServiceStatus(ctx context.Context, service *types.Ser
 			log.Int("pending", pending),
 			log.Int("running", running),
 			log.Int("failed", failed),
-			log.Int("total", len(serviceInstances)))
+			log.Int("total", len(instanceData.Instances)))
 
 		// Determine overall service status
 		if failed > 0 {
 			newStatus = types.ServiceStatusFailed
 		} else if pending > 0 {
 			newStatus = types.ServiceStatusDeploying
-		} else if running == len(serviceInstances) {
+		} else if running == len(instanceData.Instances) {
 			newStatus = types.ServiceStatusRunning
 		} else {
 			newStatus = types.ServiceStatusPending
@@ -555,6 +554,12 @@ func (r *reconciler) updateServiceStatus(ctx context.Context, service *types.Ser
 	}
 
 	return nil
+}
+
+// ServiceInstanceData contains instances and orphaned instance information
+type ServiceInstanceData struct {
+	Instances         []types.Instance
+	OrphanedInstances []*types.Instance // Actual orphaned instance objects
 }
 
 // RunningInstance represents an instance found running in a runner
@@ -645,7 +650,7 @@ func (r *reconciler) runGarbageCollection(ctx context.Context) error {
 
 	// Get all instances
 	var instances []types.Instance
-	err := r.store.List(ctx, types.ResourceTypeInstance, "", &instances)
+	err := r.store.ListAll(ctx, types.ResourceTypeInstance, &instances)
 	if err != nil {
 		return fmt.Errorf("failed to list instances for garbage collection: %w", err)
 	}
@@ -669,6 +674,7 @@ func (r *reconciler) runGarbageCollection(ctx context.Context) error {
 			if time.Since(deletedAt) > deletedInstanceRetentionTime {
 				r.logger.Info("Garbage collecting deleted instance",
 					log.Str("instance", instance.ID),
+					log.Str("service", instance.ServiceName),
 					log.Str("namespace", instance.Namespace),
 					log.Str("deletedAt", deletedAt.Format(time.RFC3339)),
 					log.Str("age", time.Since(deletedAt).String()))

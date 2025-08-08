@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 )
@@ -14,12 +13,13 @@ import (
 type InstanceCleanupFinalizer struct {
 	*BaseFinalizer
 	store              store.Store
-	instanceController controllers.InstanceController
+	instanceController types.InstanceFinalizerInterface
+	healthController   types.HealthFinalizerInterface
 	logger             log.Logger
 }
 
 // NewInstanceCleanupFinalizer creates a new instance cleanup finalizer
-func NewInstanceCleanupFinalizer(store store.Store, instanceController controllers.InstanceController, logger log.Logger) *InstanceCleanupFinalizer {
+func NewInstanceCleanupFinalizer(store store.Store, instanceController types.InstanceFinalizerInterface, healthController types.HealthFinalizerInterface, logger log.Logger) *InstanceCleanupFinalizer {
 	return &InstanceCleanupFinalizer{
 		BaseFinalizer: NewBaseFinalizer(
 			types.FinalizerTypeInstanceCleanup,
@@ -27,6 +27,7 @@ func NewInstanceCleanupFinalizer(store store.Store, instanceController controlle
 		),
 		store:              store,
 		instanceController: instanceController,
+		healthController:   healthController,
 		logger:             logger,
 	}
 }
@@ -79,6 +80,9 @@ func (f *InstanceCleanupFinalizer) Execute(ctx context.Context, service *types.S
 				log.Err(err))
 			// Continue with other instances even if one fails
 		}
+
+		// Remove from health monitoring
+		f.healthController.RemoveInstance(instance.ID)
 
 		// Remove from store
 		if err := f.store.Delete(ctx, types.ResourceTypeInstance, service.Namespace, instance.ID); err != nil {

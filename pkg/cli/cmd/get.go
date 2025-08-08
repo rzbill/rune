@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rzbill/rune/pkg/api/client"
+	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
@@ -337,21 +338,6 @@ func outputResource(resources interface{}, cmd *cobra.Command) error {
 	}
 }
 
-// outputTable outputs resources in table format
-func outputTable(resources interface{}) error {
-	switch r := resources.(type) {
-	case []*types.Service:
-		return outputServicesTable(r)
-	case []*types.Instance:
-		return outputInstancesTable(r)
-	case []*types.Namespace:
-		return outputNamespacesTable(r)
-	// TODO: Add more resource types here
-	default:
-		return fmt.Errorf("unsupported resource type for table output")
-	}
-}
-
 // outputServicesTable outputs services in a formatted table
 func outputServicesTable(services []*types.Service) error {
 	// Create and configure the table renderer
@@ -385,6 +371,17 @@ func outputNamespacesTable(namespaces []*types.Namespace) error {
 
 	// Render the table
 	return table.RenderNamespaces(namespaces)
+}
+
+// outputDeleteTable outputs deletion operations in a formatted table
+func outputDeleteTable(operations []*generated.DeletionOperation) error {
+	// Create and configure the table renderer
+	table := NewResourceTable()
+	table.ShowHeaders = !noHeaders
+	table.ShowLabels = showLabels
+
+	// Render the table
+	return table.RenderDeletionOperations(operations)
 }
 
 // parseSelector parses a selector string into a map of key-value pairs

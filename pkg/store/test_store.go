@@ -184,12 +184,14 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 		return errors.New("store is not opened")
 	}
 
+	// Initialize the resource type map if it doesn't exist
 	if _, exists := s.data[resourceType]; !exists {
-		return fmt.Errorf("resource type %s not found", resourceType)
+		s.data[resourceType] = make(map[string]map[string]interface{})
 	}
 
+	// Initialize the namespace map if it doesn't exist
 	if _, exists := s.data[resourceType][namespace]; !exists {
-		return fmt.Errorf("namespace %s not found in resource type %s", namespace, resourceType)
+		s.data[resourceType][namespace] = make(map[string]interface{})
 	}
 
 	if data, exists := s.data[resourceType][namespace][name]; exists {
@@ -249,6 +251,20 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 		case types.ScalingOperation:
 			// If stored as value but target is pointer
 			if targetOp, ok := resource.(*types.ScalingOperation); ok {
+				*targetOp = storedData
+				return nil
+			}
+
+		case *types.DeletionOperation:
+			// If the target is a DeletionOperation pointer
+			if targetOp, ok := resource.(*types.DeletionOperation); ok && storedData != nil {
+				*targetOp = *storedData
+				return nil
+			}
+
+		case types.DeletionOperation:
+			// If stored as value but target is pointer
+			if targetOp, ok := resource.(*types.DeletionOperation); ok {
 				*targetOp = storedData
 				return nil
 			}
@@ -644,7 +660,7 @@ func (s *TestStore) CreateService(ctx context.Context, service *types.Service) e
 	if service.Namespace == "" {
 		service.Namespace = "default"
 	}
-	return s.Create(ctx, "services", service.Namespace, service.Name, service)
+	return s.Create(ctx, types.ResourceTypeService, service.Namespace, service.Name, service)
 }
 
 // GetService retrieves a service from the test store
@@ -654,7 +670,7 @@ func (s *TestStore) GetService(ctx context.Context, namespace, name string) (*ty
 	}
 
 	service := &types.Service{}
-	err := s.Get(ctx, "services", namespace, name, service)
+	err := s.Get(ctx, types.ResourceTypeService, namespace, name, service)
 	if err != nil {
 		return nil, err
 	}
@@ -690,7 +706,7 @@ func (s *TestStore) ListServices(ctx context.Context, namespace string) ([]*type
 	}
 
 	var services []*types.Service
-	err := s.List(ctx, "services", namespace, &services)
+	err := s.List(ctx, types.ResourceTypeService, namespace, &services)
 	if err != nil {
 		return nil, err
 	}

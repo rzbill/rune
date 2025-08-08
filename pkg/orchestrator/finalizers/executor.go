@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/rzbill/rune/pkg/worker"
@@ -40,7 +39,8 @@ func NewFinalizerExecutor(
 // and automatically registers common finalizers
 func DefaultFinalizerExecutor(
 	storeInstance store.Store,
-	instanceController controllers.InstanceController,
+	instanceController types.InstanceFinalizerInterface,
+	healthController types.HealthFinalizerInterface,
 	logger log.Logger,
 ) *FinalizerExecutor {
 	// Create finalizer registry and register common finalizers
@@ -48,7 +48,7 @@ func DefaultFinalizerExecutor(
 
 	// Register instance cleanup finalizer
 	registry.Register(types.FinalizerTypeInstanceCleanup, func() FinalizerInterface {
-		return NewInstanceCleanupFinalizer(storeInstance, instanceController, logger)
+		return NewInstanceCleanupFinalizer(storeInstance, instanceController, healthController, logger)
 	})
 
 	// Register service deregister finalizer

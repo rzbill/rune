@@ -135,10 +135,15 @@ func (dt *DeletionTask) Execute(ctx context.Context) error {
 		return fmt.Errorf("finalizer execution failed: %w", err)
 	}
 
-	// Start event listener goroutine to update deletion operation in real-time
-	go dt.listenToFinalizerEvents(ctx, eventChan)
+	// Wait for finalizers to complete by listening to events
+	dt.logger.Info("Waiting for finalizers to complete",
+		log.Str("service", dt.service.Name),
+		log.Str("namespace", dt.service.Namespace))
 
-	// Count remaining instances after deletion
+	// Block until all finalizers are complete
+	dt.listenToFinalizerEvents(ctx, eventChan)
+
+	// Count remaining instances after finalizers have completed
 	remainingInstanceCount, err := dt.countServiceInstances(ctx)
 	if err != nil {
 		dt.logger.Error("Failed to count remaining instances", log.Err(err))
@@ -157,13 +162,32 @@ func (dt *DeletionTask) Execute(ctx context.Context) error {
 	dt.logger.Info("Deletion task completed successfully",
 		log.Str("service", dt.service.Name),
 		log.Str("namespace", dt.service.Namespace),
-		log.Str("task_id", dt.GetID()))
+		log.Str("task_id", dt.GetID()),
+		log.Int("instances_deleted", initialInstanceCount-remainingInstanceCount))
 
 	return nil
 }
 
 // listenToFinalizerEvents listens for finalizer events and updates the stored deletion operation in real-time
+// This method blocks until all finalizers are complete
 func (dt *DeletionTask) listenToFinalizerEvents(ctx context.Context, eventChan <-chan finalizers.FinalizerEvent) {
+	finalizerCount := len(dt.finalizerTypes)
+	completedFinalizers := 0
+	failedFinalizers := 0
+
+	dt.logger.Info("Starting to listen for finalizer events",
+		log.Str("service", dt.service.Name),
+		log.Str("namespace", dt.service.Namespace),
+		log.Int("finalizer_count", finalizerCount))
+
+	// If no finalizers, return immediately
+	if finalizerCount == 0 {
+		dt.logger.Info("No finalizers to wait for",
+			log.Str("service", dt.service.Name),
+			log.Str("namespace", dt.service.Namespace))
+		return
+	}
+
 	for {
 		select {
 		case event := <-eventChan:
@@ -193,8 +217,34 @@ func (dt *DeletionTask) listenToFinalizerEvents(ctx context.Context, eventChan <
 				dt.logger.Error("Failed to update deletion operation with finalizer event", log.Err(err))
 			}
 
+			// Track completion status
+			switch event.Status {
+			case types.FinalizerStatusCompleted:
+				completedFinalizers++
+				dt.logger.Info("Finalizer completed",
+					log.Str("finalizer_id", event.FinalizerID),
+					log.Int("completed", completedFinalizers),
+					log.Int("total", finalizerCount))
+			case types.FinalizerStatusFailed:
+				failedFinalizers++
+				dt.logger.Error("Finalizer failed",
+					log.Str("finalizer_id", event.FinalizerID),
+					log.Str("error", event.Error))
+			}
+
+			// Check if all finalizers are done (completed or failed)
+			if completedFinalizers+failedFinalizers >= finalizerCount {
+				dt.logger.Info("All finalizers completed, returning from listener",
+					log.Int("completed", completedFinalizers),
+					log.Int("failed", failedFinalizers),
+					log.Int("total", finalizerCount))
+				return
+			}
+
 		case <-ctx.Done():
-			dt.logger.Info("Finalizer event listener stopped due to context cancellation")
+			dt.logger.Warn("Context cancelled while waiting for finalizers",
+				log.Str("service", dt.service.Name),
+				log.Str("namespace", dt.service.Namespace))
 			return
 		}
 	}

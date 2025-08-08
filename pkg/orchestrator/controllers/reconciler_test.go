@@ -1,11 +1,10 @@
-package orchestrator
+package controllers
 
 import (
 	"context"
 	"testing"
 
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/orchestrator/controllers"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +14,7 @@ import (
 // MockHealthController implements a minimal HealthController for testing
 type MockHealthController struct {
 	mock.Mock
-	instanceController controllers.InstanceController
+	instanceController InstanceController
 }
 
 func (m *MockHealthController) Start(ctx context.Context) error {
@@ -43,7 +42,7 @@ func (m *MockHealthController) GetHealthStatus(ctx context.Context, instanceID s
 	return nil, nil
 }
 
-func (m *MockHealthController) SetInstanceController(instanceController controllers.InstanceController) {
+func (m *MockHealthController) SetInstanceController(instanceController InstanceController) {
 	m.instanceController = instanceController
 }
 
@@ -66,7 +65,7 @@ func setupStore(t *testing.T) *store.TestStore {
 func TestReconcileScaleUp(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	instanceController := controllers.NewFakeInstanceController()
+	instanceController := NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 
@@ -90,7 +89,7 @@ func TestReconcileScaleUp(t *testing.T) {
 	}
 
 	// Add the service to the store
-	err := testStore.Create(context.Background(), "services", "default", "service1", service)
+	err := testStore.Create(context.Background(), types.ResourceTypeService, "default", "service1", service)
 	assert.NoError(t, err)
 
 	// Create instances to be returned
@@ -132,8 +131,7 @@ func TestReconcileScaleUp(t *testing.T) {
 
 	// Run reconciliation for the service directly
 	ctx := context.Background()
-	runningInstances := make(map[string]*RunningInstance)
-	err = reconciler.reconcileService(ctx, service, runningInstances)
+	err = reconciler.reconcileService(ctx, service)
 	assert.NoError(t, err)
 
 	// Without a second reconciliation, we'll manually update the service status
@@ -151,7 +149,7 @@ func TestReconcileScaleUp(t *testing.T) {
 
 	// Verify service status
 	updatedService := &types.Service{}
-	err = testStore.Get(context.Background(), "services", "default", "service1", updatedService)
+	err = testStore.Get(context.Background(), types.ResourceTypeService, "default", "service1", updatedService)
 	assert.NoError(t, err)
 	assert.Equal(t, types.ServiceStatusRunning, updatedService.Status)
 
@@ -171,7 +169,7 @@ func TestReconcileScaleUp(t *testing.T) {
 func TestReconcileScaleDown(t *testing.T) {
 	// Create test components
 	testStore := setupStore(t)
-	instanceController := controllers.NewFakeInstanceController()
+	instanceController := NewFakeInstanceController()
 	mockHealthController := new(MockHealthController)
 	logger := log.NewLogger()
 
@@ -195,7 +193,7 @@ func TestReconcileScaleDown(t *testing.T) {
 	}
 
 	// Add the service to the store
-	err := testStore.Create(context.Background(), "services", "default", "service1", service)
+	err := testStore.Create(context.Background(), types.ResourceTypeService, "default", "service1", service)
 	assert.NoError(t, err)
 
 	// Create two instances for the service (we'll scale down to 1)
@@ -235,8 +233,7 @@ func TestReconcileScaleDown(t *testing.T) {
 
 	// Run reconciliation for the service directly
 	ctx := context.Background()
-	runningInstances := make(map[string]*RunningInstance)
-	err = reconciler.reconcileService(ctx, service, runningInstances)
+	err = reconciler.reconcileService(ctx, service)
 	assert.NoError(t, err)
 
 	// Verify expectations
@@ -266,7 +263,7 @@ func TestReconcileScaleDown(t *testing.T) {
 
 func TestTestInstanceController(t *testing.T) {
 	// Create a test instance controller
-	instanceCtrl := controllers.NewFakeInstanceController()
+	instanceCtrl := NewFakeInstanceController()
 
 	// Test CreateInstance
 	service := &types.Service{
@@ -317,7 +314,7 @@ func TestHealthController(t *testing.T) {
 
 func TestDeleteInstanceFunction(t *testing.T) {
 	// Create a test instance controller
-	instanceCtrl := controllers.NewFakeInstanceController()
+	instanceCtrl := NewFakeInstanceController()
 
 	// Create test instance
 	instance := &types.Instance{
@@ -348,7 +345,7 @@ func TestDeleteInstanceFunction(t *testing.T) {
 
 func TestReconcilerCreateInstance(t *testing.T) {
 	// Create a test instance controller
-	instanceController := controllers.NewFakeInstanceController()
+	instanceController := NewFakeInstanceController()
 
 	// Test data
 	service := &types.Service{

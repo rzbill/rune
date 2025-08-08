@@ -13,6 +13,7 @@ import (
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,7 +40,7 @@ func NewLogService(store store.Store, logger log.Logger, orchestrator orchestrat
 // Format from MultiLogStreamer is: @@LOG_META|[instanceID|instanceName|timestamp]@@ content
 func (s *LogService) parseLogLine(line, serviceName, fallbackInstanceName string) *generated.LogResponse {
 	// Extract metadata using the orchestrator's function
-	instanceID, instanceName, timestamp, content := orchestrator.ExtractLineMetadata(line)
+	instanceID, instanceName, timestamp, content := utils.ExtractLineMetadata(line)
 
 	// Use fallback instance ID if not found in metadata
 	if instanceName == "" {

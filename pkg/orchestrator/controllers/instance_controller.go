@@ -31,6 +31,9 @@ type execStreamAdapter struct {
 
 // InstanceController manages instance lifecycle
 type InstanceController interface {
+	// ListInstances lists all instances in a namespace
+	ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error)
+
 	// CreateInstance creates a new instance for a service
 	CreateInstance(ctx context.Context, service *types.Service, instanceName string) (*types.Instance, error)
 
@@ -56,6 +59,9 @@ type InstanceController interface {
 	// RestartInstance restarts an instance with respect to the service's restart policy
 	RestartInstance(ctx context.Context, instance *types.Instance, reason InstanceRestartReason) error
 
+	// CollectRunningInstances gathers all running instances from all runners
+	CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error)
+
 	// Exec executes a command in a running instance
 	// Returns an ExecStream for bidirectional communication
 	Exec(ctx context.Context, instance *types.Instance, options types.ExecOptions) (types.ExecStream, error)
@@ -75,6 +81,16 @@ func NewInstanceController(store store.Store, runnerManager manager.IRunnerManag
 		runnerManager: runnerManager,
 		logger:        logger.WithComponent("instance-controller"),
 	}
+}
+
+func (c *instanceController) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
+	var instances []*types.Instance
+	err := c.store.List(ctx, types.ResourceTypeInstance, namespace, &instances)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	return instances, nil
 }
 
 // CreateInstance creates a new instance for a service
@@ -270,18 +286,25 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 		instanceUpdated = true
 	}
 
-	// Update timestamp
-	instance.UpdatedAt = time.Now()
-	instanceUpdated = true
-
 	// Update the stored service generation
 	if instance.Metadata == nil {
 		instance.Metadata = &types.InstanceMetadata{}
 	}
-	instance.Metadata.ServiceGeneration = service.Metadata.Generation
-	c.logger.Debug("Updating service generation in instance",
-		log.Str("instance", instance.ID),
-		log.Int64("generation", service.Metadata.Generation))
+
+	// Check if service generation has changed
+	generationUpdated := instance.Metadata.ServiceGeneration != service.Metadata.Generation
+	if generationUpdated {
+		instance.Metadata.ServiceGeneration = service.Metadata.Generation
+		instanceUpdated = true
+		c.logger.Debug("Updating service generation in instance",
+			log.Str("instance", instance.ID),
+			log.Int64("generation", service.Metadata.Generation))
+	}
+
+	// Update timestamp only if we made meaningful changes
+	if instanceUpdated {
+		instance.UpdatedAt = time.Now()
+	}
 
 	// If we've made any updates to the instance object, save it back to the store
 	if instanceUpdated {
@@ -609,6 +632,51 @@ func (c *instanceController) RestartInstance(ctx context.Context, instance *type
 		log.Str("instance", instance.ID))
 
 	return nil
+}
+
+// collectRunningInstances gathers all running instances from all runners
+func (c *instanceController) CollectRunningInstances(ctx context.Context) (map[string]*RunningInstance, error) {
+	instances := make(map[string]*RunningInstance)
+
+	// Collect instances from docker runner
+	dockerRunner, err := c.runnerManager.GetDockerRunner()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get docker runner: %w", err)
+	}
+	dockerInstances, err := dockerRunner.List(ctx, "")
+	if err != nil {
+		c.logger.Error("Failed to list docker instances", log.Err(err))
+		// Continue with other runners even if one fails
+	} else {
+		for _, instance := range dockerInstances {
+			instances[instance.ID] = &RunningInstance{
+				Instance:   instance,
+				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
+				Runner:     dockerRunner.Type(),
+			}
+		}
+	}
+
+	// Collect instances from process runner
+	processRunner, err := c.runnerManager.GetProcessRunner()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get process runner: %w", err)
+	}
+	processInstances, err := processRunner.List(ctx, "")
+	if err != nil {
+		c.logger.Error("Failed to list process instances", log.Err(err))
+		// Continue with other runners even if one fails
+	} else {
+		for _, instance := range processInstances {
+			instances[instance.ID] = &RunningInstance{
+				Instance:   instance,
+				IsOrphaned: true, // Mark as orphaned initially, will be updated during reconciliation
+				Runner:     processRunner.Type(),
+			}
+		}
+	}
+
+	return instances, nil
 }
 
 // isInstanceCompatibleWithService checks if an instance is compatible with a service

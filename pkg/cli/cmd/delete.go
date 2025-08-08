@@ -288,8 +288,6 @@ func runDelete(ctx context.Context, serviceName string, opts *deleteOptions) err
 		return fmt.Errorf("failed to delete service: %w", err)
 	}
 
-	fmt.Printf("Deletion response: %+v\n", resp)
-
 	// Convert response to expected format
 	deletionResp := &types.DeletionResponse{
 		DeletionID: resp.DeletionId,
@@ -492,15 +490,15 @@ func handleTextOutput(ctx context.Context, serviceClient *client.ServiceClient, 
 	}
 
 	// Default behavior: monitor progress in real-time
-	return monitorDeletion(ctx, serviceClient, resp.DeletionID)
+	return monitorDeletion(ctx, serviceClient, namespace, resp.DeletionID)
 }
 
 // monitorDeletion monitors the deletion progress using service watcher
-func monitorDeletion(ctx context.Context, serviceClient *client.ServiceClient, deletionID string) error {
+func monitorDeletion(ctx context.Context, serviceClient *client.ServiceClient, namespace, deletionID string) error {
 	fmt.Println("\nMonitoring deletion progress...")
 
 	// Get initial deletion status
-	statusResp, err := serviceClient.GetDeletionStatus(deletionID)
+	statusResp, err := serviceClient.GetDeletionStatus(namespace, deletionID)
 	if err != nil {
 		return fmt.Errorf("failed to get initial deletion status: %w", err)
 	}
@@ -510,7 +508,6 @@ func monitorDeletion(ctx context.Context, serviceClient *client.ServiceClient, d
 	}
 
 	serviceName := statusResp.Operation.ServiceName
-	namespace := statusResp.Operation.Namespace
 
 	// Debug: Check if serviceName and namespace are populated
 	if serviceName == "" {
@@ -543,7 +540,6 @@ func monitorDeletion(ctx context.Context, serviceClient *client.ServiceClient, d
 
 	// Start watching the service for changes
 	fieldSelector := fmt.Sprintf("name=%s", serviceName)
-	fmt.Printf("Debug: Using field selector: %s\n", fieldSelector)
 	eventCh, cancelWatch, err := serviceClient.WatchServices(namespace, "", fieldSelector)
 	if err != nil {
 		return fmt.Errorf("failed to watch service: %w", err)
@@ -560,7 +556,7 @@ func monitorDeletion(ctx context.Context, serviceClient *client.ServiceClient, d
 
 		case <-timeout:
 			// Check deletion status one more time before timing out
-			statusResp, err := serviceClient.GetDeletionStatus(deletionID)
+			statusResp, err := serviceClient.GetDeletionStatus(namespace, deletionID)
 			if err == nil && statusResp.Operation.Status == "completed" {
 				fmt.Println("✓ Deletion completed successfully")
 				return nil
@@ -667,7 +663,7 @@ func runDeleteList(ctx context.Context, opts *listOptions) error {
 	case "yaml":
 		return outputYAML(resp.Operations)
 	default:
-		return outputDeleteListText(resp.Operations)
+		return outputTable(resp.Operations)
 	}
 }
 
@@ -685,11 +681,12 @@ func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions
 
 	// Create the status request
 	statusReq := &generated.GetDeletionStatusRequest{
-		DeletionId: deletionID,
+		Namespace: namespace,
+		Name:      deletionID,
 	}
 
 	// Execute status
-	resp, err := serviceClient.GetDeletionStatus(statusReq.DeletionId)
+	resp, err := serviceClient.GetDeletionStatus(statusReq.Namespace, statusReq.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get deletion status: %w", err)
 	}
@@ -712,8 +709,8 @@ func outputDeleteListText(operations []*generated.DeletionOperation) error {
 		return nil
 	}
 
-	fmt.Printf("%-36s %-20s %-20s %-10s %-15s %-10s\n",
-		"DELETION ID", "NAMESPACE", "SERVICE", "STATUS", "PHASE", "PROGRESS")
+	fmt.Printf("%-40s %-20s %-20s %-15s %-10s\n",
+		"DELETION ID", "NAMESPACE", "SERVICE", "STATUS", "PROGRESS")
 	fmt.Println(strings.Repeat("-", 120))
 
 	for _, op := range operations {
@@ -722,12 +719,11 @@ func outputDeleteListText(operations []*generated.DeletionOperation) error {
 			progress = "N/A"
 		}
 
-		fmt.Printf("%-36s %-20s %-20s %-10s %-15s %-10s\n",
+		fmt.Printf("%-40s %-20s %-20s %-15s %-10s\n",
 			op.Id,
 			op.Namespace,
 			op.ServiceName,
 			op.Status,
-			op.Phase,
 			progress)
 	}
 
@@ -741,7 +737,6 @@ func outputDeleteStatusText(operation *generated.DeletionOperation) error {
 	fmt.Printf("Namespace: %s\n", operation.Namespace)
 	fmt.Printf("Service: %s\n", operation.ServiceName)
 	fmt.Printf("Status: %s\n", operation.Status)
-	fmt.Printf("Phase: %s\n", operation.Phase)
 	fmt.Printf("Start Time: %s\n", time.Unix(operation.StartTime, 0).Format(time.RFC3339))
 
 	if operation.EndTime > 0 {

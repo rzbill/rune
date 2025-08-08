@@ -525,65 +525,6 @@ func (p *WorkerPool) ClearDeadLetterQueue(ctx context.Context) error {
 	return p.deadLetterQueue.Clear(ctx)
 }
 
-func (p *WorkerPool) processTask(task worker.Task) {
-	// Update metrics
-	p.metrics.TasksInProgress.Add(1)
-	p.metrics.TasksQueued.Add(-1)
-
-	// Execute the task
-	err := task.Execute(context.Background())
-
-	// Update metrics based on task result
-	p.metrics.TasksInProgress.Add(-1)
-	if err != nil {
-		p.metrics.TasksFailed.Add(1)
-	} else {
-		p.metrics.TasksCompleted.Add(1)
-	}
-}
-
-func (p *WorkerPool) handleTaskWithRetry(task worker.Task) {
-	// Update metrics
-	p.metrics.TasksInProgress.Add(1)
-	p.metrics.TasksQueued.Add(-1)
-
-	// Get retry policy
-	retryPolicy := p.config.DefaultRetryPolicy
-	attempt := 1
-
-	for attempt <= retryPolicy.MaxAttempts {
-		// Execute the task
-		err := task.Execute(context.Background())
-		if err == nil {
-			// Task succeeded
-			p.metrics.TasksInProgress.Add(-1)
-			p.metrics.TasksCompleted.Add(1)
-			return
-		}
-
-		if attempt == retryPolicy.MaxAttempts {
-			break
-		}
-
-		// Calculate delay for next attempt
-		delay := retryPolicy.InitialDelay
-		if attempt > 1 {
-			delay = time.Duration(float64(delay) * retryPolicy.BackoffMultiplier)
-			if delay > retryPolicy.MaxDelay {
-				delay = retryPolicy.MaxDelay
-			}
-		}
-
-		// Wait before next attempt
-		time.Sleep(delay)
-		attempt++
-	}
-
-	// Task failed after all retries
-	p.metrics.TasksInProgress.Add(-1)
-	p.metrics.TasksFailed.Add(1)
-}
-
 // ValidateTaskDependencies checks if all dependencies for a task are satisfied
 func (p *WorkerPool) ValidateTaskDependencies(ctx context.Context, task worker.Task) error {
 	dependencies := task.GetDependencies()

@@ -24,7 +24,7 @@ func TestScaleService(t *testing.T) {
 	// Create service service with logger and fake orchestrator
 	logger := log.NewTestLogger()
 	fakeOrchestrator := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(store, fakeOrchestrator, logger)
+	svc := NewServiceService(fakeOrchestrator, logger)
 
 	// Create test service
 	testService := &types.Service{

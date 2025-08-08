@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -27,25 +28,15 @@ const (
 type ServiceService struct {
 	generated.UnimplementedServiceServiceServer
 
-	store        store.Store
-	orchestrator OrchestratorInterface
+	orchestrator orchestrator.Orchestrator
 	logger       log.Logger
-	scalingOps   *ScalingOps
 }
 
-// OrchestratorInterface defines the operations needed from the orchestrator
-type OrchestratorInterface interface {
-	DeleteService(ctx context.Context, request *types.DeletionRequest) (*types.DeletionResponse, error)
-	GetDeletionStatus(ctx context.Context, deletionID string) (*types.DeletionOperation, error)
-}
-
-// NewServiceService creates a new ServiceService with the given store and logger.
-func NewServiceService(store store.Store, orchestrator OrchestratorInterface, logger log.Logger) *ServiceService {
+// NewServiceService creates a new ServiceService with the given orchestrator and logger.
+func NewServiceService(orchestrator orchestrator.Orchestrator, logger log.Logger) *ServiceService {
 	return &ServiceService{
-		store:        store,
 		orchestrator: orchestrator,
 		logger:       logger,
-		scalingOps:   NewScalingOps(store, logger),
 	}
 }
 
@@ -84,8 +75,8 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	// Set initial status
 	service.Status = types.ServiceStatusPending
 
-	// Store the service
-	if err := s.store.Create(ctx, types.ResourceTypeService, service.Namespace, service.Name, service); err != nil {
+	// Use orchestrator to create the service
+	if err := s.orchestrator.CreateService(ctx, service); err != nil {
 		s.logger.Error("Failed to create service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to create service: %v", err)
 	}
@@ -110,7 +101,7 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 	s.logger.Debug("GetService called", log.Str("name", req.Name))
 
 	if req.Name == "" {
-		return nil, status.Error(codes.InvalidArgument, "2service name is required")
+		return nil, status.Error(codes.InvalidArgument, "service name is required")
 	}
 
 	namespace := req.Namespace
@@ -118,10 +109,10 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 		namespace = DefaultNamespace
 	}
 
-	// Get the service from the store
-	var service types.Service
+	// Get the service from orchestrator
 	s.logger.Debug("Getting service", log.Str("namespace", namespace), log.Str("name", req.Name))
-	if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
+	service, err := s.orchestrator.GetService(ctx, namespace, req.Name)
+	if err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
 		}
@@ -130,7 +121,7 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 	}
 
 	// Convert to protobuf message
-	protoService, err := s.serviceModelToProto(&service)
+	protoService, err := s.serviceModelToProto(service)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
 	}
@@ -153,21 +144,13 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 		namespace = DefaultNamespace
 	}
 
-	var services []types.Service
-	var err error
-
-	// Check if we need to list across all namespaces
+	// Handle all namespaces case
 	if namespace == "*" {
-		// For all namespaces, we need to list each namespace separately
-		// Get all namespaces first (this would typically come from a namespace store)
-		// TODO: For now, we'll just query all resources directly without namespace filtering
-		s.logger.Debug("Listing services across all namespaces")
-		err = s.store.List(ctx, types.ResourceTypeService, "", &services)
-	} else {
-		// Get services from the store for a specific namespace
-		err = s.store.List(ctx, types.ResourceTypeService, namespace, &services)
+		namespace = "" // Empty string for all namespaces
 	}
 
+	// Get services from orchestrator
+	services, err := s.orchestrator.ListServices(ctx, namespace)
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list services: %v", err)
@@ -175,15 +158,15 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 
 	s.logger.Debug("Found services", log.Int("count", len(services)))
 
-	// Convert to protobuf messages
+	// Convert to protobuf messages and apply filtering
 	protoServices := make([]*generated.Service, 0, len(services))
 	for _, service := range services {
 		// Apply selector filtering (both labels and fields)
-		if !matchSelectors(&service, req.LabelSelector, req.FieldSelector) {
+		if !matchSelectors(service, req.LabelSelector, req.FieldSelector) {
 			continue
 		}
 
-		protoService, err := s.serviceModelToProto(&service)
+		protoService, err := s.serviceModelToProto(service)
 		if err != nil {
 			s.logger.Error("Failed to convert service to proto", log.Err(err))
 			continue
@@ -267,9 +250,8 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 		namespace = DefaultNamespace
 	}
 
-	// Check if the service exists
-	var existingService types.Service
-	err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Service.Name, &existingService)
+	// Get the existing service from orchestrator
+	existingService, err := s.orchestrator.GetService(ctx, namespace, req.Service.Name)
 	if err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Service.Name)
@@ -294,7 +276,7 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 
 	if !needsGenUpdate {
 		// Calculate service hash to determine if anything meaningful changed
-		oldHash := calculateServiceHash(&existingService)
+		oldHash := calculateServiceHash(existingService)
 		newHash := calculateServiceHash(updatedService)
 
 		if oldHash != newHash {
@@ -333,8 +315,8 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 		updatedService.Status = existingService.Status
 	}
 
-	// Store the updated service
-	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Service.Name, updatedService); err != nil {
+	// Use orchestrator to update the service
+	if err := s.orchestrator.UpdateService(ctx, updatedService); err != nil {
 		s.logger.Error("Failed to update service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update service: %v", err)
 	}
@@ -429,8 +411,7 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 
 	// Check if the service exists (unless ignore_not_found is set)
 	if !req.IgnoreNotFound {
-		var existingService types.Service
-		err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &existingService)
+		_, err := s.orchestrator.GetService(ctx, namespace, req.Name)
 		if err != nil {
 			if IsNotFound(err) {
 				return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
@@ -515,9 +496,9 @@ func convertFinalizersToProto(finalizers []types.Finalizer) []*generated.Finaliz
 
 // GetDeletionStatus gets the status of a deletion operation.
 func (s *ServiceService) GetDeletionStatus(ctx context.Context, req *generated.GetDeletionStatusRequest) (*generated.GetDeletionStatusResponse, error) {
-	s.logger.Debug("GetDeletionStatus called", log.Str("deletion_id", req.DeletionId))
+	s.logger.Debug("GetDeletionStatus called", log.Str("deletion_id", req.Name))
 
-	if req.DeletionId == "" {
+	if req.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "deletion_id is required")
 	}
 
@@ -526,14 +507,14 @@ func (s *ServiceService) GetDeletionStatus(ctx context.Context, req *generated.G
 	}
 
 	// Get deletion operation from orchestrator
-	operation, err := s.orchestrator.GetDeletionStatus(ctx, req.DeletionId)
+	operation, err := s.orchestrator.GetDeletionStatus(ctx, req.Namespace, req.Name)
 	if err != nil {
-		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", req.DeletionId))
+		s.logger.Error("Failed to get deletion status", log.Err(err), log.Str("deletion_id", req.Name))
 		return nil, status.Errorf(codes.Internal, "failed to get deletion status: %v", err)
 	}
 
 	if operation == nil {
-		return nil, status.Errorf(codes.NotFound, "deletion operation not found: %s", req.DeletionId)
+		return nil, status.Errorf(codes.NotFound, "deletion operation not found: %s", req.Name)
 	}
 
 	// Convert to protobuf message
@@ -553,19 +534,10 @@ func (s *ServiceService) ListDeletionOperations(ctx context.Context, req *genera
 		log.Str("namespace", req.Namespace),
 		log.Str("status", req.Status))
 
-	// Query deletion operations directly from the store
-	var deletionOps []types.DeletionOperation
-
-	// Determine which namespace to query
-	listNamespace := req.Namespace
-	if req.Namespace == "" || req.Namespace == "*" {
-		// List from all namespaces - use empty string for store
-		listNamespace = ""
-	}
-
-	err := s.store.List(ctx, types.ResourceTypeDeletionOperation, listNamespace, &deletionOps)
+	// Get deletion operations from orchestrator
+	deletionOps, err := s.orchestrator.ListDeletionOperations(ctx, req.Namespace)
 	if err != nil {
-		s.logger.Error("Failed to list deletion operations from store", log.Err(err))
+		s.logger.Error("Failed to list deletion operations", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list deletion operations: %v", err)
 	}
 
@@ -582,9 +554,8 @@ func (s *ServiceService) ListDeletionOperations(ctx context.Context, req *genera
 			continue
 		}
 
-		// Make a copy to avoid issues with slice iteration
-		opCopy := op
-		filteredOps = append(filteredOps, &opCopy)
+		// Add to filtered list (op is already a pointer)
+		filteredOps = append(filteredOps, op)
 	}
 
 	// Convert to protobuf operations
@@ -688,9 +659,9 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 		namespace = DefaultNamespace
 	}
 
-	// Get the service from the store
-	var service types.Service
-	if err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
+	// Get the service from orchestrator
+	service, err := s.orchestrator.GetService(ctx, namespace, req.Name)
+	if err != nil {
 		if IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "service not found: %s", req.Name)
 		}
@@ -705,7 +676,7 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	// Check if we're already at the target scale
 	if currentScale == targetScale {
 		// Convert service to proto and return it
-		protoService, err := s.serviceModelToProto(&service)
+		protoService, err := s.serviceModelToProto(service)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
 		}
@@ -739,20 +710,20 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	}
 
 	// Initiate scaling operation
-	_, err := s.scalingOps.CreateScalingOperation(ctx, &service, params)
+	err = s.orchestrator.CreateScalingOperation(ctx, service, params)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to initiate scaling: %v", err)
 	}
 
-	// Update the service scale in the store
+	// Update the service scale and use orchestrator to save it
 	service.Scale = targetScale
-	if err := s.store.Update(ctx, types.ResourceTypeService, namespace, req.Name, &service); err != nil {
+	if err := s.orchestrator.UpdateService(ctx, service); err != nil {
 		s.logger.Error("Failed to update service scale", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to update service scale: %v", err)
 	}
 
 	// Convert updated service to proto and return it
-	protoService, err := s.serviceModelToProto(&service)
+	protoService, err := s.serviceModelToProto(service)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
 	}
@@ -1055,16 +1026,15 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 		namespace = DefaultNamespace
 	}
 
-	// Start watching for service changes from the store
-	watchCh, err := s.store.Watch(ctx, types.ResourceTypeService, namespace)
+	// Start watching for service changes from orchestrator
+	watchCh, err := s.orchestrator.WatchServices(ctx, namespace)
 	if err != nil {
 		s.logger.Error("Failed to watch services", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to watch services: %v", err)
 	}
 
 	// Initialize with current services (simulating ADDED events for all existing services)
-	var services []types.Service
-	err = s.store.List(ctx, types.ResourceTypeService, namespace, &services)
+	services, err := s.orchestrator.ListServices(ctx, namespace)
 	if err != nil {
 		s.logger.Error("Failed to list services", log.Err(err))
 		return status.Errorf(codes.Internal, "failed to list initial services: %v", err)
@@ -1074,12 +1044,12 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 	for _, service := range services {
 
 		// Apply selector filtering
-		if !matchSelectors(&service, req.LabelSelector, req.FieldSelector) {
+		if !matchSelectors(service, req.LabelSelector, req.FieldSelector) {
 			continue
 		}
 
 		// Convert to proto and send to client
-		protoService, err := s.serviceModelToProto(&service)
+		protoService, err := s.serviceModelToProto(service)
 		if err != nil {
 			s.logger.Error("Failed to convert service to proto", log.Err(err))
 			continue
@@ -1173,15 +1143,15 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 }
 
 // getServiceInstances retrieves and filters instances for a specific service
-func (s *ServiceService) getServiceInstances(ctx context.Context, namespace, serviceID string) ([]types.Instance, error) {
-	var allInstances []types.Instance
-	err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &allInstances)
+func (s *ServiceService) getServiceInstances(ctx context.Context, namespace, serviceID string) ([]*types.Instance, error) {
+	// Get instances from orchestrator
+	allInstances, err := s.orchestrator.ListInstances(ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter instances that belong to this service
-	var instances []types.Instance
+	var instances []*types.Instance
 	for _, inst := range allInstances {
 		if inst.ServiceID == serviceID {
 			instances = append(instances, inst)
@@ -1191,7 +1161,7 @@ func (s *ServiceService) getServiceInstances(ctx context.Context, namespace, ser
 }
 
 // countInstanceStatus counts running and pending instances
-func (s *ServiceService) countInstanceStatus(instances []types.Instance, instanceCache map[string]types.InstanceStatus) (running, pending int) {
+func (s *ServiceService) countInstanceStatus(instances []*types.Instance, instanceCache map[string]types.InstanceStatus) (running, pending int) {
 	for _, inst := range instances {
 		previousStatus, exists := instanceCache[inst.ID]
 
@@ -1213,43 +1183,6 @@ func (s *ServiceService) countInstanceStatus(instances []types.Instance, instanc
 	return running, pending
 }
 
-// determineScalingStatus determines the target scale and completion status
-func (s *ServiceService) determineScalingStatus(ctx context.Context, namespace, serviceName string, service *types.Service, instances []types.Instance, reqTargetScale int32) (targetScale int32, isComplete bool, err error) {
-	// Check for active scaling operation first
-	activeOp, err := s.scalingOps.GetActiveOperation(ctx, namespace, serviceName)
-	if err != nil {
-		return 0, false, fmt.Errorf("failed to get active scaling operation: %v", err)
-	}
-
-	if activeOp != nil {
-		// Use the active scaling operation's target
-		return int32(activeOp.TargetScale), activeOp.Status == types.ScalingOperationStatusCompleted, nil
-	}
-
-	if reqTargetScale > 0 {
-		// Use the requested target scale if no active operation
-		// Check if we've reached the target
-		if reqTargetScale == 0 {
-			// For scale to zero, we're complete when no instances exist
-			return 0, len(instances) == 0, nil
-		}
-
-		// For scale up/down, check if service.Scale AND actual running instances match the target
-		runningCount := 0
-		for _, inst := range instances {
-			if inst.Status == types.InstanceStatusRunning {
-				runningCount++
-			}
-		}
-
-		// We're complete when both the service scale setting and actual running instances match target
-		return reqTargetScale, service.Scale == int(reqTargetScale) && runningCount == int(reqTargetScale), nil
-	}
-
-	// No target specified and no active operation
-	return int32(service.Scale), true, nil
-}
-
 // WatchScaling watches a service for scaling status changes and streams updates to the client.
 func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream generated.ServiceService_WatchScalingServer) error {
 	s.logger.Debug("WatchScaling called",
@@ -1267,29 +1200,21 @@ func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream
 	}
 
 	ctx := stream.Context()
-
-	// Setup a ticker for checking the service status
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	// Use a map to track instance status counts
-	instanceCache := make(map[string]types.InstanceStatus)
-
-	// Keep track of whether we've sent a completion message
-	var completionSent bool
-	// Track consecutive completions to ensure stability
+	// Track consecutive completions for stability
 	consecutiveCompletions := 0
+	const requiredCompletions = 2
 
 	for {
 		select {
 		case <-ctx.Done():
-			// Client canceled the stream
 			return nil
 
 		case <-ticker.C:
-			// Get the service
-			var service types.Service
-			err := s.store.Get(ctx, types.ResourceTypeService, namespace, req.ServiceName, &service)
+			// Get current service state
+			service, err := s.orchestrator.GetService(ctx, namespace, req.ServiceName)
 			if err != nil {
 				if IsNotFound(err) {
 					return status.Errorf(codes.NotFound, "service not found: %s/%s", namespace, req.ServiceName)
@@ -1298,34 +1223,19 @@ func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream
 				return status.Errorf(codes.Internal, "failed to get service: %v", err)
 			}
 
-			// Get service instances
+			// Get and count instances
 			instances, err := s.getServiceInstances(ctx, namespace, service.ID)
 			if err != nil {
 				s.logger.Error("Failed to get service instances", log.Err(err))
 				return status.Errorf(codes.Internal, "failed to get service instances: %v", err)
 			}
 
-			// Count instance statuses
-			runningCount, pendingCount := s.countInstanceStatus(instances, instanceCache)
+			runningCount, pendingCount := s.countInstanceStatus(instances, make(map[string]types.InstanceStatus))
 
-			// For scale to zero, explicitly check for zero instances
-			var isComplete bool
-			var targetScale int32
+			// Determine if scaling is complete
+			isComplete, targetScale := s.isScalingComplete(service, instances, runningCount, req.TargetScale)
 
-			if req.TargetScale == 0 && len(instances) == 0 {
-				// Special case for scale to zero - if there are no instances, we're done
-				isComplete = true
-				targetScale = 0
-			} else {
-				// Normal case - use determineScalingStatus
-				targetScale, isComplete, err = s.determineScalingStatus(ctx, namespace, req.ServiceName, &service, instances, req.TargetScale)
-				if err != nil {
-					s.logger.Error("Failed to determine scaling status", log.Err(err))
-					return status.Errorf(codes.Internal, "failed to determine scaling status: %v", err)
-				}
-			}
-
-			// Create the status response
+			// Create and send response
 			response := &generated.ScalingStatusResponse{
 				CurrentScale:     int32(service.Scale),
 				TargetScale:      targetScale,
@@ -1338,56 +1248,45 @@ func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream
 				},
 			}
 
-			// Send the response
 			if err := stream.Send(response); err != nil {
 				s.logger.Error("Failed to send scaling status", log.Err(err))
 				return err
 			}
 
-			// If scaling is complete
+			// Handle completion logic
 			if isComplete {
 				consecutiveCompletions++
-
-				// After seeing complete state for 2 consecutive checks, we can be confident
-				if consecutiveCompletions >= 2 {
-					if !completionSent {
-						completionSent = true
-						s.logger.Info("Scaling completed",
-							log.Str("service", req.ServiceName),
-							log.Str("namespace", namespace),
-							log.Int("scale", int(targetScale)))
-					}
-
-					// After 3 consecutive completions, exit the loop to signal true completion
-					if consecutiveCompletions >= 3 {
-						// Send one final confirmation message then exit
-						finalResponse := &generated.ScalingStatusResponse{
-							CurrentScale:     int32(service.Scale),
-							TargetScale:      targetScale,
-							RunningInstances: int32(runningCount),
-							PendingInstances: int32(pendingCount),
-							Complete:         true,
-							Status: &generated.Status{
-								Code:    int32(codes.OK),
-								Message: fmt.Sprintf("Service '%s' scaling completed successfully", req.ServiceName),
-							},
-						}
-
-						// Ignore error since we're exiting anyway
-						_ = stream.Send(finalResponse)
-
-						// Exit the loop to close the stream
-						return nil
-					}
-
-					// Slow down checks after we're confident scaling is complete
-					ticker.Reset(3 * time.Second)
+				if consecutiveCompletions >= requiredCompletions {
+					s.logger.Info("Scaling completed",
+						log.Str("service", req.ServiceName),
+						log.Str("namespace", namespace),
+						log.Int("scale", int(targetScale)))
+					return nil
 				}
 			} else {
-				// If we previously detected completion but now it's not complete,
-				// reset the counter (handles flapping states)
 				consecutiveCompletions = 0
 			}
 		}
 	}
+}
+
+// isScalingComplete determines if scaling is complete based on service state and target
+func (s *ServiceService) isScalingComplete(service *types.Service, instances []*types.Instance, runningCount int, targetScale int32) (bool, int32) {
+	// For immediate scaling, the operation is completed immediately, so we just check if we've reached the target
+	// Check if service scale and running instances match the target
+	if targetScale == 0 {
+		// Scale to zero: complete when no instances exist
+		isComplete := len(instances) == 0
+		s.logger.Debug("Scale to zero check", log.Int("instances", len(instances)), log.Bool("complete", isComplete))
+		return isComplete, 0
+	}
+
+	// Scale up/down: complete when service scale and running instances match target
+	isComplete := service.Scale == int(targetScale) && runningCount == int(targetScale)
+	s.logger.Debug("Scale up/down check",
+		log.Int("service_scale", service.Scale),
+		log.Int("target_scale", int(targetScale)),
+		log.Int("running_instances", runningCount),
+		log.Bool("complete", isComplete))
+	return isComplete, targetScale
 }
