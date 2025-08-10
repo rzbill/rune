@@ -38,6 +38,8 @@ type APIServer struct {
 	logService      *service.LogService
 	execService     *service.ExecService
 	healthService   *service.HealthService
+	secretService   *service.SecretService
+	configService   *service.ConfigMapService
 
 	// gRPC server
 	grpcServer *grpc.Server
@@ -127,6 +129,8 @@ func (s *APIServer) Start() error {
 	s.logService = service.NewLogService(s.store, s.logger, s.orchestrator)
 	s.execService = service.NewExecService(s.logger, s.orchestrator)
 	s.healthService = service.NewHealthService(s.store, s.logger)
+	s.secretService = service.NewSecretService(s.store, s.logger)
+	s.configService = service.NewConfigMapService(s.store, s.logger)
 
 	// Start gRPC server
 	if err := s.startGRPCServer(); err != nil {
@@ -188,6 +192,8 @@ func (s *APIServer) startGRPCServer() error {
 	generated.RegisterLogServiceServer(s.grpcServer, s.logService)
 	generated.RegisterExecServiceServer(s.grpcServer, s.execService)
 	generated.RegisterHealthServiceServer(s.grpcServer, s.healthService)
+	generated.RegisterSecretServiceServer(s.grpcServer, s.secretService)
+	generated.RegisterConfigMapServiceServer(s.grpcServer, s.configService)
 
 	// Register reflection service for grpcurl/development
 	reflection.Register(s.grpcServer)
@@ -240,6 +246,14 @@ func (s *APIServer) startRESTGateway() error {
 
 	if err := generated.RegisterHealthServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register health handler: %w", err)
+	}
+
+	if err := generated.RegisterSecretServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+		return fmt.Errorf("failed to register secret handler: %w", err)
+	}
+
+	if err := generated.RegisterConfigMapServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+		return fmt.Errorf("failed to register config map handler: %w", err)
 	}
 
 	// Create HTTP server

@@ -90,3 +90,8 @@ func UnmarshalResource(source interface{}, target interface{}) error {
 
 	return nil
 }
+
+// IsAlreadyExistsError checks if an error is an already exists error.
+func IsAlreadyExistsError(err error) bool {
+	return strings.Contains(err.Error(), "already exists")
+}

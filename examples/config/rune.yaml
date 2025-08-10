@@ -62,6 +62,28 @@ log:
   # Log format (future use)
   format: "json"
 
+# Encrypts secret values at rest using AES-256-GCM with per-secret DEKs wrapped by a master KEK.
+# KEK can be sourced from a file or environment variable.
+secret:
+  encryption:
+    enabled: true
+    kek:
+      # Source of the master Key Encryption Key
+      # Options: file | env | generated (generated is for development only)
+      source: file
+      
+      # Path to base64-encoded 32-byte KEK (0600 permissions recommended)
+      file: "/etc/rune/kek.b64"
+      
+      # Optional: protect on-disk KEK with a passphrase-derived key (Argon2id)
+      passphrase:
+        enabled: false
+        # If enabled, provide passphrase via this env var (non-interactive)
+        env: RUNE_KEK_PASSPHRASE
+
+# Alternative: provide KEK via environment variable when source: env
+# export RUNE_MASTER_KEY=base64-encoded-32-byte-key
+
 # Additional plugins/extensions (future use)
 plugins:
   dir: "/usr/local/lib/rune/plugins"

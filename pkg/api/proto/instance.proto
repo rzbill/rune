@@ -84,6 +84,51 @@ message InstanceMetadata {
 
   // Number of times the instance has been restarted
   int32 restart_count = 3;
+
+  // Secret mounts with resolved data
+  repeated ResolvedSecretMount secret_mounts = 4;
+
+  // Config mounts with resolved data
+  repeated ResolvedConfigMount config_mounts = 5;
+}
+
+// ResolvedSecretMount contains the resolved secret data for mounting
+message ResolvedSecretMount {
+  // Name of the mount (for identification)
+  string name = 1;
+
+  // Path where the secret should be mounted
+  string mount_path = 2;
+
+  // Resolved secret data (key -> value)
+  map<string, string> data = 3;
+
+  // Optional: specific keys to project from the secret
+  repeated KeyToPath items = 4;
+}
+
+// ResolvedConfigMount contains the resolved config data for mounting
+message ResolvedConfigMount {
+  // Name of the mount (for identification)
+  string name = 1;
+
+  // Path where the config should be mounted
+  string mount_path = 2;
+
+  // Resolved config data (key -> value)
+  map<string, string> data = 3;
+
+  // Optional: specific keys to project from the config
+  repeated KeyToPath items = 4;
+}
+
+// KeyToPath defines mapping from a key in a Secret/Config to a path in the mount
+message KeyToPath {
+  // Key in the Secret or Config
+  string key = 1;
+
+  // Path where the key should be mounted (relative to mount point)
+  string path = 2;
 }
 
 // GetInstanceRequest requests a specific instance.

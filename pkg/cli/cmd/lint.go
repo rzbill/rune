@@ -1,584 +1,237 @@
 package cmd
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/rzbill/rune/pkg/cli/format"
+	"github.com/rzbill/rune/pkg/cli/util"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 var (
-	strict           bool
-	quiet            bool
-	recursive        bool
-	fileTypes        []string
-	exitOnFail       bool
-	autoFix          bool
-	lintOutputFormat string
-	contextLines     int
-	expandContext    bool
-)
-
-// Color setup for formatting
-var (
-	errorColor   = color.New(color.FgRed, color.Bold)
-	fileColor    = color.New(color.FgCyan, color.Bold)
-	lineColor    = color.New(color.FgYellow, color.Bold)
-	hintColor    = color.New(color.FgGreen)
-	successColor = color.New(color.FgGreen, color.Bold)
+	lintStrict        bool
+	lintQuiet         bool
+	lintRecursive     bool
+	lintExitOnFail    bool
+	lintAutoFix       bool
+	lintOutputFormat  string
+	lintContextLines  int
+	lintExpandContext bool
 )
 
 // lintCmd represents the lint command
 var lintCmd = &cobra.Command{
 	Use:   "lint [file or directory]...",
-	Short: "Validate YAML specifications",
-	Long: `Lint and validate Rune YAML specifications for correctness.
+	Short: "Validate YAML specifications and Rune configuration files",
+	Long: `Lint Rune specs. Determines whether a file is a Rune config (runefile)
+or a resource spec (castfile). Runs the appropriate validator and reports all
+issues with helpful context. Examples:
 
-This command checks all resource types (services, jobs, secrets, functions, etc.)
-and validates their structure, required fields, and relationships.
-
-Examples:
-  # Lint a single file
   rune lint myservice.yaml
-
-  # Lint multiple files
-  rune lint service.yaml job.yaml
-
-  # Recursively lint all YAML files in a directory
-  rune lint --recursive ./manifests/
-
-  # Strict validation mode (more warnings)
-  rune lint --strict myservice.yaml
-
-  # Only show errors, no progress or success messages
-  rune lint --quiet myservice.yaml
-
-  # Exit with non-zero code on first validation error
-  rune lint --exit-on-fail myservice.yaml
-  
-  # Automatically fix common issues when possible
-  rune lint --fix myservice.yaml
-  
-  # Output in JSON format for CI/CD integration
-  rune lint --format json ./manifests/`,
-	SilenceUsage:  true,
-	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return fmt.Errorf("at least one file or directory is required")
-		}
-
-		// Expand context if requested
-		if expandContext {
-			contextLines = 3
-		}
-
-		// Gather all files to lint
-		var filesToLint []string
-		for _, arg := range args {
-			info, err := os.Stat(arg)
-			if err != nil {
-				return fmt.Errorf("error accessing %s: %w", arg, err)
-			}
-
-			if info.IsDir() {
-				if recursive {
-					// Recursively find all YAML files in directory
-					err := filepath.Walk(arg, func(path string, info os.FileInfo, err error) error {
-						if err != nil {
-							return err
-						}
-						if !info.IsDir() && hasYAMLExtension(path) {
-							filesToLint = append(filesToLint, path)
-						}
-						return nil
-					})
-					if err != nil {
-						return fmt.Errorf("error walking directory %s: %w", arg, err)
-					}
-				} else {
-					// Get only YAML files in the top level of the directory
-					files, err := ioutil.ReadDir(arg)
-					if err != nil {
-						return fmt.Errorf("error reading directory %s: %w", arg, err)
-					}
-					for _, f := range files {
-						if !f.IsDir() && hasYAMLExtension(f.Name()) {
-							filesToLint = append(filesToLint, filepath.Join(arg, f.Name()))
-						}
-					}
-				}
-			} else {
-				// It's a file, check if it's YAML
-				if hasYAMLExtension(arg) {
-					filesToLint = append(filesToLint, arg)
-				} else {
-					if !quiet {
-						fmt.Printf("Skipping non-YAML file: %s\n", arg)
-					}
-				}
-			}
-		}
-
-		if len(filesToLint) == 0 {
-			return fmt.Errorf("no YAML files found to lint")
-		}
-
-		return runLint(filesToLint)
-	},
+  rune lint ./manifests --recursive
+  rune lint examples/config/rune.yaml --format json`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runLintCmd,
 }
 
 func init() {
 	rootCmd.AddCommand(lintCmd)
 
-	// Define flags
-	lintCmd.Flags().BoolVar(&strict, "strict", false, "Enable stricter validation rules")
-	lintCmd.Flags().BoolVar(&quiet, "quiet", false, "Only show errors, no progress or success messages")
-	lintCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "Recursively process directories")
-	lintCmd.Flags().StringSliceVar(&fileTypes, "types", []string{}, "Only validate specific resource types (comma separated: service, job, secret, etc.)")
-	lintCmd.Flags().BoolVar(&exitOnFail, "exit-on-fail", false, "Exit on first validation failure")
-	lintCmd.Flags().BoolVar(&autoFix, "fix", false, "Automatically fix simple issues when possible")
-	lintCmd.Flags().StringVar(&lintOutputFormat, "format", "text", "Output format (text, json)")
-	lintCmd.Flags().IntVar(&contextLines, "context", 1, "Number of context lines to show around errors")
-	lintCmd.Flags().BoolVar(&expandContext, "expand-context", false, "Show more context around errors (equivalent to --context=3)")
+	lintCmd.Flags().BoolVar(&lintStrict, "strict", false, "Enable stricter validation rules (reserved)")
+	lintCmd.Flags().BoolVar(&lintQuiet, "quiet", false, "Only show errors, no progress or success messages")
+	lintCmd.Flags().BoolVarP(&lintRecursive, "recursive", "r", false, "Recursively process directories")
+	lintCmd.Flags().BoolVar(&lintExitOnFail, "exit-on-fail", false, "Exit on first validation failure")
+	lintCmd.Flags().BoolVar(&lintAutoFix, "fix", false, "Attempt to auto-fix simple issues when possible")
+	lintCmd.Flags().StringVar(&lintOutputFormat, "format", "text", "Output format (text|json)")
+	lintCmd.Flags().IntVar(&lintContextLines, "context", 1, "Number of context lines to show around errors")
+	lintCmd.Flags().BoolVar(&lintExpandContext, "expand-context", false, "Show more context around errors (equivalent to --context=3)")
+}
+
+func runLintCmd(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("at least one file or directory is required")
+	}
+
+	if lintExpandContext {
+		lintContextLines = 3
+	}
+
+	// Expand inputs into a list of YAML file paths
+	filesToLint, err := util.ExpandFilePaths(args, lintRecursive)
+	if err != nil {
+		return err
+	}
+	if len(filesToLint) == 0 {
+		return fmt.Errorf("no YAML files found to lint")
+	}
+
+	startTime := time.Now()
+	totalErrorCount := 0
+	totalFixCount := 0
+	hasErrors := false
+
+	// For JSON mode, aggregate all errors across files
+	aggregated := struct {
+		Files       []string                 `json:"files"`
+		Errors      []format.ValidationError `json:"errors"`
+		ErrorCount  int                      `json:"error_count"`
+		FixCount    int                      `json:"fix_count"`
+		Success     bool                     `json:"success"`
+		TimeSeconds float64                  `json:"time"`
+	}{Files: make([]string, 0), Errors: make([]format.ValidationError, 0)}
+
+	for _, filePath := range filesToLint {
+		// Read file contents for context-aware formatting
+		data, readErr := ioutil.ReadFile(filePath)
+		if readErr != nil {
+			if lintOutputFormat == "text" {
+				fmt.Printf("%s %s\n", format.StatusSymbol(false), filePath)
+			}
+			return fmt.Errorf("error reading %s: %w", filePath, readErr)
+		}
+
+		if lintOutputFormat == "text" && !lintQuiet {
+			printFileLabel(filePath)
+		}
+
+		// Lint the file (handles detection, printing detailed errors, and autofix)
+		formatter, fileFixes := lintFile(filePath, data)
+		totalFixCount += fileFixes
+
+		// Finalize per-file reporting and aggregation
+		if len(formatter.Errors) == 0 {
+			if lintOutputFormat == "text" && !lintQuiet {
+				fmt.Println("✓")
+			}
+		} else {
+			hasErrors = true
+			totalErrorCount += len(formatter.Errors)
+			if lintOutputFormat == "text" {
+				fmt.Println("❌")
+				formatter.PrintErrorSummary()
+			}
+		}
+
+		if lintOutputFormat == "json" {
+			aggregated.Files = append(aggregated.Files, filePath)
+			aggregated.Errors = append(aggregated.Errors, formatter.Errors...)
+		}
+
+		if lintExitOnFail && len(formatter.Errors) > 0 {
+			break
+		}
+	}
+
+	if lintOutputFormat == "json" {
+		aggregated.ErrorCount = totalErrorCount
+		aggregated.FixCount = totalFixCount
+		aggregated.Success = totalErrorCount == 0
+		aggregated.TimeSeconds = time.Since(startTime).Seconds()
+		b, _ := json.MarshalIndent(aggregated, "", "  ")
+		fmt.Println(string(b))
+	} else {
+		// Print overall stats in text mode
+		format.PrintLintSummary(len(filesToLint), totalErrorCount, totalFixCount, time.Since(startTime))
+	}
+
+	if hasErrors || totalErrorCount > 0 {
+		return fmt.Errorf("")
+	}
+	return nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// printFileLabel prints a dotted label for a file path
+func printFileLabel(filePath string) {
+	base := filepath.Base(filePath)
+	label := fmt.Sprintf("- %-20s", base)
+	dots := strings.Repeat(".", max(3, 35-len(label)))
+	fmt.Printf("%s%s ", label, dots)
+}
+
+// lintFile detects file type, runs linting, prints detailed errors using the formatter,
+// attempts autofix if enabled, and returns the formatter and number of fixes applied.
+func lintFile(filePath string, data []byte) (*format.ErrorFormatter, int) {
+	formatter := format.NewErrorFormatter(filePath, data)
+	formatter.ContextLines = lintContextLines
+	formatter.CanAutoFix = lintAutoFix
+	formatter.OutputFormat = lintOutputFormat
+
+	// Initial detection and linting
+	runDetectionAndLint := func() {
+		// Check if the file is a rune config file
+		isRuneConfig, detectErr := types.IsRuneConfigFile(filePath)
+		if detectErr != nil {
+			formatter.PrintError(fmt.Sprintf("failed to inspect file: %v", detectErr), formatter.ExtractLineNumber(detectErr.Error()))
+			return
+		}
+		if isRuneConfig {
+			if rf, err := types.ParseRuneFile(filePath); err != nil {
+				formatter.PrintError(err.Error(), formatter.ExtractLineNumber(err.Error()))
+			} else {
+				if errs := rf.Lint(); len(errs) > 0 {
+					for _, e := range errs {
+						ln := formatter.ExtractLineNumber(e.Error())
+						formatter.PrintError(e.Error(), ln)
+					}
+				}
+			}
+			return
+		}
+
+		// Try parsing as cast file directly (AST-based, tolerant of duplicate keys)
+		if cf, err := types.ParseCastFile(filePath); err == nil {
+			if errs := cf.Lint(); len(errs) > 0 {
+				for _, e := range errs {
+					ln := formatter.ExtractLineNumber(e.Error())
+					formatter.PrintError(e.Error(), ln)
+				}
+			}
+			return
+		}
+		formatter.PrintError("unrecognized resource type: file does not appear to be a rune config or a resource cast file", 0)
+	}
+
+	runDetectionAndLint()
+
+	// Attempt autofix and re-lint once
+	totalFixes := 0
+	if lintAutoFix && len(formatter.Errors) > 0 {
+		anyFixed := false
+		for _, valErr := range formatter.Errors {
+			if fixed, newData := formatter.TryAutoFix(valErr.Message, valErr.LineNumber); fixed {
+				if werr := ioutil.WriteFile(filePath, newData, 0o644); werr == nil {
+					anyFixed = true
+					totalFixes++
+					formatter.FixCount++
+					data = newData
+					formatter.FileData = newData
+				}
+			}
+		}
+		if anyFixed {
+			formatter.Errors = nil
+			runDetectionAndLint()
+		}
+	}
+
+	return formatter, totalFixes
 }
 
 // hasYAMLExtension checks if a file has a YAML extension
 func hasYAMLExtension(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	return ext == ".yaml" || ext == ".yml"
-}
-
-// runLint performs the actual linting of files
-func runLint(files []string) error {
-	hasErrors := false
-	totalErrorCount := 0
-	totalFixCount := 0
-	startTime := time.Now()
-	allErrors := []format.ValidationError{}
-
-	for _, filename := range files {
-		// Only show per-file progress in verbose mode
-		if verbose && !quiet && lintOutputFormat == "text" {
-			fmt.Printf("Linting %s...\n", filename)
-		}
-
-		// Read file
-		data, err := ioutil.ReadFile(filename)
-		if err != nil {
-			fmt.Printf("Error reading %s: %v\n", filename, err)
-			hasErrors = true
-			totalErrorCount++
-			if exitOnFail {
-				return fmt.Errorf("validation failed")
-			}
-			continue
-		}
-
-		// Create an error formatter for this file
-		formatter := format.NewErrorFormatter(filename, data)
-		formatter.ContextLines = contextLines
-		formatter.CanAutoFix = autoFix
-		formatter.OutputFormat = lintOutputFormat
-
-		// Determine resource type
-		resourceType, err := determineResourceType(data)
-		if err != nil {
-			formatter.PrintErrorHeader()
-
-			// Extract line number if possible
-			lineNum := formatter.ExtractLineNumber(err.Error())
-			formatter.PrintError(err.Error(), lineNum)
-
-			// Try auto-fix if enabled
-			if autoFix {
-				if fixed, newData := formatter.TryAutoFix(err.Error(), lineNum); fixed {
-					if !quiet && lintOutputFormat == "text" {
-						format.SuccessColor.Printf("  ↪ Auto-fixed issues in %s\n", filename)
-					}
-					// Write the fixed data back to the file
-					if err := ioutil.WriteFile(filename, newData, 0644); err != nil {
-						fmt.Printf("Error writing fixed file %s: %v\n", filename, err)
-					} else {
-						formatter.FixCount++
-						totalFixCount++
-
-						// Re-read the fixed file and try again
-						data = newData
-						resourceType, err = determineResourceType(data)
-						// If still error, continue with normal flow
-						if err != nil {
-							hasErrors = true
-							totalErrorCount++
-							if exitOnFail {
-								return fmt.Errorf("validation failed")
-							}
-							continue
-						}
-					}
-				} else {
-					// No fix was applied, count the error
-					hasErrors = true
-					totalErrorCount++
-				}
-			} else {
-				hasErrors = true
-				totalErrorCount++
-				if exitOnFail {
-					return fmt.Errorf("validation failed")
-				}
-				continue
-			}
-		}
-
-		// Skip if we're only linting specific types and this isn't one of them
-		if len(fileTypes) > 0 && !contains(fileTypes, resourceType) {
-			if !quiet && lintOutputFormat == "text" {
-				fmt.Printf("Skipping %s (resource type: %s)\n", filename, resourceType)
-			}
-			continue
-		}
-
-		// Validate based on resource type
-		if err := validateResource(formatter, resourceType, data); err != nil {
-			hasErrors = true
-
-			if autoFix && len(formatter.Errors) > 0 {
-				var anyFixed bool
-
-				// Try to auto-fix each error
-				for _, valError := range formatter.Errors {
-					if valError.AutoFixable {
-						if fixed, newData := formatter.TryAutoFix(valError.Message, valError.LineNumber); fixed {
-							if !quiet && lintOutputFormat == "text" {
-								format.SuccessColor.Printf("  ↪ Auto-fixed issue at line %d in %s\n",
-									valError.LineNumber, filename)
-							}
-							// Write the fixed data back to the file
-							if err := ioutil.WriteFile(filename, newData, 0644); err != nil {
-								fmt.Printf("Error writing fixed file %s: %v\n", filename, err)
-							} else {
-								anyFixed = true
-								formatter.FixCount++
-								totalFixCount++
-								// Update the data for next fixes
-								data = newData
-								formatter.FileData = newData
-							}
-						}
-					}
-				}
-
-				// If any fixes were applied, try validating again
-				if anyFixed {
-					// Create a new formatter with the updated data
-					newFormatter := format.NewErrorFormatter(filename, data)
-					newFormatter.ContextLines = contextLines
-					newFormatter.OutputFormat = lintOutputFormat
-
-					// Revalidate
-					if err := validateResource(newFormatter, resourceType, data); err == nil {
-						// Fixed all issues!
-						if !quiet && lintOutputFormat == "text" {
-							format.SuccessColor.Printf("  ✓ All issues fixed in %s\n", filename)
-						}
-						// Reset the error flag for this file
-						hasErrors = false
-						continue
-					} else {
-						// Still has errors after fixing
-						totalErrorCount += newFormatter.ErrorCount
-						allErrors = append(allErrors, newFormatter.Errors...)
-					}
-				} else {
-					// No fixes were applied
-					totalErrorCount += formatter.ErrorCount
-					allErrors = append(allErrors, formatter.Errors...)
-				}
-			} else {
-				// Not auto-fixing
-				totalErrorCount += formatter.ErrorCount
-				allErrors = append(allErrors, formatter.Errors...)
-			}
-
-			// Show error summary for this file
-			if lintOutputFormat == "text" {
-				formatter.PrintErrorSummary()
-			}
-
-			if exitOnFail {
-				return fmt.Errorf("validation failed")
-			}
-		}
-	}
-
-	// Output in JSON format if requested
-	if lintOutputFormat == "json" {
-		// Create a combined formatter just for JSON output
-		jsonFormatter := format.NewErrorFormatter("", nil)
-		jsonFormatter.Errors = allErrors
-		jsonFormatter.ErrorCount = totalErrorCount
-		jsonFormatter.FixCount = totalFixCount
-		fmt.Println(jsonFormatter.FormatAsJSON())
-	}
-
-	// Print overall stats
-	if lintOutputFormat == "text" {
-		duration := time.Since(startTime)
-		format.PrintLintSummary(len(files), totalErrorCount, totalFixCount, duration)
-	}
-
-	if hasErrors || totalErrorCount > 0 {
-		// Return an error to indicate failure but don't add a message
-		// since the summary already showed the error count
-		return fmt.Errorf("") // Empty error message
-	}
-
-	return nil
-}
-
-// determineResourceType identifies the resource type from YAML data
-func determineResourceType(data []byte) (string, error) {
-	var m map[string]interface{}
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return "", fmt.Errorf("invalid YAML: %w", err)
-	}
-
-	// Look for known top-level keys
-	if _, ok := m["service"]; ok {
-		return "service", nil
-	}
-	if _, ok := m["services"]; ok {
-		return "service", nil
-	}
-	if _, ok := m["job"]; ok {
-		return "job", nil
-	}
-	if _, ok := m["jobs"]; ok {
-		return "job", nil
-	}
-	if _, ok := m["secret"]; ok {
-		return "secret", nil
-	}
-	if _, ok := m["function"]; ok {
-		return "function", nil
-	}
-	if _, ok := m["config"]; ok {
-		return "config", nil
-	}
-	if _, ok := m["networkPolicy"]; ok {
-		return "networkPolicy", nil
-	}
-
-	// Check if it's a Rune global configuration file
-	if _, ok := m["server"]; ok {
-		if _, ok := m["client"]; ok {
-			return "rune-config", nil
-		}
-	}
-
-	// Check if it appears to be a partial config file
-	configKeys := []string{"namespace", "auth", "resources", "logging", "plugins"}
-	configKeyCount := 0
-
-	for _, key := range configKeys {
-		if _, ok := m[key]; ok {
-			configKeyCount++
-		}
-	}
-
-	// If it has at least two config-related keys, assume it's a configuration file
-	if configKeyCount >= 2 {
-		return "rune-config", nil
-	}
-
-	return "", fmt.Errorf("unrecognized resource type")
-}
-
-// validateResource validates a specific resource type
-func validateResource(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	var err error
-
-	switch resourceType {
-	case "service":
-		err = validateService(formatter, data)
-	case "job":
-		err = validateJob(formatter, resourceType, data)
-	case "secret":
-		err = validateSecret(formatter, resourceType, data)
-	case "function":
-		err = validateFunction(formatter, resourceType, data)
-	case "config":
-		err = validateConfig(formatter, resourceType, data)
-	case "rune-config":
-		err = validateRuneConfig(formatter, data)
-	case "networkPolicy":
-		err = validateNetworkPolicy(formatter, resourceType, data)
-	default:
-		return fmt.Errorf("validation not implemented for resource type: %s", resourceType)
-	}
-
-	return err
-}
-
-// validateService validates a service resource
-func validateService(formatter *format.ErrorFormatter, data []byte) error {
-	serviceFile, err := types.ParseServiceData(data)
-	if err != nil {
-		formatter.PrintErrorHeader()
-
-		var yamlErr *yaml.TypeError
-		if errors.As(err, &yamlErr) {
-			for _, e := range yamlErr.Errors {
-				errMsg := e
-				lineNum := formatter.ExtractLineNumber(errMsg)
-				formatter.PrintError(errMsg, lineNum)
-				formatter.ErrorCount++
-			}
-		} else {
-			// Handle structure validation errors
-			errStr := err.Error()
-			if strings.Contains(errStr, "structure validation failed") {
-				// Parse the multi-line error message from ValidateStructure
-				lines := strings.Split(errStr, "\n")
-				for _, line := range lines {
-					if strings.Contains(line, "unknown field") {
-						// Extract line number from the error message
-						// Format: "unknown field 'fieldName' in service specification at line X"
-						parts := strings.Split(line, "at line ")
-						if len(parts) == 2 {
-							if lineNum, parseErr := strconv.Atoi(strings.TrimSpace(parts[1])); parseErr == nil {
-								formatter.PrintError(line, lineNum)
-							} else {
-								formatter.PrintError(line, 0)
-							}
-						} else {
-							formatter.PrintError(line, 0)
-						}
-					}
-				}
-			} else {
-				// Try to extract line number from regular errors
-				lineNum := formatter.ExtractLineNumber(errStr)
-				formatter.PrintError(errStr, lineNum)
-			}
-		}
-		return fmt.Errorf("validation failed in %s", formatter.FileName)
-	}
-
-	hasErrors := false
-	for _, service := range serviceFile.GetServices() {
-		if err := service.Validate(); err != nil {
-			if !hasErrors {
-				formatter.PrintErrorHeader()
-			}
-
-			hasErrors = true
-
-			// Get line info if available
-			var lineNum int
-			if lineInfo, ok := serviceFile.GetLineInfo(service.Name); ok {
-				lineNum = lineInfo
-			}
-
-			formatter.PrintServiceError(service.Name, err.Error(), lineNum)
-			formatter.ErrorCount++ // Increment the error count
-		}
-	}
-
-	if hasErrors {
-		return fmt.Errorf("validation failed for services in %s", formatter.FileName)
-	}
-
-	return nil
-}
-
-// validateJob validates a job resource
-func validateJob(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	// This would use the actual job parsing and validation logic
-	// For now, we'll return a placeholder message
-	if !quiet && formatter.OutputFormat == "text" {
-		fmt.Printf("Job validation not yet implemented for %s\n", formatter.FileName)
-	}
-	return nil
-}
-
-// validateSecret validates a secret resource
-func validateSecret(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	// This would use the actual secret parsing and validation logic
-	// For now, we'll return a placeholder message
-	if !quiet && formatter.OutputFormat == "text" {
-		fmt.Printf("Secret validation not yet implemented for %s\n", formatter.FileName)
-	}
-	return nil
-}
-
-// validateFunction validates a function resource
-func validateFunction(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	// This would use the actual function parsing and validation logic
-	// For now, we'll return a placeholder message
-	if !quiet && formatter.OutputFormat == "text" {
-		fmt.Printf("Function validation not yet implemented for %s\n", formatter.FileName)
-	}
-	return nil
-}
-
-// validateConfig validates a config resource
-func validateConfig(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	// This would use the actual config parsing and validation logic
-	// For now, we'll return a placeholder message
-	if !quiet && formatter.OutputFormat == "text" {
-		fmt.Printf("Config validation not yet implemented for %s\n", formatter.FileName)
-	}
-	return nil
-}
-
-// validateNetworkPolicy validates a network policy resource
-func validateNetworkPolicy(formatter *format.ErrorFormatter, resourceType string, data []byte) error {
-	// This would use the actual network policy parsing and validation logic
-	// For now, we'll return a placeholder message
-	if !quiet && formatter.OutputFormat == "text" {
-		fmt.Printf("Network policy validation not yet implemented for %s\n", formatter.FileName)
-	}
-	return nil
-}
-
-// validateRuneConfig validates a Rune configuration file
-func validateRuneConfig(formatter *format.ErrorFormatter, data []byte) error {
-	// For now, we just validate that it's valid YAML
-	// In the future, we can add more specific validation
-	var config map[string]interface{}
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		formatter.PrintErrorHeader()
-		errStr := err.Error()
-		lineNum := formatter.ExtractLineNumber(errStr)
-		formatter.PrintError(errStr, lineNum)
-		return fmt.Errorf("invalid Rune configuration: %w", err)
-	}
-
-	if !quiet && formatter.OutputFormat == "text" {
-		format.SuccessColor.Printf("✓ Valid Rune configuration file: %s\n", formatter.FileName)
-	}
-
-	return nil
-}
-
-// contains checks if a string is present in a slice
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }

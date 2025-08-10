@@ -1,0 +1,160 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/rzbill/rune/pkg/crypto"
+	"github.com/rzbill/rune/pkg/store"
+	"github.com/spf13/viper"
+)
+
+type TLS struct {
+	Enabled  bool   `yaml:"enabled"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+type Server struct {
+	GRPCAddr string `yaml:"grpc_address"`
+	HTTPAddr string `yaml:"http_address"`
+	TLS      TLS    `yaml:"tls"`
+}
+
+type Client struct {
+	Timeout time.Duration `yaml:"timeout"`
+	Retries int           `yaml:"retries"`
+}
+
+type Docker struct {
+	APIVersion                string `yaml:"api_version"`
+	FallbackAPIVersion        string `yaml:"fallback_api_version"`
+	NegotiationTimeoutSeconds int    `yaml:"negotiation_timeout_seconds"`
+}
+
+type Resources struct {
+	CPU struct {
+		DefaultRequest string `yaml:"default_request"`
+		DefaultLimit   string `yaml:"default_limit"`
+	} `yaml:"cpu"`
+	Memory struct {
+		DefaultRequest string `yaml:"default_request"`
+		DefaultLimit   string `yaml:"default_limit"`
+	} `yaml:"memory"`
+}
+
+type Log struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+type Auth struct {
+	APIKeys  string `yaml:"api_keys"`
+	Provider string `yaml:"provider"`
+	Token    string `yaml:"token"`
+}
+
+type SecretEncryption struct {
+	Enabled bool      `yaml:"enabled"`
+	KEK     KEKConfig `yaml:"kek"`
+}
+
+type KEKConfig struct {
+	Source     string `yaml:"source"`
+	File       string `yaml:"file"`
+	Passphrase struct {
+		Enabled bool   `yaml:"enabled"`
+		Env     string `yaml:"env"`
+	} `yaml:"passphrase"`
+}
+
+type Plugins struct {
+	Dir     string   `yaml:"dir"`
+	Enabled []string `yaml:"enabled"`
+}
+
+type Config struct {
+	Server    Server    `yaml:"server"`
+	DataDir   string    `yaml:"data_dir"`
+	Client    Client    `yaml:"client"`
+	Docker    Docker    `yaml:"docker"`
+	Namespace string    `yaml:"namespace"`
+	Auth      Auth      `yaml:"auth"`
+	Resources Resources `yaml:"resources"`
+	Log       Log       `yaml:"log"`
+	Secret    struct {
+		Encryption SecretEncryption `yaml:"encryption"`
+		Limits     store.Limits     `yaml:"limits"`
+	} `yaml:"secret"`
+	ConfigResource struct {
+		Limits store.Limits `yaml:"limits"`
+	} `yaml:"config"`
+	Plugins Plugins `yaml:"plugins"`
+}
+
+func Default() *Config {
+	return &Config{
+		Server:    Server{GRPCAddr: ":8443", HTTPAddr: ":8081"},
+		DataDir:   defaultDataDir(),
+		Client:    Client{Timeout: 30 * time.Second, Retries: 3},
+		Docker:    Docker{FallbackAPIVersion: "1.43", NegotiationTimeoutSeconds: 3},
+		Namespace: "default",
+		Log:       Log{Level: "info", Format: "text"},
+		Secret: struct {
+			Encryption SecretEncryption `yaml:"encryption"`
+			Limits     store.Limits     `yaml:"limits"`
+		}{
+			// Default to file-based KEK with path derived from DataDir at runtime
+			// so we can auto-generate on first run without root.
+			Encryption: SecretEncryption{Enabled: true, KEK: KEKConfig{Source: "file", File: ""}},
+			Limits:     store.Limits{MaxObjectBytes: 1 << 20, MaxKeyNameLength: 256},
+		},
+		ConfigResource: struct {
+			Limits store.Limits `yaml:"limits"`
+		}{Limits: store.Limits{MaxObjectBytes: 1 << 20, MaxKeyNameLength: 256}},
+	}
+}
+
+func defaultDataDir() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return "./data"
+	}
+	// prefer /var/lib/rune if exists and writable
+	if st, err := os.Stat("/var/lib"); err == nil && st.IsDir() {
+		return "/var/lib/rune"
+	}
+	return filepath.Join(home, ".rune")
+}
+
+func (c *Config) KEKOptions() *crypto.KEKOptions {
+	return &crypto.KEKOptions{
+		Source:   crypto.KEKSource(c.Secret.Encryption.KEK.Source),
+		FilePath: c.Secret.Encryption.KEK.File,
+		EnvVar:   "RUNE_MASTER_KEY",
+		// Generate on first run if using file source and the file is missing,
+		// or when Source is explicitly set to "generated".
+		GenerateIfMissing: c.Secret.Encryption.KEK.Source == "generated" ||
+			(c.Secret.Encryption.KEK.Source == "file" && c.Secret.Encryption.KEK.File != ""),
+	}
+}
+
+func Load(path string) (*Config, error) {
+	v := viper.New()
+	v.SetConfigFile(path)
+	if path == "" {
+		v.SetConfigName("rune")
+		v.SetConfigType("yaml")
+		v.AddConfigPath("/etc/rune/")
+		v.AddConfigPath("$HOME/.rune")
+		v.AddConfigPath(".")
+	}
+	cfg := Default()
+	if err := v.ReadInConfig(); err == nil {
+		if err := v.Unmarshal(cfg); err != nil {
+			return nil, err
+		}
+	}
+	return cfg, nil
+}

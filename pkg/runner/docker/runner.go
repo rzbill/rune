@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	imageTypes "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
@@ -23,11 +26,11 @@ type DockerConfig struct {
 	// APIVersion is the Docker API version to use
 	// If empty, auto-negotiation will be used
 	APIVersion string
-	
+
 	// FallbackAPIVersion is used when auto-negotiation fails
 	// Default is "1.43" which is widely compatible
 	FallbackAPIVersion string
-	
+
 	// Timeout for API version negotiation in seconds
 	NegotiationTimeoutSeconds int
 }
@@ -35,7 +38,7 @@ type DockerConfig struct {
 // DefaultDockerConfig returns the default Docker configuration
 func DefaultDockerConfig() *DockerConfig {
 	return &DockerConfig{
-		APIVersion:                "",  // Empty means use auto-negotiation
+		APIVersion:                "",     // Empty means use auto-negotiation
 		FallbackAPIVersion:        "1.43", // Fallback to a widely compatible version
 		NegotiationTimeoutSeconds: 3,
 	}
@@ -68,18 +71,18 @@ func NewDockerRunnerWithConfig(logger log.Logger, config *DockerConfig) (*Docker
 	if logger == nil {
 		logger = log.GetDefaultLogger().WithComponent("docker-runner")
 	}
-	
+
 	// Use default config if none provided
 	if config == nil {
 		config = DefaultDockerConfig()
 	}
-	
+
 	// Create a client with the appropriate API version
 	client, err := createClientWithVersionHandling(logger, config)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &DockerRunner{
 		client: client,
 		logger: logger,
@@ -99,7 +102,7 @@ func createClientWithVersionHandling(logger log.Logger, config *DockerConfig) (*
 	if config.APIVersion != "" {
 		logger.Info("Using specified Docker API version",
 			log.Str("api_version", config.APIVersion))
-		
+
 		dockerClient, err = client.NewClientWithOpts(
 			client.FromEnv,
 			client.WithVersion(config.APIVersion),
@@ -107,7 +110,7 @@ func createClientWithVersionHandling(logger log.Logger, config *DockerConfig) (*
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Docker client with version %s: %w", config.APIVersion, err)
 		}
-		
+
 		return dockerClient, nil
 	}
 
@@ -135,33 +138,33 @@ func verifyClientCompatibility(dockerClient *client.Client, clientVersion, fallb
 	defer pingCancel()
 
 	_, err := dockerClient.Ping(pingCtx)
-	
+
 	// Check for version mismatch errors
-	if err != nil && strings.Contains(err.Error(), "client version") && 
+	if err != nil && strings.Contains(err.Error(), "client version") &&
 		strings.Contains(err.Error(), "too new") {
 		// If we get version mismatch error, use the fallback version
 		logger.Warn("Docker API version mismatch, falling back to compatibility version",
 			log.Str("current_version", clientVersion),
 			log.Str("fallback_version", fallbackVersion),
 			log.Err(err))
-			
+
 		// Create new client with fallback version
 		newClient, err := client.NewClientWithOpts(
 			client.FromEnv,
 			client.WithVersion(fallbackVersion),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to create Docker client with fallback version %s: %w", 
+			return fmt.Errorf("failed to create Docker client with fallback version %s: %w",
 				fallbackVersion, err)
 		}
-		
+
 		// Replace the original client with the fallback client
 		*dockerClient = *newClient
 	} else if err != nil {
 		// If there's a non-version error, log it but continue
 		logger.Warn("Docker ping error (continuing anyway)", log.Err(err))
 	}
-	
+
 	return nil
 }
 
@@ -519,8 +522,29 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 		Env: formatEnvVars(instance.Environment),
 	}
 
-	// Simple host config with no special settings
+	// Configure host config with mounts
 	hostConfig := &container.HostConfig{}
+
+	// Handle secret and config mounts
+	if instance.Metadata != nil {
+		// Process secret mounts
+		if len(instance.Metadata.SecretMounts) > 0 {
+			secretMounts, err := r.prepareSecretMounts(instance.Metadata.SecretMounts)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to prepare secret mounts: %w", err)
+			}
+			hostConfig.Mounts = append(hostConfig.Mounts, secretMounts...)
+		}
+
+		// Process config mounts
+		if len(instance.Metadata.ConfigmapMounts) > 0 {
+			configMounts, err := r.prepareConfigmapsMounts(instance.Metadata.ConfigmapMounts)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to prepare config mounts: %w", err)
+			}
+			hostConfig.Mounts = append(hostConfig.Mounts, configMounts...)
+		}
+	}
 
 	return containerConfig, hostConfig, nil
 }
@@ -532,4 +556,112 @@ func formatEnvVars(env map[string]string) []string {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
 	return result
+}
+
+// prepareSecretMounts creates temporary files and Docker mounts for secret mounts
+func (r *DockerRunner) prepareSecretMounts(secretMounts []types.ResolvedSecretMount) ([]mount.Mount, error) {
+	var mounts []mount.Mount
+
+	for _, secretMount := range secretMounts {
+		// Create a temporary directory for this mount
+		tempDir, err := os.MkdirTemp("", fmt.Sprintf("rune-secret-%s-", secretMount.Name))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp directory for secret mount %s: %w", secretMount.Name, err)
+		}
+
+		// Create files for each secret key
+		for key, value := range secretMount.Data {
+			// Determine the file path
+			var filePath string
+			if len(secretMount.Items) > 0 {
+				// Check if there's a specific path mapping for this key
+				for _, item := range secretMount.Items {
+					if item.Key == key {
+						filePath = filepath.Join(tempDir, item.Path)
+						break
+					}
+				}
+				// If no specific mapping, use the key name
+				if filePath == "" {
+					filePath = filepath.Join(tempDir, key)
+				}
+			} else {
+				// No specific mapping, use the key name
+				filePath = filepath.Join(tempDir, key)
+			}
+
+			// Create the file with the secret value
+			if err := os.WriteFile(filePath, []byte(value), 0600); err != nil {
+				os.RemoveAll(tempDir) // Clean up on error
+				return nil, fmt.Errorf("failed to write secret file %s: %w", filePath, err)
+			}
+		}
+
+		// Create Docker mount
+		dockerMount := mount.Mount{
+			Type:        mount.TypeBind,
+			Source:      tempDir,
+			Target:      secretMount.MountPath,
+			ReadOnly:    true,
+			BindOptions: &mount.BindOptions{},
+		}
+
+		mounts = append(mounts, dockerMount)
+	}
+
+	return mounts, nil
+}
+
+// prepareConfigmapsMounts creates temporary files and Docker mounts for config mounts
+func (r *DockerRunner) prepareConfigmapsMounts(configMounts []types.ResolvedConfigmapMount) ([]mount.Mount, error) {
+	var mounts []mount.Mount
+
+	for _, configMount := range configMounts {
+		// Create a temporary directory for this mount
+		tempDir, err := os.MkdirTemp("", fmt.Sprintf("rune-config-%s-", configMount.Name))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp directory for config mount %s: %w", configMount.Name, err)
+		}
+
+		// Create files for each config key
+		for key, value := range configMount.Data {
+			// Determine the file path
+			var filePath string
+			if len(configMount.Items) > 0 {
+				// Check if there's a specific path mapping for this key
+				for _, item := range configMount.Items {
+					if item.Key == key {
+						filePath = filepath.Join(tempDir, item.Path)
+						break
+					}
+				}
+				// If no specific mapping, use the key name
+				if filePath == "" {
+					filePath = filepath.Join(tempDir, key)
+				}
+			} else {
+				// No specific mapping, use the key name
+				filePath = filepath.Join(tempDir, key)
+			}
+
+			// Create the file with the config value
+			if err := os.WriteFile(filePath, []byte(value), 0644); err != nil {
+				os.RemoveAll(tempDir) // Clean up on error
+				return nil, fmt.Errorf("failed to write config file %s: %w", filePath, err)
+			}
+		}
+
+		// Create Docker mount
+		dockerMount := mount.Mount{
+			Type:        mount.TypeBind,
+			Source:      tempDir,
+			Target:      configMount.MountPath,
+			ReadOnly:    true,
+			BindOptions: &mount.BindOptions{},
+		}
+
+		mounts = append(mounts, dockerMount)
+	}
+
+	return mounts, nil
 }

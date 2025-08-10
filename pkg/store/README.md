@@ -33,6 +33,48 @@ type Store interface {
 }
 ```
 
+## Repositories (Adapters)
+
+To provide a clean, testable API per resource without duplicating storage logic, we introduce small, typed repository adapters over the single core `Store`. These repos accept a standard reference (ref) string for addressing resources and delegate to the core store using consistent keys and versioning from `util.go`.
+
+- One DB (Badger), one `Store` implementation
+- Repos live under `pkg/store/repos/`
+- Secrets are encrypted at rest via a codec within the core store (transparent to callers)
+
+### Resource Reference (Ref)
+
+Canonical URI form:
+
+- Name-based: `rune://<type>/<namespace>/<name>`
+- ID-based:   `rune://<type>/<namespace>/id/<id>`
+
+Shorthand FQDNs like `secret:db-credentials.prod.rune` are also supported by the parser.
+
+Helpers:
+
+- `ParseRef(string) (Ref, error)`
+- `FormatRef(rt, ns, name string) string`
+
+### Example (SecretRepo)
+
+```go
+core := store.NewBadgerStore(logger)
+_ = core.Open("/path/to/data")
+defer core.Close()
+
+secRepo := repos.NewSecretRepo(core)
+
+ref := repos.FormatRef(types.ResourceTypeSecret, "prod", "db-credentials")
+secret := &types.Secret{Name: "db-credentials", Namespace: "prod", Type: "static", Data: map[string]string{"username":"admin","password":"s3cr3t"}}
+
+if err := secRepo.Create(ctx, ref, secret); err != nil { /* handle */ }
+got, err := secRepo.Get(ctx, ref)
+```
+
+### Base Repo
+
+`BaseRepo[T]` provides common `Create/Get/Update/Delete` on top of the core `Store`. Resource-specific repos compose it and add behavior only as needed. Secrets use transparent encryption at rest; configs use default JSON.
+
 ## Usage
 
 ### Creating a Store
@@ -167,10 +209,17 @@ if err != nil {
 
 ## Implementation Notes
 
-- Resources are stored as serialized JSON
+- Resources are stored as serialized JSON (secrets are encrypted at rest transparently)
 - Keys are organized hierarchically by resource type, namespace, and name
 - Versions are stored separately with metadata and timestamps
 - Watch events are distributed through an in-memory pub/sub system
+
+### Resource Types
+
+The core recognizes standard types, including:
+
+- `service`, `instance`, `namespace`, `scaling_operation`, `deletion_operation`
+- `secret` (encrypted at rest), `config`
 
 ## Future Enhancements
 

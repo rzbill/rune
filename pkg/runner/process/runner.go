@@ -140,11 +140,36 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
 
+	// Materialize mounts (secrets/configs) if provided
+	var createdFiles []string
+	if instance.Metadata != nil {
+		// Secrets
+		if len(instance.Metadata.SecretMounts) > 0 {
+			files, mErr := r.materializeSecretMounts(instance.Metadata.SecretMounts)
+			if mErr != nil {
+				_ = logFile.Close()
+				_ = os.RemoveAll(workDir)
+				return fmt.Errorf("failed to materialize secret mounts: %w", mErr)
+			}
+			createdFiles = append(createdFiles, files...)
+		}
+		// Configs
+		if len(instance.Metadata.ConfigmapMounts) > 0 {
+			files, mErr := r.materializeConfigMounts(instance.Metadata.ConfigmapMounts)
+			if mErr != nil {
+				_ = logFile.Close()
+				_ = os.RemoveAll(workDir)
+				return fmt.Errorf("failed to materialize config mounts: %w", mErr)
+			}
+			createdFiles = append(createdFiles, files...)
+		}
+	}
+
 	// Prepare command (but don't start it)
 	cmd := exec.CommandContext(ctx, instance.Process.Command, instance.Process.Args...)
 
 	// Set environment variables
-	if instance.Environment != nil && len(instance.Environment) > 0 {
+	if len(instance.Environment) > 0 {
 		// Convert map to slice of KEY=VALUE strings
 		env := os.Environ() // Include parent environment
 		for key, value := range instance.Environment {
@@ -179,7 +204,7 @@ func (r *ProcessRunner) Create(ctx context.Context, instance *types.Instance) er
 		cmd:          cmd,
 		workDir:      workDir,
 		logFile:      logFile,
-		cleanupFiles: []string{logPath},
+		cleanupFiles: append([]string{logPath}, filterFilesUnder(workDir, createdFiles)...),
 		stopCh:       make(chan struct{}),
 		status: runner.InstanceStatus{
 			State:      types.InstanceStatusCreated,
@@ -395,6 +420,14 @@ func (r *ProcessRunner) Remove(ctx context.Context, instance *types.Instance, fo
 	// Close log file
 	if proc.logFile != nil {
 		_ = proc.logFile.Close()
+	}
+
+	// Remove files created under workDir
+	for _, fp := range proc.cleanupFiles {
+		// Best-effort remove only files inside workDir
+		if strings.HasPrefix(fp, proc.workDir+string(os.PathSeparator)) || fp == proc.workDir {
+			_ = os.Remove(fp)
+		}
 	}
 
 	// Remove workspace directory
@@ -719,6 +752,154 @@ func min(x, y int) int {
 		return x
 	}
 	return y
+}
+
+// materializeSecretMounts writes secret files to their target paths.
+// Returns a list of file paths created (best-effort; only files under the
+// runner workDir are later cleaned automatically).
+func (r *ProcessRunner) materializeSecretMounts(secretMounts []types.ResolvedSecretMount) ([]string, error) {
+	var created []string
+	for _, m := range secretMounts {
+		files, err := r.writeSecretFiles(m)
+		if err != nil {
+			return created, err
+		}
+		created = append(created, files...)
+	}
+	return created, nil
+}
+
+// writeSecretFiles writes individual secret files for a single mount.
+func (r *ProcessRunner) writeSecretFiles(mount types.ResolvedSecretMount) ([]string, error) {
+	// Ensure target directory exists
+	if err := os.MkdirAll(mount.MountPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory %s: %w", mount.MountPath, err)
+	}
+
+	var created []string
+	// Helper to write a single key->path
+	write := func(key, relPath, value string) error {
+		dest := filepath.Join(mount.MountPath, relPath)
+		// Ensure parent dirs
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return fmt.Errorf("failed to create parent dirs for %s: %w", dest, err)
+		}
+		// Write with 0400
+		if err := os.WriteFile(dest, []byte(value), 0400); err != nil {
+			return fmt.Errorf("failed to write secret file %s: %w", dest, err)
+		}
+		created = append(created, dest)
+		return nil
+	}
+
+	if len(mount.Items) > 0 {
+		mapped := make(map[string]struct{}, len(mount.Items))
+		for _, item := range mount.Items {
+			val, ok := mount.Data[item.Key]
+			if !ok {
+				return created, fmt.Errorf("secret key %q not found for mount %q", item.Key, mount.Name)
+			}
+			if err := write(item.Key, item.Path, val); err != nil {
+				return created, err
+			}
+			mapped[item.Key] = struct{}{}
+		}
+		// Default-map remaining keys not explicitly mapped
+		for k, v := range mount.Data {
+			if _, ok := mapped[k]; ok {
+				continue
+			}
+			if err := write(k, k, v); err != nil {
+				return created, err
+			}
+		}
+		return created, nil
+	}
+
+	// Default mapping: each key -> file with same name
+	for k, v := range mount.Data {
+		if err := write(k, k, v); err != nil {
+			return created, err
+		}
+	}
+	return created, nil
+}
+
+// materializeConfigMounts writes config files to their target paths with 0644 perms.
+func (r *ProcessRunner) materializeConfigMounts(configMounts []types.ResolvedConfigmapMount) ([]string, error) {
+	var created []string
+	for _, m := range configMounts {
+		files, err := r.writeConfigFiles(m)
+		if err != nil {
+			return created, err
+		}
+		created = append(created, files...)
+	}
+	return created, nil
+}
+
+// writeConfigFiles writes individual config files for a single mount.
+func (r *ProcessRunner) writeConfigFiles(mount types.ResolvedConfigmapMount) ([]string, error) {
+	if err := os.MkdirAll(mount.MountPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory %s: %w", mount.MountPath, err)
+	}
+
+	var created []string
+	write := func(key, relPath, value string) error {
+		dest := filepath.Join(mount.MountPath, relPath)
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return fmt.Errorf("failed to create parent dirs for %s: %w", dest, err)
+		}
+		if err := os.WriteFile(dest, []byte(value), 0644); err != nil {
+			return fmt.Errorf("failed to write config file %s: %w", dest, err)
+		}
+		created = append(created, dest)
+		return nil
+	}
+
+	if len(mount.Items) > 0 {
+		mapped := make(map[string]struct{}, len(mount.Items))
+		for _, item := range mount.Items {
+			val, ok := mount.Data[item.Key]
+			if !ok {
+				return created, fmt.Errorf("config key %q not found for mount %q", item.Key, mount.Name)
+			}
+			if err := write(item.Key, item.Path, val); err != nil {
+				return created, err
+			}
+			mapped[item.Key] = struct{}{}
+		}
+		for k, v := range mount.Data {
+			if _, ok := mapped[k]; ok {
+				continue
+			}
+			if err := write(k, k, v); err != nil {
+				return created, err
+			}
+		}
+		return created, nil
+	}
+
+	for k, v := range mount.Data {
+		if err := write(k, k, v); err != nil {
+			return created, err
+		}
+	}
+	return created, nil
+}
+
+// filterFilesUnder returns only paths under the given base directory.
+func filterFilesUnder(base string, paths []string) []string {
+	var out []string
+	base = filepath.Clean(base)
+	prefix := base + string(os.PathSeparator)
+	for _, p := range paths {
+		cp := filepath.Clean(p)
+		if cp == base || strings.HasPrefix(cp, prefix) {
+			out = append(out, cp)
+		}
+	}
+	return out
 }
 
 // Status retrieves the current status of a process instance

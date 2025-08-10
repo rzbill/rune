@@ -23,6 +23,10 @@ type TestStore struct {
 	watchChans map[string][]chan WatchEvent
 	watchMutex sync.RWMutex
 	opened     bool
+
+	// KEK handling for tests
+	kekHolder secretKEKHolder
+	opts      StoreOptions
 }
 
 // NewTestStore creates a new TestStore instance.
@@ -32,6 +36,17 @@ func NewTestStore() *TestStore {
 		history:    make(map[types.ResourceType]map[string]map[string][]HistoricalVersion),
 		watchChans: make(map[string][]chan WatchEvent),
 		opened:     true, // Consider it already opened for simplicity
+	}
+}
+
+// NewTestStoreWithOptions creates a new TestStore instance with options
+func NewTestStoreWithOptions(opts StoreOptions) *TestStore {
+	return &TestStore{
+		data:       make(map[types.ResourceType]map[string]map[string]interface{}),
+		history:    make(map[types.ResourceType]map[string]map[string][]HistoricalVersion),
+		watchChans: make(map[string][]chan WatchEvent),
+		opened:     true, // Consider it already opened for simplicity
+		opts:       opts,
 	}
 }
 
@@ -70,6 +85,9 @@ func (s *TestStore) Close() error {
 	s.opened = false
 	return nil
 }
+
+// GetOpts returns test store options
+func (s *TestStore) GetOpts() StoreOptions { return s.opts }
 
 func (s *TestStore) CreateResource(ctx context.Context, resourceType types.ResourceType, resource interface{}) error {
 	// Special case for Namespace resources
@@ -238,6 +256,32 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 			// If stored as value but target is pointer
 			if targetSvc, ok := resource.(*types.Service); ok {
 				*targetSvc = storedData
+				return nil
+			}
+
+		case *types.ConfigMap:
+			if targetCfg, ok := resource.(*types.ConfigMap); ok && storedData != nil {
+				*targetCfg = *storedData
+				return nil
+			}
+
+		case types.ConfigMap:
+			if targetCfg, ok := resource.(*types.ConfigMap); ok {
+				*targetCfg = storedData
+				return nil
+			}
+
+		case *types.StoredSecret:
+			// If the target is a Secret pointer
+			if targetSec, ok := resource.(*types.StoredSecret); ok && storedData != nil {
+				*targetSec = *storedData
+				return nil
+			}
+
+		case types.StoredSecret:
+			// If stored as value but target is pointer
+			if targetSec, ok := resource.(*types.StoredSecret); ok {
+				*targetSec = storedData
 				return nil
 			}
 

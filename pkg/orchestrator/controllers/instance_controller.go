@@ -12,6 +12,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
+	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
 )
 
@@ -81,6 +82,8 @@ type instanceController struct {
 	store         store.Store
 	runnerManager manager.IRunnerManager
 	logger        log.Logger
+	secretRepo    *repos.SecretRepo
+	configRepo    *repos.ConfigRepo
 }
 
 // NewInstanceController creates a new instance controller
@@ -89,6 +92,8 @@ func NewInstanceController(store store.Store, runnerManager manager.IRunnerManag
 		store:         store,
 		runnerManager: runnerManager,
 		logger:        logger.WithComponent("instance-controller"),
+		secretRepo:    repos.NewSecretRepo(store),
+		configRepo:    repos.NewConfigRepo(store),
 	}
 }
 
@@ -174,14 +179,22 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 	// Set the runner type for the instance
 	instance.Runner = serviceRunner.Type()
 
-	// Build environment variables using the proper function from envvar.go
-	envVars := prepareEnvVars(service, instance)
+	// Build environment variables and interpolate secret:/config: values
+	envVars, err := c.prepareEnvVars(ctx, service, instance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare environment variables: %w", err)
+	}
 	c.logger.Debug("Prepared environment variables",
 		log.Str("instance", instanceName),
 		log.Int("env_var_count", len(envVars)))
 
 	// Set environment variables in the instance
 	instance.Environment = envVars
+
+	// Resolve secret and config mounts for this instance
+	if err := c.resolveMounts(ctx, service, instance); err != nil {
+		return nil, fmt.Errorf("failed to resolve secret and config mounts: %w", err)
+	}
 
 	// Store original image for future compatibility checks
 	if service.Image != "" {
@@ -295,7 +308,10 @@ func (c *instanceController) UpdateInstance(ctx context.Context, service *types.
 
 	// Update environment variables (only adding/modifying, not removing)
 	envVarsUpdated := false
-	envVars := prepareEnvVars(service, instance)
+	envVars, err := c.prepareEnvVars(ctx, service, instance)
+	if err != nil {
+		return fmt.Errorf("failed to prepare environment variables: %w", err)
+	}
 	for key, value := range envVars {
 		// Skip internal RUNE environment variables for comparison
 		if len(key) > 5 && key[:5] == "RUNE_" {
@@ -828,7 +844,7 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 
 		// Check for significant environment changes
 		// Partial environment changes might be fine, but essential vars should match
-		if service.Env != nil && len(service.Env) > 0 {
+		if len(service.Env) > 0 {
 			for key, value := range service.Env {
 				// Skip RUNE internal environment variables
 				if len(key) > 5 && key[:5] == "RUNE_" {
@@ -861,4 +877,199 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 
 	// If we get here, the instance is compatible
 	return true, ""
+}
+
+// prepareEnvVars prepares environment variables for an instance
+func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.Service, instance *types.Instance) (map[string]string, error) {
+	envVars := make(map[string]string)
+
+	// Add service-defined environment variables with interpolation
+	for key, value := range service.Env {
+		resolved, err := c.interpolateEnv(ctx, value, service.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to interpolate env %s: %w", key, err)
+		}
+		envVars[key] = resolved
+	}
+
+	// Add built-in environment variables
+	envVars["RUNE_SERVICE_NAME"] = service.Name
+	envVars["RUNE_SERVICE_NAMESPACE"] = service.Namespace
+	envVars["RUNE_INSTANCE_ID"] = instance.ID
+
+	// Add normalized environment variables (for compatibility)
+	serviceName := strings.ToUpper(service.Name)
+	serviceName = strings.ReplaceAll(serviceName, "-", "_")
+
+	envVars[fmt.Sprintf("%s_SERVICE_HOST", serviceName)] = fmt.Sprintf("%s.%s.rune", service.Name, service.Namespace)
+
+	// Add port-related environment variables
+	for _, port := range service.Ports {
+		portName := strings.ToUpper(port.Name)
+		portName = strings.ReplaceAll(portName, "-", "_")
+
+		envVars[fmt.Sprintf("%s_SERVICE_PORT_%s", serviceName, portName)] = fmt.Sprintf("%d", port.Port)
+
+		// If this is the first port, also set the default port
+		if len(envVars[fmt.Sprintf("%s_SERVICE_PORT", serviceName)]) == 0 {
+			envVars[fmt.Sprintf("%s_SERVICE_PORT", serviceName)] = fmt.Sprintf("%d", port.Port)
+		}
+	}
+
+	return envVars, nil
+}
+
+// interpolateEnv resolves template variables in the format {{type:reference}} using the controller's repos
+func (c *instanceController) interpolateEnv(ctx context.Context, value, defaultNamespace string) (string, error) {
+	// Check if the value contains template syntax
+	if !strings.Contains(value, "{{") || !strings.Contains(value, "}}") {
+		// No template syntax, return as-is
+		return value, nil
+	}
+
+	// Find all template variables and replace them
+	result := value
+	start := 0
+	for {
+		openIdx := strings.Index(result[start:], "{{")
+		if openIdx == -1 {
+			break
+		}
+		openIdx += start
+
+		closeIdx := strings.Index(result[openIdx:], "}}")
+		if closeIdx == -1 {
+			break
+		}
+		closeIdx += openIdx
+
+		// Extract the template variable content
+		templateVar := result[openIdx+2 : closeIdx]
+
+		// Resolve the template variable
+		resolvedValue, err := c.resolveTemplateVariable(ctx, templateVar, defaultNamespace)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve template variable %s: %w", templateVar, err)
+		}
+
+		// Replace the template variable with the resolved value
+		result = result[:openIdx] + resolvedValue + result[closeIdx+2:]
+
+		// Update start position for next iteration
+		start = openIdx + len(resolvedValue)
+	}
+
+	return result, nil
+}
+
+// resolveTemplateVariable parses and resolves a single template variable
+func (c *instanceController) resolveTemplateVariable(ctx context.Context, templateVar, defaultNamespace string) (string, error) {
+	// Parse the template variable as a resource reference
+	resourceRef, err := types.ParseResourceRefWithDefaultNamespace(templateVar, defaultNamespace)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template variable %s: %w", templateVar, err)
+	}
+
+	// Fail fast if no key is specified - we need a key to extract a value
+	if !resourceRef.HasKey() {
+		return "", fmt.Errorf("template variable must include a key for interpolation: %s", templateVar)
+	}
+
+	// Resolve the resource reference
+	switch resourceRef.Type {
+	case types.ResourceTypeSecret:
+		return c.resolveSecretValue(ctx, resourceRef)
+	case types.ResourceTypeConfigMap:
+		return c.resolveConfigMapValue(ctx, resourceRef)
+	default:
+		return "", fmt.Errorf("unsupported resource type %s in template variable: %s", resourceRef.Type, templateVar)
+	}
+}
+
+// resolveSecretValue fetches and extracts a value from a secret
+func (c *instanceController) resolveSecretValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
+	sec, err := c.secretRepo.Get(ctx, resourceRef.ToFetchRef())
+	if err != nil {
+		return "", fmt.Errorf("get secret %s.%s: %w", resourceRef.Namespace, resourceRef.Name, err)
+	}
+	if sec.Data == nil {
+		return "", fmt.Errorf("secret %s.%s has no data", resourceRef.Namespace, resourceRef.Name)
+	}
+	v, ok := sec.Data[resourceRef.Key]
+	if !ok {
+		return "", fmt.Errorf("key %s not found in secret %s.%s", resourceRef.Key, resourceRef.Namespace, resourceRef.Name)
+	}
+	return v, nil
+}
+
+// resolveConfigMapValue fetches and extracts a value from a configmap
+func (c *instanceController) resolveConfigMapValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
+	cfg, err := c.configRepo.Get(ctx, resourceRef.ToFetchRef())
+	if err != nil {
+		return "", fmt.Errorf("get configmap %s.%s: %w", resourceRef.Namespace, resourceRef.Name, err)
+	}
+	if cfg.Data == nil {
+		return "", fmt.Errorf("configmap %s.%s has no data", resourceRef.Namespace, resourceRef.Name)
+	}
+	v, ok := cfg.Data[resourceRef.Key]
+	if !ok {
+		return "", fmt.Errorf("key %s not found in configmap %s.%s", resourceRef.Key, resourceRef.Namespace, resourceRef.Name)
+	}
+	return v, nil
+}
+
+// resolveMounts resolves secret and config mounts for an instance by fetching the actual data
+func (c *instanceController) resolveMounts(ctx context.Context, service *types.Service, instance *types.Instance) error {
+	// Initialize metadata if not present
+	if instance.Metadata == nil {
+		instance.Metadata = &types.InstanceMetadata{}
+	}
+
+	// Resolve secret mounts
+	if len(service.SecretMounts) > 0 {
+		instance.Metadata.SecretMounts = make([]types.ResolvedSecretMount, 0, len(service.SecretMounts))
+
+		for _, mount := range service.SecretMounts {
+			// Get the secret from the store
+			secret, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, service.Namespace, mount.SecretName))
+			if err != nil {
+				return fmt.Errorf("failed to get secret %s for mount %s: %w", mount.SecretName, mount.Name, err)
+			}
+
+			// Create resolved mount
+			resolvedMount := types.ResolvedSecretMount{
+				Name:      mount.Name,
+				MountPath: mount.MountPath,
+				Data:      secret.Data,
+				Items:     mount.Items,
+			}
+
+			instance.Metadata.SecretMounts = append(instance.Metadata.SecretMounts, resolvedMount)
+		}
+	}
+
+	// Resolve config mounts
+	if len(service.ConfigMounts) > 0 {
+		instance.Metadata.ConfigmapMounts = make([]types.ResolvedConfigmapMount, 0, len(service.ConfigMounts))
+
+		for _, mount := range service.ConfigMounts {
+			// Get the config from the store
+			config, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, service.Namespace, mount.ConfigName))
+			if err != nil {
+				return fmt.Errorf("failed to get config %s for mount %s: %w", mount.ConfigName, mount.Name, err)
+			}
+
+			// Create resolved mount
+			resolvedMount := types.ResolvedConfigmapMount{
+				Name:      mount.Name,
+				MountPath: mount.MountPath,
+				Data:      config.Data,
+				Items:     mount.Items,
+			}
+
+			instance.Metadata.ConfigmapMounts = append(instance.Metadata.ConfigmapMounts, resolvedMount)
+		}
+	}
+
+	return nil
 }

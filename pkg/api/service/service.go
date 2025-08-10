@@ -77,6 +77,19 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 
 	// Use orchestrator to create the service
 	if err := s.orchestrator.CreateService(ctx, service); err != nil {
+		// If the service already exists, fall back to the ServiceService.UpdateService
+		if store.IsAlreadyExistsError(err) {
+			s.logger.Info("Service already exists, updating instead",
+				log.Str("name", service.Name),
+				log.Str("namespace", service.Namespace))
+			// Reuse the original request's proto for update so we go through the
+			// full UpdateService pipeline (hash/generation logic, etc.)
+			return s.UpdateService(ctx, &generated.UpdateServiceRequest{
+				Service:       req.Service,
+				DeploymentTag: req.DeploymentTag,
+				Force:         false,
+			})
+		}
 		s.logger.Error("Failed to create service", log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to create service: %v", err)
 	}

@@ -19,11 +19,14 @@ service:
     HOST: "0.0.0.0"
     ENVIRONMENT: "development"
     VERSION: "1.0.0"
-    LOG_LEVEL: "info"
+    LOG_LEVEL: {{ configmap:app-settings/log-level }}
+    NAME: {{ configmap:app-settings.default.rune/name }}
     
     # Database configuration
     DATABASE_URL: "postgresql://localhost:5432/rune_hello_world"
     API_KEY: "demo-api-key-12345"
+    DB_USERNAME: {{ secret:db-credentials/username }}
+    DB_PASSWORD: {{ secret:db-credentials.default.rune/password }}
     
     # Feature flags and debugging
     DEBUG_MODE: "true"

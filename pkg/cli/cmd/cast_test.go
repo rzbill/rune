@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLoadServicesFromFiles(t *testing.T) {
+func TestParseCastFilesResources(t *testing.T) {
 	// Create a temporary directory
 	tempDir, err := ioutil.TempDir("", "cast-test")
 	assert.NoError(t, err)
@@ -57,7 +57,7 @@ services:
 
 	// Test loading a valid service file
 	t.Run("LoadValidServiceFile", func(t *testing.T) {
-		info, err := processResourceFiles([]string{validFilePath}, []string{})
+		info, err := parseCastFilesResources([]string{validFilePath}, []string{})
 		assert.NoError(t, err)
 		assert.Len(t, info.ServicesByFile, 1)
 		assert.Len(t, info.ServicesByFile[validFilePath], 1)
@@ -69,14 +69,14 @@ services:
 
 	// Test loading an invalid service file
 	t.Run("LoadInvalidServiceFile", func(t *testing.T) {
-		_, err := processResourceFiles([]string{invalidFilePath}, []string{})
+		_, err := parseCastFilesResources([]string{invalidFilePath}, []string{})
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "validation error")
+		assert.Contains(t, err.Error(), "validation failed")
 	})
 
 	// Test loading a file with multiple services
 	t.Run("LoadMultiServiceFile", func(t *testing.T) {
-		info, err := processResourceFiles([]string{multiFilePath}, []string{})
+		info, err := parseCastFilesResources([]string{multiFilePath}, []string{})
 		assert.NoError(t, err)
 		assert.Len(t, info.ServicesByFile, 1)
 		assert.Len(t, info.ServicesByFile[multiFilePath], 2)
@@ -86,7 +86,7 @@ services:
 
 	// Test loading multiple files
 	t.Run("LoadMultipleFiles", func(t *testing.T) {
-		info, err := processResourceFiles([]string{validFilePath, multiFilePath}, []string{})
+		info, err := parseCastFilesResources([]string{validFilePath, multiFilePath}, []string{})
 		assert.NoError(t, err)
 		assert.Len(t, info.ServicesByFile, 2)
 		assert.Len(t, info.ServicesByFile[validFilePath], 1)

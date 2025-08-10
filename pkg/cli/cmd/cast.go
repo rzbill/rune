@@ -31,8 +31,9 @@ var (
 
 // castCmd represents the cast command
 var castCmd = &cobra.Command{
-	Use:   "cast [service files or directories...]",
-	Short: "Deploy a service",
+	Use:     "cast [files or directories...]",
+	Short:   "Apply resources (services, secrets, configs)",
+	Aliases: []string{"apply"},
 	Long: `Deploy a service defined in a YAML file.
 For example:
   rune cast my-service.yml
@@ -85,8 +86,8 @@ func runCast(cmd *cobra.Command, args []string) error {
 	// Print initial cast banner
 	printCastBanner(args, detach)
 
-	// Load, categorize, and validate resources
-	resourceInfo, err := processResourceFiles(filePaths, args)
+	// Load, categorize, and validate resources using CastFile
+	resourceInfo, err := parseCastFilesResources(filePaths, args)
 	if err != nil {
 		return err
 	}
@@ -127,25 +128,33 @@ func runCast(cmd *cobra.Command, args []string) error {
 
 // ResourceInfo holds information about resources to be deployed
 type ResourceInfo struct {
-	FilesByType     map[string][]string
-	ServicesByFile  map[string][]*types.Service
-	TotalResources  int
-	SourceArguments []string
+	FilesByType      map[string][]string
+	ServicesByFile   map[string][]*types.Service
+	SecretsByFile    map[string][]*types.Secret
+	ConfigMapsByFile map[string][]*types.ConfigMap
+	TotalResources   int
+	SourceArguments  []string
 }
 
 // processResourceFiles loads, categorizes, and validates resources from files
-func processResourceFiles(filePaths []string, sourceArgs []string) (*ResourceInfo, error) {
+// parseCastFilesResources reads and validates cast files, returning discovered resources.
+// It collects errors across files and reports them in a consolidated form.
+func parseCastFilesResources(filePaths []string, sourceArgs []string) (*ResourceInfo, error) {
 	info := &ResourceInfo{
-		FilesByType:     make(map[string][]string),
-		ServicesByFile:  make(map[string][]*types.Service),
-		TotalResources:  0,
-		SourceArguments: sourceArgs,
+		FilesByType:      make(map[string][]string),
+		ServicesByFile:   make(map[string][]*types.Service),
+		SecretsByFile:    make(map[string][]*types.Secret),
+		ConfigMapsByFile: make(map[string][]*types.ConfigMap),
+		TotalResources:   0,
+		SourceArguments:  sourceArgs,
 	}
 
 	// Print detected resources header
 	fmt.Println("🧩 Validating specifications...")
 
-	// First pass: load and validate services
+	var errorMessages []string
+
+	// Iterate files: parse, lint, convert
 	for _, filePath := range filePaths {
 		fileName := filepath.Base(filePath)
 
@@ -164,71 +173,101 @@ func processResourceFiles(filePaths []string, sourceArgs []string) (*ResourceInf
 		fmt.Print(strings.Repeat(".", dotsNeeded))
 		fmt.Print(" ") // Space before validation result
 
-		// Parse the service file
-		serviceFile, err := types.ParseServiceFile(filePath)
+		// Parse as CastFile to extract all resources
+		castFile, err := types.ParseCastFile(filePath)
 		if err != nil {
 			fmt.Println("❌") // Show failure
 			return nil, fmt.Errorf("failed to parse file %s: %w", filePath, err)
 		}
 
-		// Get all services from the file
-		serviceSpecs := serviceFile.GetServices()
-		if len(serviceSpecs) == 0 {
-			fmt.Println("⚠️ No services") // Show warning
+		// Per-file error accumulator
+		var fileErrors []string
+
+		// Lint all specs in the file first - fail fast on validation errors
+		if lintErrs := castFile.Lint(); len(lintErrs) > 0 {
+			fmt.Println("❌")
+			for _, le := range lintErrs {
+				fileErrors = append(fileErrors, le.Error())
+			}
+			// Don't continue processing - validation failed
+			// Stash file errors with filename context and continue to next file
+			for _, fe := range fileErrors {
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %s", fileName, fe))
+			}
 			continue
 		}
 
-		// Convert specs to services and validate them
-		services := make([]*types.Service, 0, len(serviceSpecs))
-		validationSuccessful := true
-
-		for _, spec := range serviceSpecs {
-			// Validate the service spec
-			if err := spec.Validate(); err != nil {
-				fmt.Println("❌") // Show failure
-
-				// Try to get line number for better error reporting
-				line, ok := serviceFile.GetLineInfo(spec.Name)
-				if ok {
-					return nil, fmt.Errorf("validation error in %s, line %d, service %s: %w",
-						filePath, line, spec.Name, err)
-				}
-				return nil, fmt.Errorf("validation error in %s, service %s: %w",
-					filePath, spec.Name, err)
-			}
-
-			// Convert to service
-			service, err := spec.ToService()
-			if err != nil {
-				fmt.Println("❌") // Show failure
-				validationSuccessful = false
-				return nil, fmt.Errorf("failed to convert service spec: %w", err)
-			}
-
-			services = append(services, service)
-		}
-
 		// Show success checkmark if all validations passed
-		if validationSuccessful {
-			fmt.Println("✓")
+		fmt.Println("✓")
+
+		// Extract services from the cast file with proper error handling
+		services, err := castFile.GetServices()
+		if err != nil {
+			fileErrors = append(fileErrors, fmt.Sprintf("failed to extract services: %v", err))
+		} else if len(services) > 0 {
+			info.ServicesByFile[filePath] = services
+			info.TotalResources += len(services)
+
+			// Fix FilesByType logic: initialize empty slice first, then append if not present
+			if _, exists := info.FilesByType["Service"]; !exists {
+				info.FilesByType["Service"] = []string{}
+			}
+			if !stringSliceContains(info.FilesByType["Service"], fileName) {
+				info.FilesByType["Service"] = append(info.FilesByType["Service"], fileName)
+			}
 		}
 
-		info.ServicesByFile[filePath] = services
-		info.TotalResources += len(services)
+		// Extract secrets from the cast file with proper error handling
+		secrets, err := castFile.GetSecrets()
+		if err != nil {
+			fileErrors = append(fileErrors, fmt.Sprintf("failed to extract secrets: %v", err))
+		} else if len(secrets) > 0 {
+			info.SecretsByFile[filePath] = secrets
+			info.TotalResources += len(secrets)
 
-		// Categorize resources by type
-		for _, service := range services {
-			resourceType := guessResourceTypeFromName(filePath, service.Name)
-			if _, exists := info.FilesByType[resourceType]; !exists {
-				info.FilesByType[resourceType] = []string{}
+			// Fix FilesByType logic
+			if _, exists := info.FilesByType["Secret"]; !exists {
+				info.FilesByType["Secret"] = []string{}
 			}
-			if !stringSliceContains(info.FilesByType[resourceType], fileName) {
-				info.FilesByType[resourceType] = append(info.FilesByType[resourceType], fileName)
+			if !stringSliceContains(info.FilesByType["Secret"], fileName) {
+				info.FilesByType["Secret"] = append(info.FilesByType["Secret"], fileName)
+			}
+		}
+
+		// Extract config maps from the cast file with proper error handling
+		configMaps, err := castFile.GetConfigMaps()
+		if err != nil {
+			fileErrors = append(fileErrors, fmt.Sprintf("failed to extract config maps: %v", err))
+		} else if len(configMaps) > 0 {
+			info.ConfigMapsByFile[filePath] = configMaps
+			info.TotalResources += len(configMaps)
+
+			// Fix FilesByType logic
+			if _, exists := info.FilesByType["ConfigMap"]; !exists {
+				info.FilesByType["ConfigMap"] = []string{}
+			}
+			if !stringSliceContains(info.FilesByType["ConfigMap"], fileName) {
+				info.FilesByType["ConfigMap"] = append(info.FilesByType["ConfigMap"], fileName)
+			}
+		}
+
+		// If we have extraction errors, collect them
+		if len(fileErrors) > 0 {
+			for _, fe := range fileErrors {
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %s", fileName, fe))
 			}
 		}
 	}
 
 	fmt.Println()
+
+	if len(errorMessages) > 0 {
+		fmt.Println("❌ Validation errors:")
+		for _, m := range errorMessages {
+			fmt.Printf("  - %s\n", m)
+		}
+		return nil, fmt.Errorf("validation failed for one or more files")
+	}
 
 	// Print detected resources
 	printResourceInfo(info)
@@ -242,39 +281,61 @@ type DeploymentResult struct {
 	FailedResources     map[string]string
 }
 
-// deployResources handles the actual deployment of services to the cluster
 func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.Duration) (*DeploymentResult, error) {
 	results := &DeploymentResult{
 		SuccessfulResources: make(map[string][]string),
 		FailedResources:     make(map[string]string),
 	}
 
-	fmt.Println("📡 Casting resources to Rune Cluster...")
+	// Initialize resource type maps
+	results.SuccessfulResources["Service"] = []string{}
+	results.SuccessfulResources["Secret"] = []string{}
+	results.SuccessfulResources["ConfigMap"] = []string{}
 
+	// Safety check: ensure we have resources to deploy
+	if info.TotalResources == 0 {
+		return results, fmt.Errorf("no resources found to deploy")
+	}
+
+	// Deploy services
+	if err := deployServices(apiClient, info, results, timeout); err != nil {
+		return results, err
+	}
+
+	// Deploy secrets
+	if err := deploySecrets(apiClient, info, results); err != nil {
+		return results, err
+	}
+
+	// Deploy config maps
+	if err := deployConfigMaps(apiClient, info, results); err != nil {
+		return results, err
+	}
+
+	return results, nil
+}
+
+func deployServices(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, timeout time.Duration) error {
 	serviceClient := client.NewServiceClient(apiClient)
+	// Calculate actual resource count safely
+	resourceCount := 0
+	for _, services := range info.ServicesByFile {
+		resourceCount += len(services)
+	}
 
-	resourceCount := info.TotalResources
+	// Safety check: no services to deploy
+	if resourceCount == 0 {
+		return nil
+	}
+
 	resourceIndex := 0
 
-	for filePath, services := range info.ServicesByFile {
+	for _, services := range info.ServicesByFile {
 		for _, service := range services {
 			resourceIndex++
 
-			// Apply namespace if not specified in the service
-			if service.Namespace == "" {
-				service.Namespace = namespace
-			}
-
-			// Add deployment tag metadata if specified
-			if tag != "" {
-				if service.Env == nil {
-					service.Env = make(map[string]string)
-				}
-				service.Env["RUNE_DEPLOYMENT_TAG"] = tag
-			}
-
 			// Determine resource type for display
-			resourceType := guessResourceTypeFromName(filePath, service.Name)
+			resourceType := "Service"
 
 			// Check if service already exists - determine if creating or updating
 			action := "Creating"
@@ -283,53 +344,15 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 				action = "Deploying"
 			}
 
-			fmt.Printf("  [%d/%d] %s %s \"%s\" ",
-				resourceIndex, resourceCount,
-				action,
-				resourceType,
-				format.Highlight(service.Name))
+			fmt.Printf("  [%d/%d] %s Service \"%s\" ", resourceIndex, resourceCount, action, format.Highlight(service.Name))
+			fmt.Print(strings.Repeat(".", 25-len(service.Name)))
 
-			// Print dots for alignment
-			dotCount := 25 - len(action) - len(resourceType) - len(service.Name)
-			if dotCount < 3 {
-				dotCount = 3
-			}
-			fmt.Print(strings.Repeat(".", dotCount))
-
-			var deployErr error
-			if action == "Creating" {
-				deployErr = serviceClient.CreateService(service)
-			} else {
-				deployErr = serviceClient.UpdateService(service, forceGeneration)
-			}
-
-			if deployErr != nil {
+			// Deploy the service; server handles update-on-exists
+			if err := serviceClient.CreateService(service); err != nil {
 				fmt.Println(" ❌")
-				results.FailedResources[service.Name] = deployErr.Error()
-
-				// For error cases, show the error and stop deployment
-				fmt.Println()
-				fmt.Printf("❌ Failed to deploy %s \"%s\"\n", resourceType, service.Name)
-				fmt.Printf("Error: %s\n", deployErr)
-
-				// If we have successful resources, show them
-				if len(results.SuccessfulResources) > 0 {
-					fmt.Println()
-					fmt.Println("✅ Successfully deployed:")
-					for rType, names := range results.SuccessfulResources {
-						for _, name := range names {
-							fmt.Printf("- %s: %s\n", rType, name)
-						}
-					}
-				}
-
-				fmt.Println()
-				fmt.Println("🛑 Aborted remaining deployments to maintain consistency.")
-				fmt.Printf("Hint: Fix the %s spec and re-run 'rune cast %s'\n", strings.ToLower(resourceType), info.SourceArguments[0])
-
-				return results, fmt.Errorf("deployment failed")
+				results.FailedResources[service.Name] = err.Error()
+				return fmt.Errorf("failed to apply service %s: %w", service.Name, err)
 			}
-
 			fmt.Println(" ✓")
 
 			// Add to successful resources
@@ -337,18 +360,92 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 
 			// If detach is not enabled, wait for the service to be ready
 			if !detach {
-				// For watch mode, we wait for each service to become ready
-				waitErr := waitForServiceReady(serviceClient, service.Namespace, service.Name, timeout)
-				if waitErr != nil {
-					fmt.Printf("    ⚠️  Service is still starting (timeout: %s): %s\n",
-						timeoutStr, waitErr)
+				fmt.Printf("    Waiting for service to be ready...")
+				if err := waitForServiceReady(serviceClient, service.Namespace, service.Name, timeout); err != nil {
+					fmt.Println(" ❌")
+					results.FailedResources[service.Name] = err.Error()
+					return fmt.Errorf("service %s failed to become ready: %w", service.Name, err)
 				}
+				fmt.Println(" ✓")
 			}
 		}
 	}
+	return nil
+}
 
-	fmt.Println()
-	return results, nil
+func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult) error {
+	secretClient := client.NewSecretClient(apiClient)
+	// Calculate actual resource count safely
+	resourceCount := 0
+	for _, secrets := range info.SecretsByFile {
+		resourceCount += len(secrets)
+	}
+
+	// Safety check: no secrets to deploy
+	if resourceCount == 0 {
+		return nil
+	}
+
+	resourceIndex := 0
+
+	for _, secrets := range info.SecretsByFile {
+		for _, secret := range secrets {
+			resourceIndex++
+			if secret.Namespace == "" {
+				secret.Namespace = namespace
+			}
+			fmt.Printf("  [%d/%d] Creating Secret \"%s\" ", resourceIndex, resourceCount, format.Highlight(secret.Name))
+			fmt.Print(strings.Repeat(".", 25-len(secret.Name)))
+
+			if err := secretClient.CreateSecret(secret); err != nil {
+				if uerr := secretClient.UpdateSecret(secret, true); uerr != nil {
+					fmt.Println(" ❌")
+					results.FailedResources[secret.Name] = uerr.Error()
+					return fmt.Errorf("failed to apply secret %s: %w", secret.Name, uerr)
+				}
+			}
+			fmt.Println(" ✓")
+			results.SuccessfulResources["Secret"] = append(results.SuccessfulResources["Secret"], secret.Name)
+		}
+	}
+	return nil
+}
+
+func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult) error {
+	configClient := client.NewConfigMapClient(apiClient)
+	// Calculate actual resource count safely
+	resourceCount := 0
+	for _, configMaps := range info.ConfigMapsByFile {
+		resourceCount += len(configMaps)
+	}
+
+	// Safety check: no config maps to deploy
+	if resourceCount == 0 {
+		return nil
+	}
+
+	resourceIndex := 0
+
+	for _, configMaps := range info.ConfigMapsByFile {
+		for _, configMap := range configMaps {
+			resourceIndex++
+			if configMap.Namespace == "" {
+				configMap.Namespace = namespace
+			}
+			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
+			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))
+			if err := configClient.CreateConfigMap(configMap); err != nil {
+				if uerr := configClient.UpdateConfigMap(configMap); uerr != nil {
+					fmt.Println(" ❌")
+					results.FailedResources[configMap.Name] = uerr.Error()
+					return fmt.Errorf("failed to apply config %s: %w", configMap.Name, uerr)
+				}
+			}
+			fmt.Println(" ✓")
+			results.SuccessfulResources["ConfigMap"] = append(results.SuccessfulResources["ConfigMap"], configMap.Name)
+		}
+	}
+	return nil
 }
 
 // printCastBanner prints the initial banner for the cast command
@@ -453,17 +550,6 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
 
 	elapsedTime := time.Since(startTime).Seconds()
 	fmt.Printf("\n🎉 All resources ready in %.1fs\n", elapsedTime)
-}
-
-// determineResourceType guesses the resource type based on file path and name
-func guessResourceTypeFromName(filePath, serviceName string) string {
-	resourceType := "Service"
-	if strings.Contains(filePath, "secret") || strings.Contains(serviceName, "secret") {
-		resourceType = "Secret"
-	} else if strings.Contains(filePath, "function") || strings.Contains(serviceName, "fn") {
-		resourceType = "Function"
-	}
-	return resourceType
 }
 
 // contains checks if a string slice contains a specific value

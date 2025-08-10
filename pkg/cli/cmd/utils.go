@@ -20,6 +20,10 @@ func outputTable(resources interface{}) error {
 		return outputNamespacesTable(r)
 	case []*generated.DeletionOperation:
 		return outputDeleteTable(r)
+	case []*types.Secret:
+		return outputSecretsTable(r)
+	case []*types.ConfigMap:
+		return outputConfigmapsTable(r)
 	// TODO: Add more resource types here
 	default:
 		return fmt.Errorf("unsupported resource type for table output")

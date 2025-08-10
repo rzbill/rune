@@ -220,8 +220,6 @@ func (t *ResourceTable) RenderInstances(instances []*types.Instance) error {
 }
 
 // RenderNamespaces renders a table of namespaces
-// Note: This is a placeholder implementation that will need to be updated
-// once the Namespace type is fully defined
 func (t *ResourceTable) RenderNamespaces(namespaces []*types.Namespace) error {
 	if len(namespaces) == 0 {
 		fmt.Println("No namespaces found")
@@ -230,12 +228,38 @@ func (t *ResourceTable) RenderNamespaces(namespaces []*types.Namespace) error {
 
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
-		t.Headers = []string{"NAME", "STATUS", "AGE"}
+		t.Headers = []string{"NAME", "DESCRIPTION", "AGE", "LABELS"}
 	}
 
-	// Placeholder message
-	fmt.Println("Namespace rendering not yet implemented")
-	return nil
+	// Create rows
+	rows := [][]string{t.Headers} // Start with headers
+
+	// Generate data rows
+	for _, namespace := range namespaces {
+		// Format age
+		age := formatAgeTable(namespace.CreatedAt)
+
+		// Format labels
+		labels := ""
+		if len(namespace.Labels) > 0 {
+			labelPairs := make([]string, 0, len(namespace.Labels))
+			for k, v := range namespace.Labels {
+				labelPairs = append(labelPairs, fmt.Sprintf("%s=%s", k, v))
+			}
+			labels = strings.Join(labelPairs, ",")
+		}
+
+		row := []string{
+			namespace.Name,
+			namespace.Description,
+			age,
+			labels,
+		}
+		rows = append(rows, row)
+	}
+
+	// Render the table with pterm
+	return t.tableRenderer.WithData(rows).Render()
 }
 
 // RenderDeletionOperations renders a table of deletion operations
@@ -266,6 +290,69 @@ func (t *ResourceTable) RenderDeletionOperations(operations []*generated.Deletio
 			operation.ServiceName,
 			string(operation.Status),
 			progress,
+		}
+		rows = append(rows, row)
+	}
+
+	// Render the table with pterm
+	return t.tableRenderer.WithData(rows).Render()
+}
+
+// RenderSecrets renders a table of secrets
+func (t *ResourceTable) RenderSecrets(secrets []*types.Secret) error {
+	if len(secrets) == 0 {
+		fmt.Println("No secrets found")
+		return nil
+	}
+
+	// Set default headers if not provided
+	if len(t.Headers) == 0 {
+		t.Headers = []string{"NAME", "NAMESPACE", "TYPE", "VERSION", "AGE"}
+	}
+
+	// Create rows
+	rows := [][]string{t.Headers} // Start with headers
+
+	// Generate data rows
+	for _, secret := range secrets {
+		age := formatAgeTable(secret.CreatedAt)
+		row := []string{
+			secret.Name,
+			secret.Namespace,
+			secret.Type,
+			fmt.Sprintf("%d", secret.Version),
+			age,
+		}
+		rows = append(rows, row)
+	}
+
+	// Render the table with pterm
+	return t.tableRenderer.WithData(rows).Render()
+}
+
+// RenderConfigmaps renders a table of configmaps
+func (t *ResourceTable) RenderConfigmaps(configmaps []*types.ConfigMap) error {
+	if len(configmaps) == 0 {
+		fmt.Println("No configmaps found")
+		return nil
+	}
+
+	// Set default headers if not provided
+	if len(t.Headers) == 0 {
+		t.Headers = []string{"NAME", "NAMESPACE", "VERSION", "AGE"}
+	}
+
+	// Create rows
+	rows := [][]string{t.Headers} // Start with headers
+
+	// Generate data rows
+	for _, configmap := range configmaps {
+		age := formatAgeTable(configmap.CreatedAt)
+		row := []string{
+			configmap.Name,
+			configmap.Namespace,
+			fmt.Sprintf("%d", configmap.Version),
+			age,
 		}
 		rows = append(rows, row)
 	}

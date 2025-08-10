@@ -13,6 +13,7 @@ import (
 type MemoryStore struct {
 	data  map[types.ResourceType]map[string]map[string]interface{}
 	mutex sync.RWMutex
+	kek   []byte
 }
 
 // NewMemoryStore creates a new in-memory store.
@@ -33,6 +34,9 @@ func (m *MemoryStore) Close() error {
 	// No-op for memory store
 	return nil
 }
+
+// GetOpts returns zero-value options for memory store
+func (m *MemoryStore) GetOpts() StoreOptions { return StoreOptions{} }
 
 // Get retrieves an object from the memory store.
 func (m *MemoryStore) Get(ctx context.Context, resourceType types.ResourceType, namespace, name string, value interface{}) error {

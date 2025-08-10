@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -15,6 +16,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestRunner(t *testing.T) *ProcessRunner {
+	t.Helper()
+	base := t.TempDir()
+	r, err := NewProcessRunner(WithBaseDir(base), WithLogger(log.NewLogger()))
+	if err != nil {
+		t.Fatalf("NewProcessRunner error: %v", err)
+	}
+	return r
+}
 
 func TestNewProcessRunner(t *testing.T) {
 	// Create temporary directory for tests
@@ -44,7 +55,7 @@ func TestProcessRunner_Create(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(testDir)
 
-	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	processRunner := newTestRunner(t)
 	require.NoError(t, err)
 
 	// Create a valid instance
@@ -103,7 +114,7 @@ func TestProcessRunner_StartStopRemove(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(testDir)
 
-	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	processRunner := newTestRunner(t)
 	require.NoError(t, err)
 
 	// Create a sleep process that we can control
@@ -158,7 +169,7 @@ func TestProcessRunner_GetLogs(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(testDir)
 
-	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	processRunner := newTestRunner(t)
 	require.NoError(t, err)
 
 	// Create a process that outputs something
@@ -211,7 +222,7 @@ func TestProcessRunner_GetLogsWithTimestamps(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(testDir)
 
-	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	processRunner := newTestRunner(t)
 	require.NoError(t, err)
 
 	// Create a test instance
@@ -428,7 +439,7 @@ func TestProcessRunner_List(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(testDir)
 
-	processRunner, err := NewProcessRunner(WithBaseDir(testDir))
+	processRunner := newTestRunner(t)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -523,5 +534,128 @@ func TestFindStartPosition(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWriteSecretFiles_DefaultMapping(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits not portable on Windows")
+	}
+	r := newTestRunner(t)
+	mountDir := t.TempDir()
+
+	m := types.ResolvedSecretMount{
+		Name:      "m1",
+		MountPath: mountDir,
+		Data: map[string]string{
+			"foo": "bar",
+			"baz": "qux",
+		},
+	}
+
+	files, err := r.writeSecretFiles(m)
+	if err != nil {
+		t.Fatalf("writeSecretFiles error: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	// Validate contents and permissions
+	for k, v := range m.Data {
+		p := filepath.Join(mountDir, k)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if string(b) != v {
+			t.Fatalf("content mismatch for %s: got %q want %q", p, string(b), v)
+		}
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat %s: %v", p, err)
+		}
+		if st.Mode().Perm() != 0o400 {
+			t.Fatalf("mode for %s = %o, want 0400", p, st.Mode().Perm())
+		}
+	}
+}
+
+func TestWriteSecretFiles_ItemsMapping(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits not portable on Windows")
+	}
+	r := newTestRunner(t)
+	mountDir := t.TempDir()
+
+	m := types.ResolvedSecretMount{
+		Name:      "m2",
+		MountPath: mountDir,
+		Data: map[string]string{
+			"a": "1",
+			"b": "2",
+		},
+		Items: []types.KeyToPath{
+			{Key: "a", Path: "x/a.txt"},
+		},
+	}
+
+	files, err := r.writeSecretFiles(m)
+	if err != nil {
+		t.Fatalf("writeSecretFiles error: %v", err)
+	}
+	// a mapped explicitly, b default-mapped
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	// Validate paths
+	wantA := filepath.Join(mountDir, "x", "a.txt")
+	if _, err := os.Stat(wantA); err != nil {
+		t.Fatalf("expected file %s: %v", wantA, err)
+	}
+	wantB := filepath.Join(mountDir, "b")
+	if _, err := os.Stat(wantB); err != nil {
+		t.Fatalf("expected file %s: %v", wantB, err)
+	}
+}
+
+func TestWriteConfigFiles_DefaultMapping(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits not portable on Windows")
+	}
+	r := newTestRunner(t)
+	mountDir := t.TempDir()
+	m := types.ResolvedConfigmapMount{
+		Name:      "cfg1",
+		MountPath: mountDir,
+		Data: map[string]string{
+			"c1": "v1",
+			"c2": "v2",
+		},
+	}
+	files, err := r.writeConfigFiles(m)
+	if err != nil {
+		t.Fatalf("writeConfigFiles error: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	for k, v := range m.Data {
+		p := filepath.Join(mountDir, k)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if string(b) != v {
+			t.Fatalf("content mismatch for %s: got %q want %q", p, string(b), v)
+		}
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat %s: %v", p, err)
+		}
+		if st.Mode().Perm() != 0o644 {
+			t.Fatalf("mode for %s = %o, want 0644", p, st.Mode().Perm())
+		}
 	}
 }

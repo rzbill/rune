@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package rune.api;
+
+import "pkg/api/proto/common.proto";
+
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+message ConfigMap {
+  string name = 1;
+  string namespace = 2;
+  map<string, string> data = 3;
+  int32 version = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message CreateConfigMapRequest { ConfigMap configMap = 1; }
+message GetConfigMapRequest { string name = 1; string namespace = 2; }
+message UpdateConfigMapRequest { ConfigMap configMap = 1; }
+message DeleteConfigMapRequest { string name = 1; string namespace = 2; }
+message ListConfigMapsRequest { 
+  string namespace = 1;
+  map<string, string> label_selector = 2;
+  map<string, string> field_selector = 3;
+  PagingParams paging = 4;
+}
+
+message ConfigMapResponse { ConfigMap configMap = 1; Status status = 2; }
+message ListConfigMapsResponse { repeated ConfigMap configMaps = 1; Status status = 2; }
+
+service ConfigMapService {
+  rpc CreateConfigMap(CreateConfigMapRequest) returns (ConfigMapResponse);
+  rpc GetConfigMap(GetConfigMapRequest) returns (ConfigMapResponse);
+  rpc UpdateConfigMap(UpdateConfigMapRequest) returns (ConfigMapResponse);
+  rpc DeleteConfigMap(DeleteConfigMapRequest) returns (Status);
+  rpc ListConfigMaps(ListConfigMapsRequest) returns (ListConfigMapsResponse);
+}
+
+

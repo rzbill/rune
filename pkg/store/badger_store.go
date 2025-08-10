@@ -23,6 +23,10 @@ type BadgerStore struct {
 	watchChan  chan WatchEvent
 	watchMu    sync.RWMutex
 	watchConns map[string][]chan WatchEvent // key is resourceType:namespace
+
+	// options
+	opts      StoreOptions
+	kekHolder secretKEKHolder
 }
 
 // NewBadgerStore creates a new BadgerDB-backed store.
@@ -38,6 +42,13 @@ func NewBadgerStore(logger log.Logger) *BadgerStore {
 		watchChan:  make(chan WatchEvent, 100), // Buffered channel for watch events
 		watchConns: make(map[string][]chan WatchEvent),
 	}
+}
+
+// NewBadgerStoreWithOptions creates a BadgerStore with options
+func NewBadgerStoreWithOptions(logger log.Logger, opts StoreOptions) *BadgerStore {
+	s := NewBadgerStore(logger)
+	s.opts = opts
+	return s
 }
 
 // Open opens the BadgerDB database.
@@ -61,6 +72,12 @@ func (s *BadgerStore) Open(path string) error {
 	s.logger.Info("Rune store opened", log.Str("path", path))
 	return nil
 }
+
+// GetOpts returns the configured store options
+func (s *BadgerStore) GetOpts() StoreOptions { return s.opts }
+
+// GetLimits returns configured limits for secrets and configs
+func (s *BadgerStore) GetLimits() (Limits, Limits) { return s.opts.SecretLimits, s.opts.ConfigLimits }
 
 // Close closes the BadgerDB database.
 func (s *BadgerStore) Close() error {

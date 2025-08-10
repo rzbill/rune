@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/api/server"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/store"
@@ -77,7 +78,7 @@ func loadConfig() {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "text")
 	v.SetDefault("auth.api_keys", "")
-	
+
 	// Docker related defaults
 	v.SetDefault("docker.fallback_api_version", "1.43")
 	v.SetDefault("docker.negotiation_timeout_seconds", 3)
@@ -111,7 +112,7 @@ func loadConfig() {
 	v.SetEnvPrefix("RUNE")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	
+
 	// Explicitly bind key environment variables
 	// This is the Kubernetes approach - explicitly declare the env vars we care about
 	envVarMappings := map[string]string{
@@ -119,18 +120,18 @@ func loadConfig() {
 		"RUNE_SERVER_GRPC_ADDRESS": "server.grpc_address",
 		"RUNE_SERVER_HTTP_ADDRESS": "server.http_address",
 		"RUNE_DATA_DIR":            "data_dir",
-		
+
 		// Docker config - explicitly support the earlier direct env var
-		"RUNE_DOCKER_API_VERSION":              "docker.api_version",
-		"RUNE_DOCKER_FALLBACK_API_VERSION":     "docker.fallback_api_version",
-		"RUNE_DOCKER_NEGOTIATION_TIMEOUT":      "docker.negotiation_timeout_seconds",
-		
+		"RUNE_DOCKER_API_VERSION":          "docker.api_version",
+		"RUNE_DOCKER_FALLBACK_API_VERSION": "docker.fallback_api_version",
+		"RUNE_DOCKER_NEGOTIATION_TIMEOUT":  "docker.negotiation_timeout_seconds",
+
 		// Log config
-		"RUNE_LOG_LEVEL":       "log.level",
-		"RUNE_LOG_FORMAT":      "log.format",
-		
+		"RUNE_LOG_LEVEL":  "log.level",
+		"RUNE_LOG_FORMAT": "log.format",
+
 		// Auth config
-		"RUNE_AUTH_API_KEYS":   "auth.api_keys",
+		"RUNE_AUTH_API_KEYS": "auth.api_keys",
 	}
 
 	// Explicitly bind environment variables to configuration keys
@@ -266,9 +267,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize state store
+	// Load full config
+	cfg, _ := config.Load(*configFile)
+	// If KEK file path not set, default it under the selected data dir so we
+	// can auto-generate on first run without needing root permissions.
+	if cfg.Secret.Encryption.KEK.Source == "file" && cfg.Secret.Encryption.KEK.File == "" {
+		cfg.Secret.Encryption.KEK.File = filepath.Join(*dataDir, "kek.b64")
+	}
+
+	// Initialize state store with options (KEK from config)
 	logger.Info("Initializing state store", log.Str("path", storeDir))
-	stateStore := store.NewBadgerStore(logger)
+	stateStore := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{
+		Path:                    storeDir,
+		SecretEncryptionEnabled: cfg.Secret.Encryption.Enabled,
+		KEKOptions:              cfg.KEKOptions(),
+		SecretLimits:            cfg.Secret.Limits,
+		ConfigLimits:            cfg.ConfigResource.Limits,
+	})
 	if err := stateStore.Open(storeDir); err != nil {
 		logger.Error("Failed to open state store", log.Err(err))
 		os.Exit(1)

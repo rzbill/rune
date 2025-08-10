@@ -51,6 +51,9 @@ type Store interface {
 
 	// GetVersion retrieves a specific version of a resource.
 	GetVersion(ctx context.Context, resourceType types.ResourceType, namespace string, name string, version string) (interface{}, error)
+
+	// GetOpts returns the store options/config in use
+	GetOpts() StoreOptions
 }
 
 // Transaction represents a store transaction.

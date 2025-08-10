@@ -26,6 +26,12 @@ const (
 
 	// ResourceTypeDeletionOperation is the resource type for deletion operations.
 	ResourceTypeDeletionOperation ResourceType = "deletion_operation"
+
+	// ResourceTypeSecret represents secrets (encrypted at rest)
+	ResourceTypeSecret ResourceType = "secret"
+
+	// ResourceTypeConfigMap represents non-sensitive configs
+	ResourceTypeConfigMap ResourceType = "configmap"
 )
 
 // RunnerType is the type of runner for an instance.

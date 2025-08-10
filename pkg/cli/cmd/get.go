@@ -48,10 +48,11 @@ var resourceAliases = map[string]string{
 	"secret":     "secret",
 	"secrets":    "secret",
 	// Abbreviations
-	"svc":  "service",
-	"inst": "instance",
-	"ns":   "namespace",
-	"cfg":  "config",
+	"svc":        "service",
+	"inst":       "instance",
+	"ns":         "namespace",
+	"configmap":  "configmap",
+	"configmaps": "configmap",
 }
 
 // ServiceWatcher defines the interface for watching services
@@ -148,6 +149,10 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return handleInstanceGet(ctx, cmd, apiClient, resourceName)
 	case "namespace":
 		return handleNamespaceGet(ctx, cmd, apiClient, resourceName)
+	case "secret":
+		return handleSecretGet(ctx, cmd, apiClient, resourceName)
+	case "configmap":
+		return handleConfigMapGet(ctx, cmd, apiClient, resourceName)
 	default:
 		return fmt.Errorf("unsupported resource type: %s", args[0])
 	}
@@ -262,8 +267,88 @@ func handleInstanceGet(ctx context.Context, cmd *cobra.Command, apiClient *clien
 
 // handleNamespaceGet handles get operations for namespaces
 func handleNamespaceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
-	// TODO: Implement namespace listing when API client supports it
-	return fmt.Errorf("namespace listing not yet implemented")
+	// TODO: Implement namespace handling
+	return fmt.Errorf("namespace operations not yet implemented")
+}
+
+// handleSecretGet handles get operations for secrets
+func handleSecretGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+	secretClient := client.NewSecretClient(apiClient)
+
+	// If a specific secret name is provided, get that secret
+	if resourceName != "" {
+		namespace := getNamespace
+		secret, err := secretClient.GetSecret(namespace, resourceName)
+		if err != nil {
+			return fmt.Errorf("failed to get secret %s: %w", resourceName, err)
+		}
+
+		return outputResource([]*types.Secret{secret}, cmd)
+	}
+
+	// Otherwise, list secrets based on the namespace flag
+	var secrets []*types.Secret
+	var err error
+
+	if allNamespaces {
+		// List secrets across all namespaces using the asterisk wildcard
+		secrets, err = secretClient.ListSecrets("*", labelSelector, fieldSelector)
+		if err != nil {
+			return fmt.Errorf("failed to list secrets across all namespaces: %w", err)
+		}
+	} else {
+		secrets, err = secretClient.ListSecrets(getNamespace, labelSelector, fieldSelector)
+		if err != nil {
+			return fmt.Errorf("failed to list secrets: %w", err)
+		}
+	}
+
+	// Apply limit if specified
+	if limit > 0 && len(secrets) > limit {
+		secrets = secrets[:limit]
+	}
+
+	return outputResource(secrets, cmd)
+}
+
+// handleConfigMapGet handles get operations for configs
+func handleConfigMapGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+	configMapClient := client.NewConfigMapClient(apiClient)
+
+	// If a specific config name is provided, get that config
+	if resourceName != "" {
+		namespace := getNamespace
+		config, err := configMapClient.GetConfigMap(namespace, resourceName)
+		if err != nil {
+			return fmt.Errorf("failed to get config %s: %w", resourceName, err)
+		}
+
+		return outputResource([]*types.ConfigMap{config}, cmd)
+	}
+
+	// Otherwise, list configmaps based on the namespace flag
+	var configmaps []*types.ConfigMap
+	var err error
+
+	if allNamespaces {
+		// List configs across all namespaces using the asterisk wildcard
+		configmaps, err = configMapClient.ListConfigMaps("*", labelSelector, fieldSelector)
+		if err != nil {
+			return fmt.Errorf("failed to list configs across all namespaces: %w", err)
+		}
+	} else {
+		configmaps, err = configMapClient.ListConfigMaps(getNamespace, labelSelector, fieldSelector)
+		if err != nil {
+			return fmt.Errorf("failed to list configs: %w", err)
+		}
+	}
+
+	// Apply limit if specified
+	if limit > 0 && len(configmaps) > limit {
+		configmaps = configmaps[:limit]
+	}
+
+	return outputResource(configmaps, cmd)
 }
 
 // watchServices watches services for changes
@@ -382,6 +467,28 @@ func outputDeleteTable(operations []*generated.DeletionOperation) error {
 
 	// Render the table
 	return table.RenderDeletionOperations(operations)
+}
+
+// outputSecretsTable outputs secrets in a formatted table
+func outputSecretsTable(secrets []*types.Secret) error {
+	// Create and configure the table renderer
+	table := NewResourceTable()
+	table.ShowHeaders = !noHeaders
+	table.ShowLabels = showLabels
+
+	// Render the table
+	return table.RenderSecrets(secrets)
+}
+
+// outputConfigmapsTable outputs configmaps in a formatted table
+func outputConfigmapsTable(configmaps []*types.ConfigMap) error {
+	// Create and configure the table renderer
+	table := NewResourceTable()
+	table.ShowHeaders = !noHeaders
+	table.ShowLabels = showLabels
+
+	// Render the table
+	return table.RenderConfigmaps(configmaps)
 }
 
 // parseSelector parses a selector string into a map of key-value pairs

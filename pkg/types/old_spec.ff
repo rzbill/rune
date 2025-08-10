@@ -1,0 +1,220 @@
+package types
+
+import (
+	"fmt"
+	"io/ioutil"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Spec is a common interface implemented by all resource specs
+// that can be validated and identify themselves by name/namespace/kind.
+type Spec interface {
+	// Validate ensures the spec is structurally and semantically valid.
+	Validate() error
+	// GetName returns the resource name declared in the spec.
+	GetName() string
+	// GetNamespace returns the resource namespace declared in the spec
+	// (defaulting behavior may be applied by callers as needed).
+	GetNamespace() string
+	// Kind returns the logical resource kind (e.g., "Service", "Secret", "Config").
+	Kind() string
+}
+
+// ServiceFile represents a file containing service definitions.
+type ServiceFile struct {
+	// Service definition (only one of Service or Services should be set)
+	Service *ServiceSpec `json:"service,omitempty" yaml:"service,omitempty"`
+
+	// Multiple service definitions
+	Services []ServiceSpec `json:"services,omitempty" yaml:"services,omitempty"`
+
+	// Internal tracking for line numbers (not serialized)
+	lineInfo map[string]int `json:"-" yaml:"-"`
+}
+
+// ParseServiceFile parses a YAML file containing service definitions.
+func ParseServiceFile(filename string) (*ServiceFile, error) {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return ParseServiceData(data)
+}
+
+// ParseServiceData parses YAML data containing service definitions.
+func ParseServiceData(data []byte) (*ServiceFile, error) {
+	var serviceFile ServiceFile
+	serviceFile.lineInfo = make(map[string]int)
+
+	// First unmarshal normally to do basic parsing
+	if err := yaml.Unmarshal(data, &serviceFile); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Now decode again to track line numbers
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML structure: %w", err)
+	}
+
+	// Extract line numbers
+	if err := extractLineInfo(&node, &serviceFile); err != nil {
+		// Don't fail if we can't extract line info, just continue
+		fmt.Printf("Warning: couldn't extract line information: %v\n", err)
+	}
+
+	// Validate that at least one service is defined
+	if serviceFile.Service == nil && len(serviceFile.Services) == 0 {
+		return nil, fmt.Errorf("no services defined in the file")
+	}
+
+	// Validate structure for each service
+	for _, service := range serviceFile.GetServices() {
+		if err := service.ValidateStructure(data); err != nil {
+			return nil, fmt.Errorf("structure validation failed: %w", err)
+		}
+	}
+
+	return &serviceFile, nil
+}
+
+// extractLineInfo traverses the YAML node structure to find line numbers for services
+func extractLineInfo(node *yaml.Node, serviceFile *ServiceFile) error {
+	// Handle different document structures - single service or list of services
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		return extractLineInfo(node.Content[0], serviceFile)
+	}
+
+	if node.Kind == yaml.MappingNode && len(node.Content) >= 2 {
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+
+			if key.Value == "service" && value.Kind == yaml.MappingNode {
+				// Handle single service
+				for j := 0; j < len(value.Content); j += 2 {
+					if value.Content[j].Value == "name" {
+						name := value.Content[j+1].Value
+						serviceFile.lineInfo[name] = value.Line
+						break
+					}
+				}
+			} else if key.Value == "services" && value.Kind == yaml.SequenceNode {
+				// Handle multiple services
+				for _, serviceNode := range value.Content {
+					if serviceNode.Kind == yaml.MappingNode {
+						for j := 0; j < len(serviceNode.Content); j += 2 {
+							if serviceNode.Content[j].Value == "name" {
+								name := serviceNode.Content[j+1].Value
+								serviceFile.lineInfo[name] = serviceNode.Line
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// collectValidationErrors recursively collects validation errors for YAML structure
+func collectValidationErrors(node *yaml.Node, context string, validFields map[string]bool, validHealthFields map[string]bool, validProbeFields map[string]bool, validPortFields map[string]bool, errors *[]string) {
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		collectValidationErrors(node.Content[0], context, validFields, validHealthFields, validProbeFields, validPortFields, errors)
+		return
+	}
+
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+
+			if key.Value == "service" && value.Kind == yaml.MappingNode {
+				// Validate service fields
+				for j := 0; j < len(value.Content); j += 2 {
+					fieldKey := value.Content[j]
+					fieldValue := value.Content[j+1]
+
+					if !validFields[fieldKey.Value] {
+						*errors = append(*errors, fmt.Sprintf("unknown field '%s' in service specification at line %d", fieldKey.Value, fieldKey.Line))
+					}
+
+					// Recursively validate nested structures
+					if fieldKey.Value == "health" && fieldValue.Kind == yaml.MappingNode {
+						collectHealthErrors(fieldValue, validHealthFields, validProbeFields, errors)
+					}
+
+					if fieldKey.Value == "ports" && fieldValue.Kind == yaml.SequenceNode {
+						collectPortsErrors(fieldValue, validPortFields, errors)
+					}
+				}
+			}
+		}
+	}
+}
+
+// collectHealthErrors collects validation errors for health check structure
+func collectHealthErrors(healthNode *yaml.Node, validHealthFields map[string]bool, validProbeFields map[string]bool, errors *[]string) {
+	for i := 0; i < len(healthNode.Content); i += 2 {
+		key := healthNode.Content[i]
+		value := healthNode.Content[i+1]
+
+		if !validHealthFields[key.Value] {
+			*errors = append(*errors, fmt.Sprintf("unknown field '%s' in health check specification at line %d", key.Value, key.Line))
+		}
+
+		// Validate probe structure
+		if value.Kind == yaml.MappingNode {
+			for j := 0; j < len(value.Content); j += 2 {
+				probeKey := value.Content[j]
+				if !validProbeFields[probeKey.Value] {
+					*errors = append(*errors, fmt.Sprintf("unknown field '%s' in probe specification at line %d", probeKey.Value, probeKey.Line))
+				}
+			}
+		}
+	}
+}
+
+// collectPortsErrors collects validation errors for ports structure
+func collectPortsErrors(portsNode *yaml.Node, validPortFields map[string]bool, errors *[]string) {
+	for _, portNode := range portsNode.Content {
+		if portNode.Kind == yaml.MappingNode {
+			for i := 0; i < len(portNode.Content); i += 2 {
+				key := portNode.Content[i]
+				if !validPortFields[key.Value] {
+					*errors = append(*errors, fmt.Sprintf("unknown field '%s' in port specification at line %d", key.Value, key.Line))
+				}
+			}
+		}
+	}
+}
+
+// GetServices returns all services defined in the file.
+func (f *ServiceFile) GetServices() []*ServiceSpec {
+	var services []*ServiceSpec
+
+	if f.Service != nil {
+		services = append(services, f.Service)
+	}
+
+	if len(f.Services) > 0 {
+		for i := range f.Services {
+			services = append(services, &f.Services[i])
+		}
+	}
+
+	return services
+}
+
+// GetLineInfo returns the approximate line number for a service by name
+func (f *ServiceFile) GetLineInfo(name string) (int, bool) {
+	if f.lineInfo == nil {
+		return 0, false
+	}
+	line, ok := f.lineInfo[name]
+	return line, ok
+}

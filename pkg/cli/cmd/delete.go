@@ -97,10 +97,20 @@ Examples:
 					output:         shorthandOutput,
 				}
 
-				// For now, treat all targets as services
-				// In the future, this could be extended to detect target type
-				// or use a flag to specify the target type
-				return runDelete(cmd.Context(), target, opts)
+				// Detect resource type: try service, then secret, then config
+				// Service path
+				if err := runDelete(cmd.Context(), target, opts); err == nil {
+					return nil
+				}
+				// Secret path
+				if err := runDeleteSecret(cmd.Context(), target, opts); err == nil {
+					return nil
+				}
+				// Config path
+				if err := runDeleteConfig(cmd.Context(), target, opts); err == nil {
+					return nil
+				}
+				return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, shorthandNamespace)
 			}
 
 			// If no args provided, show help
@@ -838,4 +848,34 @@ func outputDeleteStatusText(operation *generated.DeletionOperation) error {
 
 func init() {
 	rootCmd.AddCommand(newDeleteCmd())
+}
+
+// runDeleteSecret deletes a secret by name using the SecretClient
+func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) error {
+	apiClient, err := createDeleteAPIClient()
+	if err != nil {
+		return err
+	}
+	defer apiClient.Close()
+	sc := client.NewSecretClient(apiClient)
+	if err := sc.DeleteSecret(opts.namespace, name); err != nil {
+		return err
+	}
+	fmt.Printf("Secret %s/%s deleted\n", opts.namespace, name)
+	return nil
+}
+
+// runDeleteConfig deletes a config by name using the ConfigClient
+func runDeleteConfig(ctx context.Context, name string, opts *deleteOptions) error {
+	apiClient, err := createDeleteAPIClient()
+	if err != nil {
+		return err
+	}
+	defer apiClient.Close()
+	cc := client.NewConfigMapClient(apiClient)
+	if err := cc.DeleteConfigMap(opts.namespace, name); err != nil {
+		return err
+	}
+	fmt.Printf("Config %s/%s deleted\n", opts.namespace, name)
+	return nil
 }

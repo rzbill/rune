@@ -84,6 +84,42 @@ type InstanceMetadata struct {
 
 	// RestartCount is the number of times this instance has been restarted
 	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
+
+	// SecretMounts contains the resolved secret mount information for this instance
+	SecretMounts []ResolvedSecretMount `json:"secretMounts,omitempty" yaml:"secretMounts,omitempty"`
+
+	// ConfigmapMounts contains the resolved config mount information for this instance
+	ConfigmapMounts []ResolvedConfigmapMount `json:"configMounts,omitempty" yaml:"configMounts,omitempty"`
+}
+
+// ResolvedSecretMount contains the resolved secret data for mounting
+type ResolvedSecretMount struct {
+	// Name of the mount (for identification)
+	Name string `json:"name" yaml:"name"`
+
+	// Path where the secret should be mounted
+	MountPath string `json:"mountPath" yaml:"mountPath"`
+
+	// Resolved secret data (key -> value)
+	Data map[string]string `json:"data" yaml:"data"`
+
+	// Optional: specific keys to project from the secret
+	Items []KeyToPath `json:"items,omitempty" yaml:"items,omitempty"`
+}
+
+// ResolvedConfigmapMount contains the resolved config data for mounting
+type ResolvedConfigmapMount struct {
+	// Name of the mount (for identification)
+	Name string `json:"name" yaml:"name"`
+
+	// Path where the config should be mounted
+	MountPath string `json:"mountPath" yaml:"mountPath"`
+
+	// Resolved config data (key -> value)
+	Data map[string]string `json:"data" yaml:"data"`
+
+	// Optional: specific keys to project from the config
+	Items []KeyToPath `json:"items,omitempty" yaml:"items,omitempty"`
 }
 
 // Exec represents execution configuration for a command
