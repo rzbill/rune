@@ -27,6 +27,12 @@ type Service struct {
 	// Container image for the service
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 
+	// Named registry selector for pulling the image (optional)
+	ImageRegistry string `json:"imageRegistry,omitempty" yaml:"imageRegistry,omitempty"`
+
+	// Registry override allowing inline auth or named selection (optional)
+	Registry *ServiceRegistryOverride `json:"registry,omitempty" yaml:"registry,omitempty"`
+
 	// Command to run in the container (overrides image CMD)
 	Command string `json:"command,omitempty" yaml:"command,omitempty"`
 
@@ -371,6 +377,18 @@ func (s *Service) CalculateHash() string {
 
 	// Include only fields that should trigger a reconciliation when changed
 	fmt.Fprintf(h, "image:%s\n", s.Image)
+	fmt.Fprintf(h, "imageRegistry:%s\n", s.ImageRegistry)
+	// Registry override details (include auth fields to trigger reconciliation on change)
+	if s.Registry != nil {
+		fmt.Fprintf(h, "registry.name:%s\n", s.Registry.Name)
+		if s.Registry.Auth != nil {
+			fmt.Fprintf(h, "registry.auth.type:%s\n", s.Registry.Auth.Type)
+			fmt.Fprintf(h, "registry.auth.username:%s\n", s.Registry.Auth.Username)
+			fmt.Fprintf(h, "registry.auth.password:%s\n", s.Registry.Auth.Password)
+			fmt.Fprintf(h, "registry.auth.token:%s\n", s.Registry.Auth.Token)
+			fmt.Fprintf(h, "registry.auth.region:%s\n", s.Registry.Auth.Region)
+		}
+	}
 	fmt.Fprintf(h, "command:%s\n", s.Command)
 	fmt.Fprintf(h, "scale:%d\n", s.Scale)
 	fmt.Fprintf(h, "runtime:%s\n", string(s.Runtime))

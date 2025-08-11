@@ -23,6 +23,8 @@ UNIT_PACKAGES=$(go list ./... | grep -v 'tests/integrations')
 
 # Run unit tests and generate coverage report
 echo -e "${YELLOW}Running unit tests...${NC}"
+# Skip docker package integration-like tests unless explicitly enabled
+export SKIP_DOCKER_TESTS=${SKIP_DOCKER_TESTS:-1}
 go test -tags=unit $UNIT_PACKAGES -v -coverprofile=$COVERAGE_FILE
 
 TEST_EXIT_CODE=$?

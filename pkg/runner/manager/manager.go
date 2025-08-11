@@ -84,6 +84,40 @@ func getDockerConfig() *docker.DockerConfig {
 		config.ConfigFileMode = os.FileMode(viper.GetInt("docker.config_file_mode"))
 	}
 
+	// Load registry auth entries from viper if present
+	if viper.IsSet("docker.registries") {
+		var regs []map[string]any
+		if err := viper.UnmarshalKey("docker.registries", &regs); err == nil {
+			for _, r := range regs {
+				rc := docker.RegistryConfig{}
+				if name, ok := r["name"].(string); ok {
+					rc.Name = name
+				}
+				if reg, ok := r["registry"].(string); ok {
+					rc.Registry = reg
+				}
+				if authRaw, ok := r["auth"].(map[string]any); ok {
+					if t, ok := authRaw["type"].(string); ok {
+						rc.Auth.Type = t
+					}
+					if u, ok := authRaw["username"].(string); ok {
+						rc.Auth.Username = u
+					}
+					if p, ok := authRaw["password"].(string); ok {
+						rc.Auth.Password = p
+					}
+					if tk, ok := authRaw["token"].(string); ok {
+						rc.Auth.Token = tk
+					}
+					if rg, ok := authRaw["region"].(string); ok {
+						rc.Auth.Region = rg
+					}
+				}
+				config.Registries = append(config.Registries, rc)
+			}
+		}
+	}
+
 	return config
 }
 

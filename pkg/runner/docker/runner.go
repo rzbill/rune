@@ -4,6 +4,7 @@ package docker
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	imageTypes "github.com/docker/docker/api/types/image"
@@ -18,6 +22,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/runner/docker/registryauth"
 	"github.com/rzbill/rune/pkg/types"
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
@@ -41,6 +46,9 @@ type DockerConfig struct {
 	SecretFileMode os.FileMode
 	ConfigDirMode  os.FileMode
 	ConfigFileMode os.FileMode
+
+	// Registry authentication configuration loaded from runefile
+	Registries []RegistryConfig
 }
 
 // DefaultDockerConfig returns the default Docker configuration
@@ -55,7 +63,24 @@ func DefaultDockerConfig() *DockerConfig {
 		SecretFileMode: 0o444,
 		ConfigDirMode:  0o755,
 		ConfigFileMode: 0o644,
+		Registries:     nil,
 	}
+}
+
+// RegistryConfig defines a registry auth entry
+type RegistryConfig struct {
+	Name     string       `mapstructure:"name"`
+	Registry string       `mapstructure:"registry"`
+	Auth     RegistryAuth `mapstructure:"auth"`
+}
+
+// RegistryAuth defines supported auth types
+type RegistryAuth struct {
+	Type     string `mapstructure:"type"` // basic | token | ecr
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	Token    string `mapstructure:"token"`
+	Region   string `mapstructure:"region"`
 }
 
 // Validate that DockerRunner implements the runner.Runner interface
@@ -63,9 +88,11 @@ var _ runner.Runner = &DockerRunner{}
 
 // DockerRunner implements the runner.Runner interface for Docker.
 type DockerRunner struct {
-	client *client.Client
-	logger log.Logger
-	config *DockerConfig
+	client       *client.Client
+	logger       log.Logger
+	config       *DockerConfig
+	ecrAuthCache map[string]ecrAuthEntry
+	providers    []registryauth.Provider
 }
 
 func (r *DockerRunner) Type() types.RunnerType {
@@ -98,10 +125,18 @@ func NewDockerRunnerWithConfig(logger log.Logger, config *DockerConfig) (*Docker
 	}
 
 	return &DockerRunner{
-		client: client,
-		logger: logger,
-		config: config,
+		client:       client,
+		logger:       logger,
+		config:       config,
+		ecrAuthCache: make(map[string]ecrAuthEntry),
+		providers:    nil,
 	}, nil
+}
+
+type ecrAuthEntry struct {
+	Username string
+	Password string
+	Expires  time.Time
 }
 
 // createClientWithVersionHandling creates a Docker client with appropriate API version handling
@@ -488,8 +523,11 @@ func (r *DockerRunner) pullImage(ctx context.Context, image string) error {
 
 	r.logger.Info("Pulling Docker image", log.Str("image", image))
 
+	// Resolve registry auth for this image if configured
+	registryAuth := r.resolveRegistryAuth(image)
+
 	// Pull the image
-	reader, err := r.client.ImagePull(ctx, image, imageTypes.PullOptions{})
+	reader, err := r.client.ImagePull(ctx, image, imageTypes.PullOptions{RegistryAuth: registryAuth})
 	if err != nil {
 		return err
 	}
@@ -498,6 +536,165 @@ func (r *DockerRunner) pullImage(ctx context.Context, image string) error {
 	// Read the output to complete the pull
 	_, err = io.Copy(io.Discard, reader)
 	return err
+}
+
+// resolveRegistryAuth selects an auth entry based on image host and encodes it for Docker ImagePull
+func (r *DockerRunner) resolveRegistryAuth(imageRef string) string {
+	host := parseImageHost(imageRef)
+	if host == "" {
+		return ""
+	}
+	// Provider-based resolution (lazily built)
+	if r.providers == nil {
+		var regs []map[string]any
+		for _, rc := range r.config.Registries {
+			regs = append(regs, map[string]any{
+				"registry": rc.Registry,
+				"auth": map[string]any{
+					"type":     rc.Auth.Type,
+					"username": rc.Auth.Username,
+					"password": rc.Auth.Password,
+					"token":    rc.Auth.Token,
+					"region":   rc.Auth.Region,
+				},
+			})
+		}
+		r.providers = registryauth.BuildProviders(context.Background(), regs)
+	}
+	for _, p := range r.providers {
+		if p.Match(host) {
+			if auth, _ := p.Resolve(context.Background(), host, imageRef); auth != "" {
+				return auth
+			}
+		}
+	}
+	return ""
+}
+
+func parseImageHost(imageRef string) string {
+	// Format examples:
+	// ghcr.io/owner/repo:tag
+	// 123456789012.dkr.ecr.us-east-1.amazonaws.com/repo:tag
+	// nginx:alpine (Docker Hub)
+	// If no '/' present, it's a library image on Docker Hub
+	if !strings.Contains(imageRef, "/") {
+		return "index.docker.io"
+	}
+	parts := strings.Split(imageRef, "/")
+	first := parts[0]
+	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
+		return first
+	}
+	// registry not explicit -> Docker Hub
+	return "index.docker.io"
+}
+
+func matchWildcardHost(pattern, host string) bool {
+	// very simple wildcard: "*.domain.tld" -> suffix match without leading dot constraint
+	if !strings.Contains(pattern, "*") {
+		return strings.EqualFold(pattern, host)
+	}
+	// split on first '*'
+	idx := strings.Index(pattern, "*")
+	suffix := pattern[idx+1:]
+	return strings.HasSuffix(host, suffix)
+}
+
+func (r *DockerRunner) encodeDockerAuth(cfg RegistryConfig, host string, logger log.Logger) string {
+	auth := cfg.Auth
+	switch strings.ToLower(auth.Type) {
+	case "basic":
+		if auth.Username == "" || auth.Password == "" {
+			return ""
+		}
+		return encodeAuthJSON(auth.Username, auth.Password, host)
+	case "token":
+		if auth.Token == "" {
+			return ""
+		}
+		// use a generic username for token-based auth
+		return encodeAuthJSON("token", auth.Token, host)
+	case "ecr":
+		if entry, ok := r.ecrAuthCache[host]; ok {
+			if time.Until(entry.Expires) > 5*time.Minute {
+				return encodeAuthJSON(entry.Username, entry.Password, host)
+			}
+		}
+		username, password, expiry, err := r.fetchECRAuth(host, auth.Region)
+		if err != nil {
+			logger.Warn("ECR auth retrieval failed; pulling without RegistryAuth", log.Str("registry", host), log.Err(err))
+			return ""
+		}
+		r.ecrAuthCache[host] = ecrAuthEntry{Username: username, Password: password, Expires: expiry}
+		return encodeAuthJSON(username, password, host)
+	default:
+		// If no type specified, attempt basic if username/password present, else token
+		if auth.Username != "" && auth.Password != "" {
+			return encodeAuthJSON(auth.Username, auth.Password, host)
+		}
+		if auth.Token != "" {
+			return encodeAuthJSON("token", auth.Token, host)
+		}
+		return ""
+	}
+}
+
+func encodeAuthJSON(username, password, server string) string {
+	payload := map[string]string{
+		"username":      username,
+		"password":      password,
+		"serveraddress": server,
+	}
+	b, _ := json.Marshal(payload)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// fetchECRAuth retrieves an authorization token for the given ECR registry host.
+func (r *DockerRunner) fetchECRAuth(host, region string) (string, string, time.Time, error) {
+	if region == "" {
+		parts := strings.Split(host, ".")
+		if len(parts) >= 6 {
+			region = parts[3]
+		}
+	}
+	if region == "" {
+		return "", "", time.Time{}, fmt.Errorf("unable to determine ECR region for host %s", host)
+	}
+	cfg, err := awscfg.LoadDefaultConfig(context.Background(), awscfg.WithRegion(region))
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	cli := ecr.NewFromConfig(cfg)
+	out, err := cli.GetAuthorizationToken(context.Background(), &ecr.GetAuthorizationTokenInput{})
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	if len(out.AuthorizationData) == 0 {
+		return "", "", time.Time{}, fmt.Errorf("no ECR authorization data returned")
+	}
+	var chosen ecrtypes.AuthorizationData
+	for _, ad := range out.AuthorizationData {
+		if ad.ProxyEndpoint != nil && strings.Contains(*ad.ProxyEndpoint, host) {
+			chosen = ad
+			break
+		}
+	}
+	if chosen.AuthorizationToken == nil {
+		chosen = out.AuthorizationData[0]
+	}
+	tok, err := base64.StdEncoding.DecodeString(*chosen.AuthorizationToken)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	parts := strings.SplitN(string(tok), ":", 2)
+	if len(parts) != 2 {
+		return "", "", time.Time{}, fmt.Errorf("invalid ECR token format")
+	}
+	expiry := time.Now().Add(12 * time.Hour)
+	if chosen.ExpiresAt != nil {
+		expiry = *chosen.ExpiresAt
+	}
+	return parts[0], parts[1], expiry, nil
 }
 
 // instanceToContainerConfig converts a Rune instance to Docker container config.

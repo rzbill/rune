@@ -156,11 +156,15 @@ func (s *TestStore) Create(ctx context.Context, resourceType types.ResourceType,
 	// Initialize maps if they don't exist
 	if _, exists := s.data[resourceType]; !exists {
 		s.data[resourceType] = make(map[string]map[string]interface{})
+	}
+	if _, exists := s.history[resourceType]; !exists {
 		s.history[resourceType] = make(map[string]map[string][]HistoricalVersion)
 	}
 
 	if _, exists := s.data[resourceType][namespace]; !exists {
 		s.data[resourceType][namespace] = make(map[string]interface{})
+	}
+	if _, exists := s.history[resourceType][namespace]; !exists {
 		s.history[resourceType][namespace] = make(map[string][]HistoricalVersion)
 	}
 

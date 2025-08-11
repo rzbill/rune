@@ -1,0 +1,17 @@
+# Sample service cast file using a private ECR image
+# Edit image to your ECR repository URL, then deploy with:
+#   rune cast examples/registry-auth/castfile.yaml
+
+service:
+  name: ecr-smoke
+  namespace: default
+  image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/myrepo/app:latest   # EDIT account, region, repo, tag
+  # Optional explicit selection if you have multiple matching registries by host
+  # imageRegistry: ecr-prod
+  scale: 1
+  command: "/bin/sh"
+  args:
+    - "-c"
+    - "echo pulled from ECR: $(date); sleep 20"
+
+

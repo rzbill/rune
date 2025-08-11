@@ -1,0 +1,30 @@
+# Sample Rune server configuration focused on Docker registry auth
+# Edit values to match your environment before starting the server:
+#   runed --config examples/registry-auth/runefile.yaml
+
+docker:
+  registries:
+    # ECR: region-specific wildcard to cover any account in the region
+    - name: ecr-prod
+      registry: "431256817404.dkr.ecr.eu-west-1.amazonaws.com"   # EDIT region
+      auth:
+        type: ecr
+        region: eu-west-1                               # EDIT region
+
+    # Optional: GitHub Container Registry via basic auth (uncomment and set envs)
+    # - name: ghcr
+    #   registry: ghcr.io
+    #   auth:
+    #     type: basic
+    #     username: ${GHCR_USER}
+    #     password: ${GHCR_PAT}
+
+    # Optional: Docker Hub via basic auth (uncomment and set envs)
+    # - name: dockerhub
+    #   registry: index.docker.io
+    #   auth:
+    #     type: basic
+    #     username: ${DOCKER_USERNAME}
+    #     password: ${DOCKER_PASSWORD}
+
+

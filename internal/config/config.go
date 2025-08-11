@@ -28,9 +28,31 @@ type Client struct {
 }
 
 type Docker struct {
-	APIVersion                string `yaml:"api_version"`
-	FallbackAPIVersion        string `yaml:"fallback_api_version"`
-	NegotiationTimeoutSeconds int    `yaml:"negotiation_timeout_seconds"`
+	APIVersion                string                 `yaml:"api_version"`
+	FallbackAPIVersion        string                 `yaml:"fallback_api_version"`
+	NegotiationTimeoutSeconds int                    `yaml:"negotiation_timeout_seconds"`
+	Registries                []DockerRegistryConfig `yaml:"registries"`
+}
+
+// DockerRegistryConfig represents a registry entry in the runefile
+type DockerRegistryConfig struct {
+	Name     string             `yaml:"name"`
+	Registry string             `yaml:"registry"`
+	Auth     DockerRegistryAuth `yaml:"auth"`
+}
+
+// DockerRegistryAuth holds authentication configuration for a registry
+type DockerRegistryAuth struct {
+	Type       string            `yaml:"type"` // basic | token | ecr
+	Username   string            `yaml:"username"`
+	Password   string            `yaml:"password"`
+	Token      string            `yaml:"token"`
+	Region     string            `yaml:"region"`
+	FromSecret any               `yaml:"fromSecret"` // string or {name,namespace}
+	Bootstrap  bool              `yaml:"bootstrap"`
+	Manage     string            `yaml:"manage"` // create|update|ignore
+	Immutable  bool              `yaml:"immutable"`
+	Data       map[string]string `yaml:"data"` // inline source (env-expanded)
 }
 
 type Resources struct {

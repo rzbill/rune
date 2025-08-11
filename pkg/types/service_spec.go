@@ -68,11 +68,58 @@ type ServiceSpec struct {
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 
+	// Named registry selector for pulling the image (optional)
+	ImageRegistry string `json:"imageRegistry,omitempty" yaml:"imageRegistry,omitempty"`
+
+	// Registry override allowing inline auth or named selection (optional)
+	Registry *ServiceRegistryOverride `json:"registry,omitempty" yaml:"registry,omitempty"`
+
 	// Skip indicates this spec should be ignored by castfile parsing
 	Skip bool `json:"skip,omitempty" yaml:"skip,omitempty"`
 
 	// rawNode holds the original YAML mapping node for structural validation
 	rawNode *yaml.Node `json:"-" yaml:"-"`
+}
+
+// ServiceRegistryOverride allows per-service registry selection or inline auth
+type ServiceRegistryOverride struct {
+	Name string        `json:"name,omitempty" yaml:"name,omitempty"`
+	Auth *RegistryAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
+}
+
+// RegistryAuth defines supported inline auth types
+type RegistryAuth struct {
+	Type     string `json:"type,omitempty" yaml:"type,omitempty"` // basic | token | ecr
+	Username string `json:"username,omitempty" yaml:"username,omitempty"`
+	Password string `json:"password,omitempty" yaml:"password,omitempty"`
+	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
+	Region   string `json:"region,omitempty" yaml:"region,omitempty"`
+}
+
+func (r *ServiceRegistryOverride) Validate() error {
+	if r == nil {
+		return nil
+	}
+	if r.Auth != nil {
+		switch strings.ToLower(r.Auth.Type) {
+		case "basic":
+			if r.Auth.Username == "" || r.Auth.Password == "" {
+				return NewValidationError("basic auth requires username and password")
+			}
+		case "token":
+			if r.Auth.Token == "" {
+				return NewValidationError("token auth requires token")
+			}
+		case "ecr":
+			// region is specified in runefile registries; inline override may include it
+			// no hard requirement here for MVP
+		case "":
+			// allow empty (will fall back to name or host)
+		default:
+			return NewValidationError("unsupported auth type: " + r.Auth.Type)
+		}
+	}
+	return nil
 }
 
 // Implement Spec interface for ServiceSpec
@@ -96,6 +143,13 @@ func (s *ServiceSpec) Validate() error {
 
 	if s.Image == "" {
 		return NewValidationError("service image is required")
+	}
+
+	// Validate registry override if present
+	if s.Registry != nil {
+		if err := s.Registry.Validate(); err != nil {
+			return WrapValidationError(err, "invalid registry override")
+		}
 	}
 
 	if s.Scale < 0 {
@@ -179,6 +233,8 @@ func (s *ServiceSpec) validateStructureFromNode() error {
 		"secretMounts":  true,
 		"configMounts":  true,
 		"discovery":     true,
+		"imageRegistry": true,
+		"registry":      true,
 		"skip":          true,
 	}
 
@@ -255,6 +311,8 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		Namespace:       namespace,
 		Labels:          s.Labels,
 		Image:           s.Image,
+		ImageRegistry:   s.ImageRegistry,
+		Registry:        s.Registry,
 		Command:         s.Command,
 		Args:            s.Args,
 		Env:             s.Env,
