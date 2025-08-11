@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
+	"github.com/rzbill/rune/pkg/types"
 	runetypes "github.com/rzbill/rune/pkg/types"
 )
 
@@ -758,4 +761,55 @@ func TestFilterLogsByTimestamp(t *testing.T) {
 			}
 		})
 	}
+}
+
+// We test the prepareSecretMounts host-side file materialization logic without actually creating Docker mounts.
+func TestPrepareSecretMounts_Base64Decoding(t *testing.T) {
+	t.Parallel()
+
+	// Construct a runner directly to avoid Docker client creation.
+	r := &DockerRunner{config: DefaultDockerConfig()}
+
+	decoded := "-----BEGIN KEY-----\nabc\n-----END KEY-----\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(decoded))
+
+	mounts, err := r.prepareSecretMounts([]types.ResolvedSecretMount{
+		{
+			Name:      "keys",
+			MountPath: "/ignored/for/test",
+			Data: map[string]string{
+				"key.pem":  encoded,
+				"note.txt": "hello",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareSecretMounts failed: %v", err)
+	}
+	if len(mounts) != 1 {
+		t.Fatalf("expected 1 mount, got %d", len(mounts))
+	}
+
+	// The Source directory should contain our files with decoded content
+	src := mounts[0].Source
+	pemPath := filepath.Join(src, "key.pem")
+	pemBytes, err := os.ReadFile(pemPath)
+	if err != nil {
+		t.Fatalf("failed reading %s: %v", pemPath, err)
+	}
+	if string(pemBytes) != decoded {
+		t.Fatalf("decoded pem mismatch. want %q got %q", decoded, string(pemBytes))
+	}
+
+	notePath := filepath.Join(src, "note.txt")
+	noteBytes, err := os.ReadFile(notePath)
+	if err != nil {
+		t.Fatalf("failed reading %s: %v", notePath, err)
+	}
+	if string(noteBytes) != "hello" {
+		t.Fatalf("note mismatch. want %q got %q", "hello", string(noteBytes))
+	}
+
+	// cleanup temp dir created by prepareSecretMounts
+	_ = os.RemoveAll(src)
 }

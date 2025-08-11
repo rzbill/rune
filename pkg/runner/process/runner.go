@@ -4,6 +4,7 @@ package process
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -784,8 +785,13 @@ func (r *ProcessRunner) writeSecretFiles(mount types.ResolvedSecretMount) ([]str
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			return fmt.Errorf("failed to create parent dirs for %s: %w", dest, err)
 		}
+		// Decode base64 if value appears to be base64-encoded (e.g., PEMs)
+		data := []byte(value)
+		if decoded, ok := decodeIfBase64(value); ok {
+			data = decoded
+		}
 		// Write with 0400
-		if err := os.WriteFile(dest, []byte(value), 0400); err != nil {
+		if err := os.WriteFile(dest, data, 0400); err != nil {
 			return fmt.Errorf("failed to write secret file %s: %w", dest, err)
 		}
 		created = append(created, dest)
@@ -823,6 +829,31 @@ func (r *ProcessRunner) writeSecretFiles(mount types.ResolvedSecretMount) ([]str
 		}
 	}
 	return created, nil
+}
+
+// decodeIfBase64 attempts to decode s as standard base64 if it looks like base64 content.
+// Returns (decoded, true) when decoding is performed, otherwise (nil, false).
+func decodeIfBase64(s string) ([]byte, bool) {
+	// Fast reject on length
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) == 0 || len(trimmed)%4 != 0 {
+		return nil, false
+	}
+	// Check allowed characters
+	for i := 0; i < len(trimmed); i++ {
+		c := trimmed[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=' {
+			continue
+		}
+		return nil, false
+	}
+	// Try decode
+	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil {
+		return nil, false
+	}
+	// Accept all successful decodes to support binary secrets
+	return decoded, true
 }
 
 // materializeConfigMounts writes config files to their target paths with 0644 perms.

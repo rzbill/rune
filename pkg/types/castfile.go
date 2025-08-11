@@ -55,6 +55,35 @@ func ParseCastFile(filename string) (*CastFile, error) {
 	return &cf, nil
 }
 
+// ParseCastFileFromBytes is a helper used in tests to parse cast YAML content from memory.
+func ParseCastFileFromBytes(data []byte) (*CastFile, error) {
+	// Preprocess templates to handle {{...}} syntax
+	processedData, templateMap, err := preprocessTemplates(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preprocess templates: %w", err)
+	}
+
+	// Initialize empty cast file and line info
+	var cf CastFile
+	cf.lineInfo = make(map[string]int)
+	cf.templateMap = templateMap
+
+	// Parse the preprocessed YAML
+	var node yaml.Node
+	if err := yaml.Unmarshal(processedData, &node); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML structure: %w", err)
+	}
+
+	// Validate top-level keys are known nodes
+	if err := validateTopLevelKeys(&node); err != nil {
+		return nil, err
+	}
+
+	collectRepeatedSpecs(&node, &cf)
+
+	return &cf, nil
+}
+
 // IsCastFile performs a lightweight detection to determine if a YAML file
 // appears to define Rune resource specs (services, secrets, configMaps).
 // It does not validate structure; it only checks for presence of known keys.

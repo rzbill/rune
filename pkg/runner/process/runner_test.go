@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -657,5 +658,56 @@ func TestWriteConfigFiles_DefaultMapping(t *testing.T) {
 		if st.Mode().Perm() != 0o644 {
 			t.Fatalf("mode for %s = %o, want 0644", p, st.Mode().Perm())
 		}
+	}
+}
+
+func TestWriteSecretFiles_Base64Decoding(t *testing.T) {
+	t.Parallel()
+
+	runner, err := NewProcessRunner()
+	if err != nil {
+		t.Fatalf("failed to create ProcessRunner: %v", err)
+	}
+
+	tempDir := t.TempDir()
+
+	decodedContent := "-----BEGIN TEST-----\nhello world\n-----END TEST-----\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(decodedContent))
+
+	mount := types.ResolvedSecretMount{
+		Name:      "test-secret",
+		MountPath: tempDir,
+		Data: map[string]string{
+			"pem.b64":   encoded,
+			"plain.txt": "just-text",
+		},
+	}
+
+	created, err := runner.writeSecretFiles(mount)
+	if err != nil {
+		t.Fatalf("writeSecretFiles failed: %v", err)
+	}
+	if len(created) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(created))
+	}
+
+	// Verify decoded content for the base64 entry
+	pemPath := filepath.Join(tempDir, "pem.b64")
+	gotPem, err := os.ReadFile(pemPath)
+	if err != nil {
+		t.Fatalf("failed reading %s: %v", pemPath, err)
+	}
+	if string(gotPem) != decodedContent {
+		t.Fatalf("decoded content mismatch.\nwant:\n%q\n got:\n%q", decodedContent, string(gotPem))
+	}
+
+	// Verify plain text is untouched
+	plainPath := filepath.Join(tempDir, "plain.txt")
+	gotPlain, err := os.ReadFile(plainPath)
+	if err != nil {
+		t.Fatalf("failed reading %s: %v", plainPath, err)
+	}
+	if string(gotPlain) != "just-text" {
+		t.Fatalf("plain content mismatch. want %q got %q", "just-text", string(gotPlain))
 	}
 }

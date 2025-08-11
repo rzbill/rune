@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -66,8 +67,9 @@ func (s *SecretSpec) UnmarshalYAML(value *yaml.Node) error {
 	s.Name = aux.Name
 	s.Namespace = aux.Namespace
 	s.Type = aux.Type
-	s.Value = aux.Value
-	s.ValueBase64 = aux.ValueBase64
+	// Allow environment variable expansion in scalar fields
+	s.Value = os.ExpandEnv(aux.Value)
+	s.ValueBase64 = os.ExpandEnv(aux.ValueBase64)
 	s.Engine = aux.Engine
 	s.Rotation = aux.Rotation
 
@@ -76,6 +78,10 @@ func (s *SecretSpec) UnmarshalYAML(value *yaml.Node) error {
 		normalized, err := decodeStringMapOrKVAny(aux.Data)
 		if err != nil {
 			return err
+		}
+		// Expand environment variables in all data values
+		for k, v := range normalized {
+			normalized[k] = os.ExpandEnv(v)
 		}
 		s.Data = normalized
 	}
