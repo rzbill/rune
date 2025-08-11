@@ -62,8 +62,8 @@ type ServiceSpec struct {
 	// Secret mounts
 	SecretMounts []SecretMount `json:"secretMounts,omitempty" yaml:"secretMounts,omitempty"`
 
-	// Config mounts
-	ConfigMounts []ConfigMount `json:"configMounts,omitempty" yaml:"configMounts,omitempty"`
+	// Configmap mounts
+	ConfigmapMounts []ConfigmapMount `json:"configmapMounts,omitempty" yaml:"configmapMounts,omitempty"`
 
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
@@ -250,28 +250,74 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 	}
 
 	return &Service{
-		ID:            uuid.New().String(),
-		Name:          s.Name,
-		Namespace:     namespace,
-		Labels:        s.Labels,
-		Image:         s.Image,
-		Command:       s.Command,
-		Args:          s.Args,
-		Env:           s.Env,
-		Scale:         s.Scale,
-		Ports:         s.Ports,
-		Resources:     resources,
-		Health:        s.Health,
-		NetworkPolicy: s.NetworkPolicy,
-		Expose:        s.Expose,
-		Affinity:      s.Affinity,
-		Autoscale:     s.Autoscale,
-		SecretMounts:  s.SecretMounts,
-		ConfigMounts:  s.ConfigMounts,
-		Discovery:     s.Discovery,
-		Status:        ServiceStatusPending,
-		Metadata:      &ServiceMetadata{CreatedAt: now, UpdatedAt: now},
+		ID:              uuid.New().String(),
+		Name:            s.Name,
+		Namespace:       namespace,
+		Labels:          s.Labels,
+		Image:           s.Image,
+		Command:         s.Command,
+		Args:            s.Args,
+		Env:             s.Env,
+		Scale:           s.Scale,
+		Ports:           s.Ports,
+		Resources:       resources,
+		Health:          s.Health,
+		NetworkPolicy:   s.NetworkPolicy,
+		Expose:          s.Expose,
+		Affinity:        s.Affinity,
+		Autoscale:       s.Autoscale,
+		SecretMounts:    s.SecretMounts,
+		ConfigmapMounts: s.ConfigmapMounts,
+		Discovery:       s.Discovery,
+		Status:          ServiceStatusPending,
+		Metadata:        &ServiceMetadata{CreatedAt: now, UpdatedAt: now},
 	}, nil
+}
+
+// RestoreTemplateReferences restores template references in environment variables
+// This should be called after parsing to restore the original template syntax
+func (s *ServiceSpec) RestoreTemplateReferences(templateMap map[string]string) {
+	if s.Env == nil {
+		return
+	}
+
+	for key, value := range s.Env {
+		// Create a working copy of the value
+		restoredValue := value
+
+		// Replace all placeholders in this value
+		for placeholder, templateRef := range templateMap {
+			if strings.Contains(restoredValue, placeholder) {
+				restoredValue = strings.ReplaceAll(restoredValue, placeholder, "{{"+templateRef+"}}")
+			}
+		}
+
+		// Update the environment variable with the restored value
+		s.Env[key] = restoredValue
+	}
+}
+
+// GetEnvWithTemplates returns environment variables with template references restored
+func (s *ServiceSpec) GetEnvWithTemplates(templateMap map[string]string) map[string]string {
+	if s.Env == nil {
+		return nil
+	}
+
+	result := make(map[string]string)
+	for key, value := range s.Env {
+		// Create a working copy of the value
+		restoredValue := value
+
+		// Replace all placeholders in this value
+		for placeholder, templateRef := range templateMap {
+			if strings.Contains(restoredValue, placeholder) {
+				restoredValue = strings.ReplaceAll(restoredValue, placeholder, "{{"+templateRef+"}}")
+			}
+		}
+
+		result[key] = restoredValue
+	}
+	return result
 }
 
 // collectValidationErrors recursively collects validation errors for YAML structure

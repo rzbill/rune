@@ -34,6 +34,16 @@ docker:
   # Timeout for API version negotiation in seconds
   negotiation_timeout_seconds: 3
 
+  # Optional: permissions for host-side temp directories/files used for mounts
+  # These are useful on macOS/Windows Docker Desktop where FUSE can restrict access.
+  # Accepts strings like "0755" or integers (e.g., 493). If omitted, sensible defaults are used.
+  # Secret mounts (e.g., /etc/secrets/...)
+  # secret_dir_mode: "0755"   # directory mode for secret mounts
+  # secret_file_mode: "0444"  # file mode for secret files (read-only for all)
+  # Configmap mounts (e.g., /etc/configs/...)
+  # config_dir_mode: "0755"   # directory mode for config mounts
+  # config_file_mode: "0644"  # file mode for config files
+
 # Default namespace
 namespace: "default"
 

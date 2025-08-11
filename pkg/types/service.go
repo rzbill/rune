@@ -1,6 +1,9 @@
 package types
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -61,7 +64,7 @@ type Service struct {
 	SecretMounts []SecretMount `json:"secretMounts,omitempty" yaml:"secretMounts,omitempty"`
 
 	// Config mounts
-	ConfigMounts []ConfigMount `json:"configMounts,omitempty" yaml:"configMounts,omitempty"`
+	ConfigmapMounts []ConfigmapMount `json:"configmapMounts,omitempty" yaml:"configmapMounts,omitempty"`
 
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
@@ -290,12 +293,13 @@ func (s *Service) Validate() error {
 	}
 
 	// Check runtime specific requirements
-	if s.Runtime == "container" || s.Runtime == "" {
+	switch s.Runtime {
+	case "container", "":
 		// Default is container runtime
 		if s.Image == "" {
 			return NewValidationError("service image is required for container runtime")
 		}
-	} else if s.Runtime == "process" {
+	case "process":
 		// For process runtime, we need a process spec
 		if s.Process == nil {
 			return NewValidationError("process configuration is required for process runtime")
@@ -303,7 +307,7 @@ func (s *Service) Validate() error {
 		if err := s.Process.Validate(); err != nil {
 			return WrapValidationError(err, "invalid process configuration")
 		}
-	} else {
+	default:
 		return NewValidationError("unknown runtime: " + string(s.Runtime))
 	}
 
@@ -359,6 +363,193 @@ func (s *Service) Validate() error {
 	}
 
 	return nil
+}
+
+// CalculateHash generates a hash of service properties that should trigger reconciliation when changed
+func (s *Service) CalculateHash() string {
+	h := sha256.New()
+
+	// Include only fields that should trigger a reconciliation when changed
+	fmt.Fprintf(h, "image:%s\n", s.Image)
+	fmt.Fprintf(h, "command:%s\n", s.Command)
+	fmt.Fprintf(h, "scale:%d\n", s.Scale)
+	fmt.Fprintf(h, "runtime:%s\n", string(s.Runtime))
+
+	// Args
+	fmt.Fprintf(h, "args:[")
+	for i, arg := range s.Args {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s", arg)
+	}
+	fmt.Fprintf(h, "]\n")
+
+	// Environment variables
+	var envKeys []string
+	for k := range s.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+
+	fmt.Fprintf(h, "env:{")
+	for i, k := range envKeys {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s:%s", k, s.Env[k])
+	}
+	fmt.Fprintf(h, "}\n")
+
+	// Ports
+	fmt.Fprintf(h, "ports:[")
+	for i, port := range s.Ports {
+		if i > 0 {
+			fmt.Fprintf(h, ",")
+		}
+		fmt.Fprintf(h, "%s:%d:%d:%s", port.Name, port.Port, port.TargetPort, port.Protocol)
+	}
+	fmt.Fprintf(h, "]\n")
+
+	// Resources
+	if s.Resources.CPU.Request != "" || s.Resources.CPU.Limit != "" {
+		fmt.Fprintf(h, "cpu:%s:%s\n", s.Resources.CPU.Request, s.Resources.CPU.Limit)
+	}
+
+	if s.Resources.Memory.Request != "" || s.Resources.Memory.Limit != "" {
+		fmt.Fprintf(h, "memory:%s:%s\n", s.Resources.Memory.Request, s.Resources.Memory.Limit)
+	}
+
+	// Health checks
+	if s.Health != nil {
+		if s.Health.Liveness != nil {
+			fmt.Fprintf(h, "liveness:%s:%s:%d:%d:%d:%d\n",
+				s.Health.Liveness.Type,
+				s.Health.Liveness.Path,
+				s.Health.Liveness.Port,
+				s.Health.Liveness.IntervalSeconds,
+				s.Health.Liveness.TimeoutSeconds,
+				s.Health.Liveness.FailureThreshold)
+			if len(s.Health.Liveness.Command) > 0 {
+				fmt.Fprintf(h, "liveness_cmd:[")
+				for i, cmd := range s.Health.Liveness.Command {
+					if i > 0 {
+						fmt.Fprintf(h, ",")
+					}
+					fmt.Fprintf(h, "%s", cmd)
+				}
+				fmt.Fprintf(h, "]\n")
+			}
+		}
+		if s.Health.Readiness != nil {
+			fmt.Fprintf(h, "readiness:%s:%s:%d:%d:%d:%d\n",
+				s.Health.Readiness.Type,
+				s.Health.Readiness.Path,
+				s.Health.Readiness.Port,
+				s.Health.Readiness.IntervalSeconds,
+				s.Health.Readiness.TimeoutSeconds,
+				s.Health.Readiness.FailureThreshold)
+			if len(s.Health.Readiness.Command) > 0 {
+				fmt.Fprintf(h, "readiness_cmd:[")
+				for i, cmd := range s.Health.Readiness.Command {
+					if i > 0 {
+						fmt.Fprintf(h, ",")
+					}
+					fmt.Fprintf(h, "%s", cmd)
+				}
+				fmt.Fprintf(h, "]\n")
+			}
+		}
+	} else {
+		// Explicitly include "no health checks" in the hash
+		fmt.Fprintf(h, "health:nil\n")
+	}
+
+	// Secret mounts (deterministic ordering)
+	if len(s.SecretMounts) == 0 {
+		fmt.Fprintf(h, "secret_mounts:[]\n")
+	} else {
+		// make a copy to avoid mutating original
+		secretMounts := make([]SecretMount, len(s.SecretMounts))
+		copy(secretMounts, s.SecretMounts)
+		sort.Slice(secretMounts, func(i, j int) bool {
+			if secretMounts[i].Name != secretMounts[j].Name {
+				return secretMounts[i].Name < secretMounts[j].Name
+			}
+			if secretMounts[i].MountPath != secretMounts[j].MountPath {
+				return secretMounts[i].MountPath < secretMounts[j].MountPath
+			}
+			return secretMounts[i].SecretName < secretMounts[j].SecretName
+		})
+		fmt.Fprintf(h, "secret_mounts:[")
+		for i, m := range secretMounts {
+			if i > 0 {
+				fmt.Fprintf(h, ",")
+			}
+			// sort items deterministically
+			items := make([]KeyToPath, len(m.Items))
+			copy(items, m.Items)
+			sort.Slice(items, func(a, b int) bool {
+				if items[a].Key != items[b].Key {
+					return items[a].Key < items[b].Key
+				}
+				return items[a].Path < items[b].Path
+			})
+			fmt.Fprintf(h, "%s:%s:%s:{", m.Name, m.MountPath, m.SecretName)
+			for k, it := range items {
+				if k > 0 {
+					fmt.Fprintf(h, ",")
+				}
+				fmt.Fprintf(h, "%s=%s", it.Key, it.Path)
+			}
+			fmt.Fprintf(h, "}")
+		}
+		fmt.Fprintf(h, "]\n")
+	}
+
+	// Configmap mounts (deterministic ordering)
+	if len(s.ConfigmapMounts) == 0 {
+		fmt.Fprintf(h, "configmap_mounts:[]\n")
+	} else {
+		cfgMounts := make([]ConfigmapMount, len(s.ConfigmapMounts))
+		copy(cfgMounts, s.ConfigmapMounts)
+		sort.Slice(cfgMounts, func(i, j int) bool {
+			if cfgMounts[i].Name != cfgMounts[j].Name {
+				return cfgMounts[i].Name < cfgMounts[j].Name
+			}
+			if cfgMounts[i].MountPath != cfgMounts[j].MountPath {
+				return cfgMounts[i].MountPath < cfgMounts[j].MountPath
+			}
+			return cfgMounts[i].ConfigName < cfgMounts[j].ConfigName
+		})
+		fmt.Fprintf(h, "configmap_mounts:[")
+		for i, m := range cfgMounts {
+			if i > 0 {
+				fmt.Fprintf(h, ",")
+			}
+			items := make([]KeyToPath, len(m.Items))
+			copy(items, m.Items)
+			sort.Slice(items, func(a, b int) bool {
+				if items[a].Key != items[b].Key {
+					return items[a].Key < items[b].Key
+				}
+				return items[a].Path < items[b].Path
+			})
+			fmt.Fprintf(h, "%s:%s:%s:{", m.Name, m.MountPath, m.ConfigName)
+			for k, it := range items {
+				if k > 0 {
+					fmt.Fprintf(h, ",")
+				}
+				fmt.Fprintf(h, "%s=%s", it.Key, it.Path)
+			}
+			fmt.Fprintf(h, "}")
+		}
+		fmt.Fprintf(h, "]\n")
+	}
+
+	// Add more fields as needed that should trigger reconciliation when changed
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // Validate validates the health check configuration.

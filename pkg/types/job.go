@@ -70,7 +70,7 @@ type JobTemplate struct {
 	SecretMounts []SecretMount `json:"secretMounts,omitempty" yaml:"secretMounts,omitempty"`
 
 	// Config mounts
-	ConfigMounts []ConfigMount `json:"configMounts,omitempty" yaml:"configMounts,omitempty"`
+	ConfigmapMounts []ConfigmapMount `json:"configmapMounts,omitempty" yaml:"configmapMounts,omitempty"`
 }
 
 // JobArray defines parameters for array jobs (multiple parallel runs).
@@ -142,8 +142,8 @@ type SecretMount struct {
 	Items []KeyToPath `json:"items,omitempty" yaml:"items,omitempty"`
 }
 
-// ConfigMount defines a config to be mounted in a container.
-type ConfigMount struct {
+// ConfigmapMount defines a config to be mounted in a container.
+type ConfigmapMount struct {
 	// Name of the mount (for identification)
 	Name string `json:"name" yaml:"name"`
 

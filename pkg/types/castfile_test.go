@@ -3,6 +3,7 @@ package types
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -469,5 +470,372 @@ services:
 	errs := cf.Lint()
 	if len(errs) == 0 {
 		t.Fatalf("expected structural validation errors, got none")
+	}
+}
+
+func TestParseCastFile_TemplateSyntax(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		check   func(*testing.T, *CastFile)
+	}{
+		{
+			name: "simple configmap template",
+			yaml: `
+service:
+  name: template-test
+  image: nginx:latest
+  env:
+    LOG_LEVEL: {{configmap:app-settings/log-level}}
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 1 {
+					t.Fatalf("expected 1 service, got %d", len(cf.Services))
+				}
+				service := cf.Services[0]
+				if service.Env["LOG_LEVEL"] != "{{configmap:app-settings/log-level}}" {
+					t.Errorf("expected template to be restored, got: %s", service.Env["LOG_LEVEL"])
+				}
+
+				// Check template map
+				templateMap := cf.GetTemplateMap()
+				if len(templateMap) != 1 {
+					t.Fatalf("expected 1 template, got %d", len(templateMap))
+				}
+
+				// Find the placeholder and verify it maps to the correct template
+				var foundTemplate string
+				for placeholder, templateRef := range templateMap {
+					if templateRef == "configmap:app-settings/log-level" {
+						foundTemplate = placeholder
+						break
+					}
+				}
+				if foundTemplate == "" {
+					t.Fatal("template reference not found in template map")
+				}
+			},
+		},
+		{
+			name: "multiple template types",
+			yaml: `
+service:
+  name: multi-template-test
+  image: nginx:latest
+  env:
+    LOG_LEVEL: {{configmap:app-settings/log-level}}
+    DB_PASSWORD: {{secret:db-credentials/password}}
+    API_KEY: {{secret:api-keys/main}}
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 1 {
+					t.Fatalf("expected 1 service, got %d", len(cf.Services))
+				}
+				service := cf.Services[0]
+
+				// Check all templates are restored
+				expectedTemplates := map[string]string{
+					"LOG_LEVEL":   "{{configmap:app-settings/log-level}}",
+					"DB_PASSWORD": "{{secret:db-credentials/password}}",
+					"API_KEY":     "{{secret:api-keys/main}}",
+				}
+
+				for key, expected := range expectedTemplates {
+					if service.Env[key] != expected {
+						t.Errorf("env %s: expected %s, got %s", key, expected, service.Env[key])
+					}
+				}
+
+				// Check template map has all 3 templates
+				templateMap := cf.GetTemplateMap()
+				if len(templateMap) != 3 {
+					t.Fatalf("expected 3 templates, got %d", len(templateMap))
+				}
+			},
+		},
+		{
+			name: "namespaced templates",
+			yaml: `
+service:
+  name: namespaced-test
+  image: nginx:latest
+  env:
+    CONFIG: {{configmap:my-namespace.config-name/key}}
+    SECRET: {{secret:other-namespace.secret-name/password}}
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 1 {
+					t.Fatalf("expected 1 service, got %d", len(cf.Services))
+				}
+				service := cf.Services[0]
+
+				// Check namespaced templates are restored
+				if service.Env["CONFIG"] != "{{configmap:my-namespace.config-name/key}}" {
+					t.Errorf("expected namespaced configmap template, got: %s", service.Env["CONFIG"])
+				}
+				if service.Env["SECRET"] != "{{secret:other-namespace.secret-name/password}}" {
+					t.Errorf("expected namespaced secret template, got: %s", service.Env["SECRET"])
+				}
+
+				// Check template map
+				templateMap := cf.GetTemplateMap()
+				if len(templateMap) != 2 {
+					t.Fatalf("expected 2 templates, got %d", len(templateMap))
+				}
+			},
+		},
+		{
+			name: "complex template paths",
+			yaml: `
+service:
+  name: complex-path-test
+  image: nginx:latest
+  env:
+    FEATURE_FLAG: {{configmap:app.config.settings.feature-flags/enabled}}
+    NESTED_SECRET: {{secret:app.secrets.database.credentials/root-password}}
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 1 {
+					t.Fatalf("expected 1 service, got %d", len(cf.Services))
+				}
+				service := cf.Services[0]
+
+				// Check complex paths are preserved
+				if service.Env["FEATURE_FLAG"] != "{{configmap:app.config.settings.feature-flags/enabled}}" {
+					t.Errorf("expected complex configmap path, got: %s", service.Env["FEATURE_FLAG"])
+				}
+				if service.Env["NESTED_SECRET"] != "{{secret:app.secrets.database.credentials/root-password}}" {
+					t.Errorf("expected complex secret path, got: %s", service.Env["NESTED_SECRET"])
+				}
+			},
+		},
+		{
+			name: "mixed content with templates",
+			yaml: `
+service:
+  name: mixed-content-test
+  image: nginx:latest
+  env:
+    SIMPLE: "plain-value"
+    WITH_TEMPLATE: "prefix-{{configmap:app/name}}-suffix"
+    MULTI_TEMPLATE: "{{configmap:app/version}}-{{secret:app/key}}"
+    QUOTED_TEMPLATE: '{{configmap:app/setting}}'
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 1 {
+					t.Fatalf("expected 1 service, got %d", len(cf.Services))
+				}
+				service := cf.Services[0]
+
+				// Check mixed content is handled correctly
+				if service.Env["SIMPLE"] != "plain-value" {
+					t.Errorf("expected plain value, got: %s", service.Env["SIMPLE"])
+				}
+				if service.Env["WITH_TEMPLATE"] != "prefix-{{configmap:app/name}}-suffix" {
+					t.Errorf("expected mixed content, got: %s", service.Env["WITH_TEMPLATE"])
+				}
+				if service.Env["MULTI_TEMPLATE"] != "{{configmap:app/version}}-{{secret:app/key}}" {
+					t.Errorf("expected multi-template, got: %s", service.Env["MULTI_TEMPLATE"])
+				}
+				if service.Env["QUOTED_TEMPLATE"] != "{{configmap:app/setting}}" {
+					t.Errorf("expected quoted template, got: %s", service.Env["QUOTED_TEMPLATE"])
+				}
+
+				// Check template map has all 4 templates
+				templateMap := cf.GetTemplateMap()
+				if len(templateMap) != 4 {
+					t.Fatalf("expected 4 templates, got %d", len(templateMap))
+				}
+			},
+		},
+		{
+			name: "templates in services sequence",
+			yaml: `
+services:
+  - name: service-1
+    image: nginx:latest
+    env:
+      CONFIG: {{configmap:app/config}}
+  - name: service-2
+    image: redis:latest
+    env:
+      SECRET: {{secret:app/secret}}
+`,
+			wantErr: false,
+			check: func(t *testing.T, cf *CastFile) {
+				if len(cf.Services) != 2 {
+					t.Fatalf("expected 2 services, got %d", len(cf.Services))
+				}
+
+				// Check first service
+				service1 := cf.Services[0]
+				if service1.Env["CONFIG"] != "{{configmap:app/config}}" {
+					t.Errorf("service1: expected template, got: %s", service1.Env["CONFIG"])
+				}
+
+				// Check second service
+				service2 := cf.Services[1]
+				if service2.Env["SECRET"] != "{{secret:app/secret}}" {
+					t.Errorf("service2: expected template, got: %s", service2.Env["SECRET"])
+				}
+
+				// Check template map has both templates
+				templateMap := cf.GetTemplateMap()
+				if len(templateMap) != 2 {
+					t.Fatalf("expected 2 templates, got %d", len(templateMap))
+				}
+			},
+		},
+		{
+			name: "invalid template syntax",
+			yaml: `
+service:
+  name: invalid-template-test
+  image: nginx:latest
+  env:
+    BAD_TEMPLATE: {{configmap:app/config
+    UNCLOSED: {{secret:app/secret
+`,
+			wantErr: true, // Should fail due to unclosed braces
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Write yaml to a temp file
+			dir := t.TempDir()
+			fp := filepath.Join(dir, "template_test.yaml")
+			if err := os.WriteFile(fp, []byte(tt.yaml), 0o600); err != nil {
+				t.Fatalf("failed to write temp yaml: %v", err)
+			}
+
+			cf, err := ParseCastFile(fp)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseCastFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if err != nil {
+				return // Expected error, test passed
+			}
+
+			if tt.check != nil {
+				tt.check(t, cf)
+			}
+		})
+	}
+}
+
+func TestCastFile_TemplateRestoration(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+service:
+  name: restoration-test
+  image: nginx:latest
+  env:
+    TEMPLATE_1: {{configmap:app/config1}}
+    TEMPLATE_2: {{secret:app/secret1}}
+    TEMPLATE_3: {{configmap:namespace.name/key}}
+`
+
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "restoration_test.yaml")
+	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("failed to write temp yaml: %v", err)
+	}
+
+	cf, err := ParseCastFile(fp)
+	if err != nil {
+		t.Fatalf("ParseCastFile returned error: %v", err)
+	}
+
+	// Test template restoration functionality
+	templateMap := cf.GetTemplateMap()
+	if len(templateMap) != 3 {
+		t.Fatalf("expected 3 templates, got %d", len(templateMap))
+	}
+
+	// Test RestoreTemplateReferences method
+	originalContent := "This contains __TEMPLATE_PLACEHOLDER_1__ and __TEMPLATE_PLACEHOLDER_2__"
+	restored := cf.RestoreTemplateReferences(originalContent)
+
+	// Should contain the original template syntax
+	if !strings.Contains(restored, "{{configmap:app/config1}}") {
+		t.Error("restored content should contain first template")
+	}
+	if !strings.Contains(restored, "{{secret:app/secret1}}") {
+		t.Error("restored content should contain second template")
+	}
+
+	// Should not contain placeholders
+	if strings.Contains(restored, "__TEMPLATE_PLACEHOLDER_") {
+		t.Error("restored content should not contain placeholders")
+	}
+}
+
+func TestServiceSpec_TemplateMethods(t *testing.T) {
+	t.Parallel()
+
+	// Create a service spec with template placeholders
+	spec := &ServiceSpec{
+		Name:  "template-method-test",
+		Image: "nginx:latest",
+		Env: map[string]string{
+			"PLAIN":     "value",
+			"TEMPLATE1": "__TEMPLATE_PLACEHOLDER_1__",
+			"TEMPLATE2": "__TEMPLATE_PLACEHOLDER_2__",
+		},
+	}
+
+	templateMap := map[string]string{
+		"__TEMPLATE_PLACEHOLDER_1__": "configmap:app/config1",
+		"__TEMPLATE_PLACEHOLDER_2__": "secret:app/secret1",
+	}
+
+	// Test RestoreTemplateReferences
+	spec.RestoreTemplateReferences(templateMap)
+
+	// Check templates are restored
+	if spec.Env["TEMPLATE1"] != "{{configmap:app/config1}}" {
+		t.Errorf("expected restored template, got: %s", spec.Env["TEMPLATE1"])
+	}
+	if spec.Env["TEMPLATE2"] != "{{secret:app/secret1}}" {
+		t.Errorf("expected restored template, got: %s", spec.Env["TEMPLATE2"])
+	}
+
+	// Check plain values are unchanged
+	if spec.Env["PLAIN"] != "value" {
+		t.Errorf("expected unchanged value, got: %s", spec.Env["PLAIN"])
+	}
+
+	// Test GetEnvWithTemplates (should return a copy with templates restored)
+	originalSpec := &ServiceSpec{
+		Name:  "original-test",
+		Image: "nginx:latest",
+		Env: map[string]string{
+			"PLAIN":     "value",
+			"TEMPLATE1": "__TEMPLATE_PLACEHOLDER_1__",
+		},
+	}
+
+	restoredEnv := originalSpec.GetEnvWithTemplates(templateMap)
+
+	// Check the copy has templates restored
+	if restoredEnv["TEMPLATE1"] != "{{configmap:app/config1}}" {
+		t.Errorf("expected restored template in copy, got: %s", restoredEnv["TEMPLATE1"])
+	}
+
+	// Check original is unchanged
+	if originalSpec.Env["TEMPLATE1"] != "__TEMPLATE_PLACEHOLDER_1__" {
+		t.Errorf("original should be unchanged, got: %s", originalSpec.Env["TEMPLATE1"])
 	}
 }

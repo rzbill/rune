@@ -3,19 +3,13 @@ package types
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
 )
 
-// CastFile represents a YAML file that can contain multiple resource kinds:
-// services, secrets, and configs in a single document.
-//
-// Supported top-level keys:
-// - service: { ... }         (can appear multiple times)
-// - services: [ { ... }, ... ]
-// - secrets: [ { name, namespace, data }, ... ]  // data can be list of {key,value} or map
-// - configMap: [ { name, namespace, data }, ... ] // same data rules
+// CastFile represents a YAML file that may contain multiple resource specifications.
 type CastFile struct {
 	Specs      []Spec          `yaml:"specs,omitempty"`
 	Services   []ServiceSpec   `yaml:"services,omitempty"`
@@ -23,22 +17,31 @@ type CastFile struct {
 	ConfigMaps []ConfigMapSpec `yaml:"configMaps,omitempty"`
 	// Internal tracking for line numbers (not serialized)
 	lineInfo map[string]int `json:"-" yaml:"-"`
+	// Template references extracted during preprocessing
+	templateMap map[string]string `json:"-" yaml:"-"`
 }
 
-// ParseCastFile parses a YAML file that may include services, secrets, and configs.
+// ParseCastFile reads and parses a cast file, handling template syntax
 func ParseCastFile(filename string) (*CastFile, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// Preprocess templates to handle {{...}} syntax
+	processedData, templateMap, err := preprocessTemplates(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preprocess templates: %w", err)
+	}
+
 	// Initialize empty cast file and line info
 	var cf CastFile
 	cf.lineInfo = make(map[string]int)
+	cf.templateMap = templateMap // Store the template map
 
-	// Second pass: YAML AST for structure checks and collection
+	// Parse the preprocessed YAML
 	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
+	if err := yaml.Unmarshal(processedData, &node); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML structure: %w", err)
 	}
 
@@ -99,6 +102,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 			if b, err := yaml.Marshal(val); err == nil {
 				if err := yaml.Unmarshal(b, &spec); err == nil {
 					spec.rawNode = val
+					// Restore template references in environment variables
+					if cf.templateMap != nil {
+						spec.RestoreTemplateReferences(cf.templateMap)
+					}
 					if !spec.Skip {
 						cf.Services = append(cf.Services, spec)
 						cf.Specs = append(cf.Specs, &spec)
@@ -149,6 +156,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 					if b, err := yaml.Marshal(item); err == nil {
 						if err := yaml.Unmarshal(b, &spec); err == nil {
 							spec.rawNode = item
+							// Restore template references in environment variables
+							if cf.templateMap != nil {
+								spec.RestoreTemplateReferences(cf.templateMap)
+							}
 							if !spec.Skip {
 								cf.Services = append(cf.Services, spec)
 								cf.Specs = append(cf.Specs, &spec)
@@ -420,4 +431,44 @@ func (cf *CastFile) GetConfigMaps() ([]*ConfigMap, error) {
 		result = append(result, cfg)
 	}
 	return result, nil
+}
+
+// preprocessTemplates handles template syntax in YAML content before parsing
+// It replaces template references with placeholders and stores the original references
+func preprocessTemplates(data []byte) ([]byte, map[string]string, error) {
+	content := string(data)
+	templateMap := make(map[string]string)
+
+	// Regex to find template references: {{type:reference}}
+	// This handles: {{configmap:name/key}}, {{secret:name/key}}, etc.
+	templateRegex := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+
+	// Replace each template reference with a unique placeholder
+	placeholderCounter := 0
+	processedContent := templateRegex.ReplaceAllStringFunc(content, func(match string) string {
+		placeholderCounter++
+		placeholder := fmt.Sprintf("__TEMPLATE_PLACEHOLDER_%d__", placeholderCounter)
+
+		// Extract the template content (remove {{ and }})
+		templateContent := match[2 : len(match)-2]
+		templateMap[placeholder] = templateContent
+
+		return placeholder
+	})
+
+	return []byte(processedContent), templateMap, nil
+}
+
+// GetTemplateMap returns the map of template placeholders to their original template references
+func (cf *CastFile) GetTemplateMap() map[string]string {
+	return cf.templateMap
+}
+
+// RestoreTemplateReferences replaces template placeholders with their original template syntax
+func (cf *CastFile) RestoreTemplateReferences(content string) string {
+	result := content
+	for placeholder, templateRef := range cf.templateMap {
+		result = strings.ReplaceAll(result, placeholder, "{{"+templateRef+"}}")
+	}
+	return result
 }

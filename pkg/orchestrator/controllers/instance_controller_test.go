@@ -10,6 +10,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
+	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,20 @@ import (
 // setupTestController creates a controller with test dependencies
 func setupTestController(t *testing.T) (context.Context, *store.TestStore, *runner.TestRunner, InstanceController) {
 	ctx := context.Background()
-	testStore := store.NewTestStore()
+	// Configure test store with reasonable defaults to support secret/config repos
+	opts := store.StoreOptions{
+		SecretEncryptionEnabled: true,
+		KEKBytes:                []byte("0123456789abcdef0123456789abcdef"), // 32 bytes
+		SecretLimits: store.Limits{
+			MaxObjectBytes:   1 << 20, // 1MiB
+			MaxKeyNameLength: 256,
+		},
+		ConfigLimits: store.Limits{
+			MaxObjectBytes:   1 << 20,
+			MaxKeyNameLength: 256,
+		},
+	}
+	testStore := store.NewTestStoreWithOptions(opts)
 	testRunner := runner.NewTestRunner()
 	testRunnerMgr := manager.NewTestRunnerManager(nil)
 	testRunnerMgr.SetDockerRunner(testRunner)
@@ -647,7 +661,9 @@ func TestInterpolateEnv_TemplateSyntax(t *testing.T) {
 			"password": "secret123",
 		},
 	}
-	err := testStore.Create(ctx, types.ResourceTypeSecret, "default", "test-secret", secret)
+	// Use SecretRepo to create, ensuring secrets are stored in encrypted StoredSecret form
+	secretRepo := repos.NewSecretRepo(testStore)
+	err := secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "test-secret"), secret)
 	require.NoError(t, err)
 
 	configMap := &types.ConfigMap{
@@ -743,7 +759,7 @@ func TestInterpolateEnv_Errors(t *testing.T) {
 			input:       "{{invalid:format}}",
 			expected:    "",
 			expectError: true,
-			errorMsg:    "failed to parse template variable",
+			errorMsg:    "must include a key for interpolation",
 		},
 		{
 			name:        "Unsupported resource type",
@@ -940,7 +956,8 @@ func TestPrepareEnvVars_WithTemplateInterpolation(t *testing.T) {
 			"password": "dbpass123",
 		},
 	}
-	err := testStore.Create(ctx, types.ResourceTypeSecret, "default", "db-credentials", secret)
+	secretRepo := repos.NewSecretRepo(testStore)
+	err := secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "db-credentials"), secret)
 	require.NoError(t, err)
 
 	configMap := &types.ConfigMap{

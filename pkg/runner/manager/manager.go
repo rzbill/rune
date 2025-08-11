@@ -3,6 +3,8 @@ package manager
 import (
 	"sync"
 
+	"os"
+
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/docker"
@@ -51,7 +53,7 @@ func NewRunnerManager(logger log.Logger) *RunnerManager {
 // settings from config files, environment variables, and flags
 func getDockerConfig() *docker.DockerConfig {
 	config := docker.DefaultDockerConfig()
-	
+
 	// In Viper, environment variables are automatically bound with a prefix
 	// and proper naming conventions, so we don't need separate env handling
 
@@ -59,15 +61,29 @@ func getDockerConfig() *docker.DockerConfig {
 	if viper.IsSet("docker.api_version") {
 		config.APIVersion = viper.GetString("docker.api_version")
 	}
-	
+
 	if viper.IsSet("docker.fallback_api_version") {
 		config.FallbackAPIVersion = viper.GetString("docker.fallback_api_version")
 	}
-	
+
 	if viper.IsSet("docker.negotiation_timeout_seconds") {
 		config.NegotiationTimeoutSeconds = viper.GetInt("docker.negotiation_timeout_seconds")
 	}
-	
+
+	// Optional mount permission settings
+	if viper.IsSet("docker.secret_dir_mode") {
+		config.SecretDirMode = os.FileMode(viper.GetInt("docker.secret_dir_mode"))
+	}
+	if viper.IsSet("docker.secret_file_mode") {
+		config.SecretFileMode = os.FileMode(viper.GetInt("docker.secret_file_mode"))
+	}
+	if viper.IsSet("docker.config_dir_mode") {
+		config.ConfigDirMode = os.FileMode(viper.GetInt("docker.config_dir_mode"))
+	}
+	if viper.IsSet("docker.config_file_mode") {
+		config.ConfigFileMode = os.FileMode(viper.GetInt("docker.config_file_mode"))
+	}
+
 	return config
 }
 
@@ -79,7 +95,7 @@ func (m *RunnerManager) Initialize() error {
 	if m.initialized {
 		return nil
 	}
-	
+
 	// Get Docker configuration via Viper (which already handles env vars and config files)
 	dockerConfig := getDockerConfig()
 

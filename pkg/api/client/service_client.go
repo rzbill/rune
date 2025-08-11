@@ -441,6 +441,40 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		}
 	}
 
+	// Convert secret mounts
+	if len(service.SecretMounts) > 0 {
+		protoService.SecretMounts = make([]*generated.SecretMount, len(service.SecretMounts))
+		for i, m := range service.SecretMounts {
+			items := make([]*generated.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, &generated.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			protoService.SecretMounts[i] = &generated.SecretMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				SecretName: m.SecretName,
+				Items:      items,
+			}
+		}
+	}
+
+	// Convert configmap mounts
+	if len(service.ConfigmapMounts) > 0 {
+		protoService.ConfigmapMounts = make([]*generated.ConfigmapMount, len(service.ConfigmapMounts))
+		for i, m := range service.ConfigmapMounts {
+			items := make([]*generated.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, &generated.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			protoService.ConfigmapMounts[i] = &generated.ConfigmapMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				ConfigName: m.ConfigName,
+				Items:      items,
+			}
+		}
+	}
+
 	// Convert status
 	switch service.Status {
 	case types.ServiceStatusPending:
@@ -580,6 +614,40 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 			service.Resources.Memory = types.ResourceLimit{
 				Request: proto.Resources.Memory.Request,
 				Limit:   proto.Resources.Memory.Limit,
+			}
+		}
+	}
+
+	// Convert secret mounts
+	if len(proto.SecretMounts) > 0 {
+		service.SecretMounts = make([]types.SecretMount, len(proto.SecretMounts))
+		for i, m := range proto.SecretMounts {
+			items := make([]types.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			service.SecretMounts[i] = types.SecretMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				SecretName: m.SecretName,
+				Items:      items,
+			}
+		}
+	}
+
+	// Convert configmap mounts
+	if len(proto.ConfigmapMounts) > 0 {
+		service.ConfigmapMounts = make([]types.ConfigmapMount, len(proto.ConfigmapMounts))
+		for i, m := range proto.ConfigmapMounts {
+			items := make([]types.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			service.ConfigmapMounts[i] = types.ConfigmapMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				ConfigName: m.ConfigName,
+				Items:      items,
 			}
 		}
 	}

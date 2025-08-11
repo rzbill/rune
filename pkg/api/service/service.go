@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -289,8 +287,8 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 
 	if !needsGenUpdate {
 		// Calculate service hash to determine if anything meaningful changed
-		oldHash := calculateServiceHash(existingService)
-		newHash := calculateServiceHash(updatedService)
+		oldHash := existingService.CalculateHash()
+		newHash := updatedService.CalculateHash()
 
 		if oldHash != newHash {
 			// Service has changed, increment generation
@@ -347,111 +345,6 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 			Message: "Service updated successfully",
 		},
 	}, nil
-}
-
-// calculateServiceHash generates a hash of service properties that should trigger reconciliation when changed
-func calculateServiceHash(service *types.Service) string {
-	h := sha256.New()
-
-	// Include only fields that should trigger a reconciliation when changed
-	fmt.Fprintf(h, "image:%s\n", service.Image)
-	fmt.Fprintf(h, "command:%s\n", service.Command)
-	fmt.Fprintf(h, "scale:%d\n", service.Scale)
-	fmt.Fprintf(h, "runtime:%s\n", string(service.Runtime))
-
-	// Args
-	fmt.Fprintf(h, "args:[")
-	for i, arg := range service.Args {
-		if i > 0 {
-			fmt.Fprintf(h, ",")
-		}
-		fmt.Fprintf(h, "%s", arg)
-	}
-	fmt.Fprintf(h, "]\n")
-
-	// Environment variables
-	var envKeys []string
-	for k := range service.Env {
-		envKeys = append(envKeys, k)
-	}
-	sort.Strings(envKeys)
-
-	fmt.Fprintf(h, "env:{")
-	for i, k := range envKeys {
-		if i > 0 {
-			fmt.Fprintf(h, ",")
-		}
-		fmt.Fprintf(h, "%s:%s", k, service.Env[k])
-	}
-	fmt.Fprintf(h, "}\n")
-
-	// Ports
-	fmt.Fprintf(h, "ports:[")
-	for i, port := range service.Ports {
-		if i > 0 {
-			fmt.Fprintf(h, ",")
-		}
-		fmt.Fprintf(h, "%s:%d:%d:%s", port.Name, port.Port, port.TargetPort, port.Protocol)
-	}
-	fmt.Fprintf(h, "]\n")
-
-	// Resources
-	if service.Resources.CPU.Request != "" || service.Resources.CPU.Limit != "" {
-		fmt.Fprintf(h, "cpu:%s:%s\n", service.Resources.CPU.Request, service.Resources.CPU.Limit)
-	}
-
-	if service.Resources.Memory.Request != "" || service.Resources.Memory.Limit != "" {
-		fmt.Fprintf(h, "memory:%s:%s\n", service.Resources.Memory.Request, service.Resources.Memory.Limit)
-	}
-
-	// Health checks
-	if service.Health != nil {
-		if service.Health.Liveness != nil {
-			fmt.Fprintf(h, "liveness:%s:%s:%d:%d:%d:%d\n",
-				service.Health.Liveness.Type,
-				service.Health.Liveness.Path,
-				service.Health.Liveness.Port,
-				service.Health.Liveness.IntervalSeconds,
-				service.Health.Liveness.TimeoutSeconds,
-				service.Health.Liveness.FailureThreshold)
-			if len(service.Health.Liveness.Command) > 0 {
-				fmt.Fprintf(h, "liveness_cmd:[")
-				for i, cmd := range service.Health.Liveness.Command {
-					if i > 0 {
-						fmt.Fprintf(h, ",")
-					}
-					fmt.Fprintf(h, "%s", cmd)
-				}
-				fmt.Fprintf(h, "]\n")
-			}
-		}
-		if service.Health.Readiness != nil {
-			fmt.Fprintf(h, "readiness:%s:%s:%d:%d:%d:%d\n",
-				service.Health.Readiness.Type,
-				service.Health.Readiness.Path,
-				service.Health.Readiness.Port,
-				service.Health.Readiness.IntervalSeconds,
-				service.Health.Readiness.TimeoutSeconds,
-				service.Health.Readiness.FailureThreshold)
-			if len(service.Health.Readiness.Command) > 0 {
-				fmt.Fprintf(h, "readiness_cmd:[")
-				for i, cmd := range service.Health.Readiness.Command {
-					if i > 0 {
-						fmt.Fprintf(h, ",")
-					}
-					fmt.Fprintf(h, "%s", cmd)
-				}
-				fmt.Fprintf(h, "]\n")
-			}
-		}
-	} else {
-		// Explicitly include "no health checks" in the hash
-		fmt.Fprintf(h, "health:nil\n")
-	}
-
-	// Add more fields as needed that should trigger reconciliation when changed
-
-	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // DeleteService removes a service.
@@ -851,6 +744,40 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		}
 	}
 
+	// Convert secret mounts
+	if len(service.SecretMounts) > 0 {
+		protoService.SecretMounts = make([]*generated.SecretMount, len(service.SecretMounts))
+		for i, m := range service.SecretMounts {
+			protoItems := make([]*generated.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				protoItems = append(protoItems, &generated.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			protoService.SecretMounts[i] = &generated.SecretMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				SecretName: m.SecretName,
+				Items:      protoItems,
+			}
+		}
+	}
+
+	// Convert configmap mounts
+	if len(service.ConfigmapMounts) > 0 {
+		protoService.ConfigmapMounts = make([]*generated.ConfigmapMount, len(service.ConfigmapMounts))
+		for i, m := range service.ConfigmapMounts {
+			protoItems := make([]*generated.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				protoItems = append(protoItems, &generated.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			protoService.ConfigmapMounts[i] = &generated.ConfigmapMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				ConfigName: m.ConfigName,
+				Items:      protoItems,
+			}
+		}
+	}
+
 	// Convert resources
 	if service.Resources != (types.Resources{}) {
 		protoService.Resources = &generated.Resources{
@@ -976,6 +903,40 @@ func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.S
 				Port:       int(port.Port),
 				TargetPort: int(port.TargetPort),
 				Protocol:   port.Protocol,
+			}
+		}
+	}
+
+	// Convert secret mounts
+	if len(proto.SecretMounts) > 0 {
+		service.SecretMounts = make([]types.SecretMount, len(proto.SecretMounts))
+		for i, m := range proto.SecretMounts {
+			items := make([]types.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			service.SecretMounts[i] = types.SecretMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				SecretName: m.SecretName,
+				Items:      items,
+			}
+		}
+	}
+
+	// Convert configmap mounts
+	if len(proto.ConfigmapMounts) > 0 {
+		service.ConfigmapMounts = make([]types.ConfigmapMount, len(proto.ConfigmapMounts))
+		for i, m := range proto.ConfigmapMounts {
+			items := make([]types.KeyToPath, 0, len(m.Items))
+			for _, it := range m.Items {
+				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
+			}
+			service.ConfigmapMounts[i] = types.ConfigmapMount{
+				Name:       m.Name,
+				MountPath:  m.MountPath,
+				ConfigName: m.ConfigName,
+				Items:      items,
 			}
 		}
 	}

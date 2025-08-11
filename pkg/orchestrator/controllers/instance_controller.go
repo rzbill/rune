@@ -469,7 +469,7 @@ func (c *instanceController) DeleteInstance(ctx context.Context, instance *types
 			log.Err(err))
 	} else {
 		c.logger.Info("Instance marked as deleted successfully",
-			log.Json("instance", instance))
+			log.Json("instance", instance.ID))
 
 	}
 
@@ -943,8 +943,8 @@ func (c *instanceController) interpolateEnv(ctx context.Context, value, defaultN
 		}
 		closeIdx += openIdx
 
-		// Extract the template variable content
-		templateVar := result[openIdx+2 : closeIdx]
+		// Extract the template variable content and trim whitespace inside the braces
+		templateVar := strings.TrimSpace(result[openIdx+2 : closeIdx])
 
 		// Resolve the template variable
 		resolvedValue, err := c.resolveTemplateVariable(ctx, templateVar, defaultNamespace)
@@ -1030,10 +1030,15 @@ func (c *instanceController) resolveMounts(ctx context.Context, service *types.S
 		instance.Metadata.SecretMounts = make([]types.ResolvedSecretMount, 0, len(service.SecretMounts))
 
 		for _, mount := range service.SecretMounts {
+			// Determine secret name; default to mount.Name if SecretName is omitted
+			secretName := mount.SecretName
+			if secretName == "" {
+				secretName = mount.Name
+			}
 			// Get the secret from the store
-			secret, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, service.Namespace, mount.SecretName))
+			secret, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, service.Namespace, secretName))
 			if err != nil {
-				return fmt.Errorf("failed to get secret %s for mount %s: %w", mount.SecretName, mount.Name, err)
+				return fmt.Errorf("failed to get secret %s for mount %s: %w", secretName, mount.Name, err)
 			}
 
 			// Create resolved mount
@@ -1049,14 +1054,19 @@ func (c *instanceController) resolveMounts(ctx context.Context, service *types.S
 	}
 
 	// Resolve config mounts
-	if len(service.ConfigMounts) > 0 {
-		instance.Metadata.ConfigmapMounts = make([]types.ResolvedConfigmapMount, 0, len(service.ConfigMounts))
+	if len(service.ConfigmapMounts) > 0 {
+		instance.Metadata.ConfigmapMounts = make([]types.ResolvedConfigmapMount, 0, len(service.ConfigmapMounts))
 
-		for _, mount := range service.ConfigMounts {
+		for _, mount := range service.ConfigmapMounts {
+			// Determine config name; default to mount.Name if ConfigName is omitted
+			configName := mount.ConfigName
+			if configName == "" {
+				configName = mount.Name
+			}
 			// Get the config from the store
-			config, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, service.Namespace, mount.ConfigName))
+			config, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, service.Namespace, configName))
 			if err != nil {
-				return fmt.Errorf("failed to get config %s for mount %s: %w", mount.ConfigName, mount.Name, err)
+				return fmt.Errorf("failed to get config %s for mount %s: %w", configName, mount.Name, err)
 			}
 
 			// Create resolved mount

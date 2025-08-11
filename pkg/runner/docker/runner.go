@@ -33,6 +33,13 @@ type DockerConfig struct {
 
 	// Timeout for API version negotiation in seconds
 	NegotiationTimeoutSeconds int
+
+	// Permissions for mounts created on the host before binding into containers
+	// If zero, sensible defaults will be used.
+	SecretDirMode  os.FileMode
+	SecretFileMode os.FileMode
+	ConfigDirMode  os.FileMode
+	ConfigFileMode os.FileMode
 }
 
 // DefaultDockerConfig returns the default Docker configuration
@@ -41,6 +48,12 @@ func DefaultDockerConfig() *DockerConfig {
 		APIVersion:                "",     // Empty means use auto-negotiation
 		FallbackAPIVersion:        "1.43", // Fallback to a widely compatible version
 		NegotiationTimeoutSeconds: 3,
+		// Defaults optimized for Docker Desktop on macOS/Windows where
+		// FUSE permissions can otherwise block container access.
+		SecretDirMode:  0o755,
+		SecretFileMode: 0o444,
+		ConfigDirMode:  0o755,
+		ConfigFileMode: 0o644,
 	}
 }
 
@@ -568,6 +581,13 @@ func (r *DockerRunner) prepareSecretMounts(secretMounts []types.ResolvedSecretMo
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp directory for secret mount %s: %w", secretMount.Name, err)
 		}
+		// Adjust directory permissions to allow Docker Desktop to stat/bind mount
+		// Keep files themselves locked down (0600) while directory is world-executable for traversal
+		dirMode := r.config.SecretDirMode
+		if dirMode == 0 {
+			dirMode = 0o755
+		}
+		_ = os.Chmod(tempDir, dirMode)
 
 		// Create files for each secret key
 		for key, value := range secretMount.Data {
@@ -590,8 +610,22 @@ func (r *DockerRunner) prepareSecretMounts(secretMounts []types.ResolvedSecretMo
 				filePath = filepath.Join(tempDir, key)
 			}
 
+			// Ensure subdirectories exist if path contains directories
+			// Use 0755 so the container user (often not the host owner due to Docker Desktop FUSE) can traverse
+			parentMode := r.config.SecretDirMode
+			if parentMode == 0 {
+				parentMode = 0o755
+			}
+			if err := os.MkdirAll(filepath.Dir(filePath), parentMode); err != nil {
+				os.RemoveAll(tempDir)
+				return nil, fmt.Errorf("failed to create directory for secret file %s: %w", filePath, err)
+			}
 			// Create the file with the secret value
-			if err := os.WriteFile(filePath, []byte(value), 0600); err != nil {
+			fileMode := r.config.SecretFileMode
+			if fileMode == 0 {
+				fileMode = 0o444
+			}
+			if err := os.WriteFile(filePath, []byte(value), fileMode); err != nil {
 				os.RemoveAll(tempDir) // Clean up on error
 				return nil, fmt.Errorf("failed to write secret file %s: %w", filePath, err)
 			}
@@ -622,6 +656,12 @@ func (r *DockerRunner) prepareConfigmapsMounts(configMounts []types.ResolvedConf
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp directory for config mount %s: %w", configMount.Name, err)
 		}
+		// Adjust directory permissions to allow Docker Desktop to stat/bind mount
+		dirMode := r.config.ConfigDirMode
+		if dirMode == 0 {
+			dirMode = 0o755
+		}
+		_ = os.Chmod(tempDir, dirMode)
 
 		// Create files for each config key
 		for key, value := range configMount.Data {
@@ -644,8 +684,22 @@ func (r *DockerRunner) prepareConfigmapsMounts(configMounts []types.ResolvedConf
 				filePath = filepath.Join(tempDir, key)
 			}
 
+			// Ensure subdirectories exist if path contains directories
+			// Use 0755 so the container user can traverse
+			parentMode := r.config.ConfigDirMode
+			if parentMode == 0 {
+				parentMode = 0o755
+			}
+			if err := os.MkdirAll(filepath.Dir(filePath), parentMode); err != nil {
+				os.RemoveAll(tempDir)
+				return nil, fmt.Errorf("failed to create directory for config file %s: %w", filePath, err)
+			}
 			// Create the file with the config value
-			if err := os.WriteFile(filePath, []byte(value), 0644); err != nil {
+			fileMode := r.config.ConfigFileMode
+			if fileMode == 0 {
+				fileMode = 0o644
+			}
+			if err := os.WriteFile(filePath, []byte(value), fileMode); err != nil {
 				os.RemoveAll(tempDir) // Clean up on error
 				return nil, fmt.Errorf("failed to write config file %s: %w", filePath, err)
 			}

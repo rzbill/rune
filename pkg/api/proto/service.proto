@@ -66,8 +66,14 @@ message Service {
   // Restart policy for the service
   RestartPolicy restart_policy = 16;
 
+  // Secret mounts
+  repeated SecretMount secret_mounts = 17;
+
+  // Configmap mounts
+  repeated ConfigmapMount configmap_mounts = 18;
+
   // Metadata for the service
-  ServiceMetadata metadata = 17;
+  ServiceMetadata metadata = 19;
 }
 
 // ServiceMetadata represents metadata for a service.
@@ -80,6 +86,22 @@ message ServiceMetadata {
   
   // Last update timestamp (in RFC 3339 format)
   string updated_at = 3;
+}
+
+// SecretMount defines a secret to be mounted in a container.
+message SecretMount {
+  string name = 1;
+  string mount_path = 2;
+  string secret_name = 3;
+  repeated KeyToPath items = 4;
+}
+
+// ConfigmapMount defines a config to be mounted in a container.
+message ConfigmapMount {
+  string name = 1;
+  string mount_path = 2;
+  string config_name = 3;
+  repeated KeyToPath items = 4;
 }
 
 // CreateServiceRequest represents a request to create a new service.

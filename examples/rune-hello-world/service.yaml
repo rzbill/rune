@@ -42,6 +42,10 @@ service:
     APP_NAME: "rune-hello-world"
     BUILD_DATE: "2024-01-01"
     GIT_COMMIT: "abc123def456"
+  
+  secretMounts:
+    - name: keypairs-secret
+      mountPath: /etc/secrets/keypairs-secret
     
   #health:
   #  liveness:
