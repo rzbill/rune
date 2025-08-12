@@ -353,11 +353,12 @@ func TestRestartInstance(t *testing.T) {
 
 	// Create test instances
 	instance := &types.Instance{
-		ID:        "test-instance",
-		Name:      "test-instance",
-		Namespace: "default",
-		ServiceID: "test-service",
-		Status:    types.InstanceStatusRunning,
+		ID:          "test-instance",
+		Name:        "test-instance",
+		Namespace:   "default",
+		ServiceID:   "test-service",
+		ServiceName: "test-service",
+		Status:      types.InstanceStatusRunning,
 	}
 
 	ctx := context.Background()

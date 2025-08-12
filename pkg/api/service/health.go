@@ -3,6 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
@@ -19,14 +24,163 @@ type HealthService struct {
 
 	store  store.Store
 	logger log.Logger
+
+	// Optional cached capacity (single-node MVP)
+	capacityCPU float64
+	capacityMem int64
+	hasCapacity bool
 }
 
 // NewHealthService creates a new HealthService with the given store and logger.
 func NewHealthService(store store.Store, logger log.Logger) *HealthService {
-	return &HealthService{
+	hs := &HealthService{
 		store:  store,
 		logger: logger.WithComponent("health-service"),
 	}
+	// Best-effort capacity detection at construction
+	hs.DetectAndSetCapacity()
+	return hs
+}
+
+// SetCapacity allows the API server to inject cached node capacity for reporting.
+func (s *HealthService) SetCapacity(cpuCores float64, memBytes int64) {
+	s.capacityCPU = cpuCores
+	s.capacityMem = memBytes
+	s.hasCapacity = true
+}
+
+// DetectAndSetCapacity runs capacity detection and caches the result in the service.
+func (s *HealthService) DetectAndSetCapacity() {
+	cpu, mem, err := s.detectNodeCapacity()
+	if err != nil {
+		s.logger.Warn("Capacity detection failed", log.Err(err))
+		return
+	}
+	s.SetCapacity(cpu, mem)
+	s.logger.Info("Node capacity detected",
+		log.Float64("cpu_cores", cpu),
+		log.Str("memory", s.formatMemory(mem)))
+}
+
+// detectNodeCapacity computes best-effort CPU cores and memory bytes for the host.
+// Prefers cgroup v2 quotas if present; falls back to host capacity.
+func (s *HealthService) detectNodeCapacity() (float64, int64, error) {
+	cpu := s.detectCPUCores()
+	mem := s.detectMemoryBytes()
+	if mem == 0 {
+		return cpu, 0, fmt.Errorf("unable to determine memory capacity")
+	}
+	return cpu, mem, nil
+}
+
+func (s *HealthService) detectCPUCores() float64 {
+	if quota, period, ok := s.readCgroupCPUMax("/sys/fs/cgroup/cpu.max"); ok {
+		if quota > 0 && period > 0 {
+			eff := float64(quota) / float64(period)
+			if eff > 0 {
+				return eff
+			}
+		}
+	}
+	return float64(runtime.NumCPU())
+}
+
+func (s *HealthService) detectMemoryBytes() int64 {
+	if v, ok := s.readCgroupMemoryMax("/sys/fs/cgroup/memory.max"); ok && v > 0 && v < (1<<60) {
+		return v
+	}
+	if v, ok := s.readProcMeminfoTotal("/proc/meminfo"); ok {
+		return v
+	}
+	if v, ok := s.readSysctlMemsize(); ok {
+		return v
+	}
+	return 0
+}
+
+func (s *HealthService) readCgroupCPUMax(path string) (quota int64, period int64, ok bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	parts := strings.Fields(string(data))
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	if parts[0] == "max" {
+		p, _ := strconv.ParseInt(parts[1], 10, 64)
+		return 0, p, true
+	}
+	q, err1 := strconv.ParseInt(parts[0], 10, 64)
+	p, err2 := strconv.ParseInt(parts[1], 10, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return q, p, true
+}
+
+func (s *HealthService) readCgroupMemoryMax(path string) (int64, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	v := strings.TrimSpace(string(data))
+	if v == "max" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func (s *HealthService) readProcMeminfoTotal(path string) (int64, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if kb, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
+					return kb * 1024, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+func (s *HealthService) readSysctlMemsize() (int64, bool) {
+	if runtime.GOOS != "darwin" {
+		return 0, false
+	}
+	out, err := exec.Command("sysctl", "-n", "hw.memsize").CombinedOutput()
+	if err != nil {
+		return 0, false
+	}
+	v := strings.TrimSpace(string(out))
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func (s *HealthService) formatMemory(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	units := []string{"Ki", "Mi", "Gi", "Ti", "Pi", "Ei"}
+	return fmt.Sprintf("%.1f%s", float64(bytes)/float64(div), units[exp])
 }
 
 // GetHealth retrieves health status of platform components.
@@ -136,26 +290,90 @@ func (s *HealthService) getServiceHealth(ctx context.Context, req *generated.Get
 
 // getInstanceHealth retrieves health for an instance or instances.
 func (s *HealthService) getInstanceHealth(ctx context.Context, req *generated.GetHealthRequest) (*generated.GetHealthResponse, error) {
-	// For now, we'll just return a mock response
-	// In a real implementation, we would query the runners for instance health
+	namespace := req.Namespace
+	if namespace == "" {
+		namespace = DefaultNamespace
+	}
 
 	var components []*generated.ComponentHealth
 
-	component := &generated.ComponentHealth{
-		ComponentType: "instance",
-		Id:            req.Name, // Using name as ID
-		Name:          req.Name,
-		Namespace:     req.Namespace,
-		Status:        generated.HealthStatus_HEALTH_STATUS_HEALTHY,
-		Message:       "Instance is running normally",
-		Timestamp:     time.Now().Format(time.RFC3339),
+	// Helper to map instance status to health
+	mapStatus := func(st types.InstanceStatus) (generated.HealthStatus, string) {
+		switch st {
+		case types.InstanceStatusRunning:
+			return generated.HealthStatus_HEALTH_STATUS_HEALTHY, "Instance running"
+		case types.InstanceStatusPending, types.InstanceStatusCreated, types.InstanceStatusStarting:
+			return generated.HealthStatus_HEALTH_STATUS_DEGRADED, string(st)
+		case types.InstanceStatusStopped, types.InstanceStatusExited, types.InstanceStatusFailed, types.InstanceStatusDeleted:
+			return generated.HealthStatus_HEALTH_STATUS_UNHEALTHY, string(st)
+		default:
+			return generated.HealthStatus_HEALTH_STATUS_UNKNOWN, string(st)
+		}
 	}
 
-	if req.IncludeChecks {
-		component.CheckResults = generateMockHealthCheckResults()
+	if req.Name != "" {
+		// Treat name as instance ID for retrieval
+		inst, err := s.store.GetInstanceByID(ctx, namespace, req.Name)
+		if err != nil {
+			s.logger.Error("Failed to get instance", log.Err(err), log.Str("id", req.Name), log.Str("namespace", namespace))
+			return nil, status.Errorf(codes.NotFound, "instance not found: %s", req.Name)
+		}
+		hs, msg := mapStatus(inst.Status)
+		comp := &generated.ComponentHealth{
+			ComponentType: "instance",
+			Id:            inst.ID,
+			Name:          inst.Name,
+			Namespace:     inst.Namespace,
+			Status:        hs,
+			Message:       msg,
+			Timestamp:     time.Now().Format(time.RFC3339),
+		}
+		if req.IncludeChecks {
+			comp.CheckResults = []*generated.HealthCheckResult{
+				{
+					Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_LIVENESS,
+					Status:               hs,
+					Message:              fmt.Sprintf("status=%s", inst.Status),
+					Timestamp:            time.Now().Format(time.RFC3339),
+					ConsecutiveSuccesses: 1,
+					ConsecutiveFailures:  0,
+				},
+			}
+		}
+		components = append(components, comp)
+	} else {
+		// List all instances in namespace
+		var instances []types.Instance
+		if err := s.store.List(ctx, types.ResourceTypeInstance, namespace, &instances); err != nil {
+			s.logger.Error("Failed to list instances", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to list instances: %v", err)
+		}
+		for _, inst := range instances {
+			hs, msg := mapStatus(inst.Status)
+			comp := &generated.ComponentHealth{
+				ComponentType: "instance",
+				Id:            inst.ID,
+				Name:          inst.Name,
+				Namespace:     inst.Namespace,
+				Status:        hs,
+				Message:       msg,
+				Timestamp:     time.Now().Format(time.RFC3339),
+			}
+			if req.IncludeChecks {
+				comp.CheckResults = []*generated.HealthCheckResult{
+					{
+						Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_LIVENESS,
+						Status:               hs,
+						Message:              fmt.Sprintf("status=%s", inst.Status),
+						Timestamp:            time.Now().Format(time.RFC3339),
+						ConsecutiveSuccesses: 1,
+						ConsecutiveFailures:  0,
+					},
+				}
+			}
+			components = append(components, comp)
+		}
 	}
-
-	components = append(components, component)
 
 	return &generated.GetHealthResponse{
 		Components: components,
@@ -168,42 +386,36 @@ func (s *HealthService) getInstanceHealth(ctx context.Context, req *generated.Ge
 
 // getNodeHealth retrieves health for a node or nodes.
 func (s *HealthService) getNodeHealth(ctx context.Context, req *generated.GetHealthRequest) (*generated.GetHealthResponse, error) {
-	// For now, we'll just return a mock response
-	// In a real implementation, we would query agents for node health
-
 	var components []*generated.ComponentHealth
 
-	component := &generated.ComponentHealth{
+	// MVP: Single-node synthetic health based on server capacity detection
+	name := req.Name
+	if name == "" {
+		name = "local"
+	}
+	status := generated.HealthStatus_HEALTH_STATUS_HEALTHY
+	msg := "Single-node"
+	comp := &generated.ComponentHealth{
 		ComponentType: "node",
-		Id:            req.Name, // Using name as ID
-		Name:          req.Name,
-		Status:        generated.HealthStatus_HEALTH_STATUS_HEALTHY,
-		Message:       "Node is operating normally",
+		Id:            name,
+		Name:          name,
+		Status:        status,
+		Message:       msg,
 		Timestamp:     time.Now().Format(time.RFC3339),
 	}
-
-	if req.IncludeChecks {
-		component.CheckResults = []*generated.HealthCheckResult{
-			{
-				Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_LIVENESS,
-				Status:               generated.HealthStatus_HEALTH_STATUS_HEALTHY,
-				Message:              "Node is reachable",
-				Timestamp:            time.Now().Format(time.RFC3339),
-				ConsecutiveSuccesses: 10,
-				ConsecutiveFailures:  0,
-			},
+	if req.IncludeChecks && s.hasCapacity {
+		comp.CheckResults = []*generated.HealthCheckResult{
 			{
 				Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_READINESS,
-				Status:               generated.HealthStatus_HEALTH_STATUS_HEALTHY,
-				Message:              "Node has available resources",
+				Status:               status,
+				Message:              fmt.Sprintf("capacity cpu_cores=%.3f mem_bytes=%d", s.capacityCPU, s.capacityMem),
 				Timestamp:            time.Now().Format(time.RFC3339),
-				ConsecutiveSuccesses: 5,
+				ConsecutiveSuccesses: 1,
 				ConsecutiveFailures:  0,
 			},
 		}
 	}
-
-	components = append(components, component)
+	components = append(components, comp)
 
 	return &generated.GetHealthResponse{
 		Components: components,
@@ -227,7 +439,7 @@ func (s *HealthService) getAPIServerHealth(ctx context.Context, req *generated.G
 	}
 
 	if req.IncludeChecks {
-		component.CheckResults = []*generated.HealthCheckResult{
+		checks := []*generated.HealthCheckResult{
 			{
 				Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_LIVENESS,
 				Status:               generated.HealthStatus_HEALTH_STATUS_HEALTHY,
@@ -245,6 +457,18 @@ func (s *HealthService) getAPIServerHealth(ctx context.Context, req *generated.G
 				ConsecutiveFailures:  0,
 			},
 		}
+		// Append capacity info if available, encoded in a structured string
+		if s.hasCapacity {
+			checks = append(checks, &generated.HealthCheckResult{
+				Type:                 generated.HealthCheckType_HEALTH_CHECK_TYPE_STARTUP,
+				Status:               generated.HealthStatus_HEALTH_STATUS_HEALTHY,
+				Message:              fmt.Sprintf("capacity cpu_cores=%.3f mem_bytes=%d", s.capacityCPU, s.capacityMem),
+				Timestamp:            time.Now().Format(time.RFC3339),
+				ConsecutiveSuccesses: 1,
+				ConsecutiveFailures:  0,
+			})
+		}
+		component.CheckResults = checks
 	}
 
 	return &generated.GetHealthResponse{
@@ -269,14 +493,15 @@ func (s *HealthService) computeServiceHealthFromInstances(ctx context.Context, s
 	// Count instances by status
 	var totalInstances, runningInstances, failedInstances int
 	for _, instance := range instances {
-		if instance.ServiceID != serviceName {
+		if instance.ServiceName != serviceName {
 			continue
 		}
 
 		totalInstances++
-		if instance.Status == types.InstanceStatusRunning {
+		switch instance.Status {
+		case types.InstanceStatusRunning:
 			runningInstances++
-		} else if instance.Status == types.InstanceStatusFailed {
+		case types.InstanceStatusFailed:
 			failedInstances++
 		}
 	}

@@ -242,17 +242,25 @@ func (sc *serviceController) handleServiceUpdated(ctx context.Context, service *
 		return nil
 	}
 
-	// Mark as in progress
-	sc.inProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
-	defer sc.clearInProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
-
-	// Trigger immediate reconciliation to handle the update
-	if err := sc.reconciler.reconcileSingleService(ctx, service); err != nil {
-		sc.logger.Error("Failed to reconcile service after update",
+	// If there's an active scaling operation for this service, skip direct reconciliation here
+	// and let the ScalingController drive updates to service.Scale.
+	if op, _ := sc.scalingController.GetActiveOperation(ctx, service.Namespace, service.Name); op != nil {
+		sc.logger.Debug("Skipping direct reconciliation due to active scaling operation",
 			log.Str("name", service.Name),
-			log.Str("namespace", service.Namespace),
-			log.Err(err))
-		return err
+			log.Str("namespace", service.Namespace))
+	} else {
+		// Mark as in progress
+		sc.inProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+		defer sc.clearInProgressUpdate(types.ResourceTypeService, service.Namespace, service.Name)
+
+		// Trigger immediate reconciliation to handle the update
+		if err := sc.reconciler.reconcileSingleService(ctx, service); err != nil {
+			sc.logger.Error("Failed to reconcile service after update",
+				log.Str("name", service.Name),
+				log.Str("namespace", service.Namespace),
+				log.Err(err))
+			return err
+		}
 	}
 
 	// Record the observed generation

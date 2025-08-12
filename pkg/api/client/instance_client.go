@@ -402,6 +402,23 @@ func (i *InstanceClient) protoToInstance(proto *generated.Instance) (*types.Inst
 		},
 	}
 
+	if proto.Resources != nil {
+		instance.Resources = &types.Resources{}
+		if proto.Resources.Cpu != nil {
+			instance.Resources.CPU = types.ResourceLimit{
+				Request: proto.Resources.Cpu.Request,
+				Limit:   proto.Resources.Cpu.Limit,
+			}
+		}
+
+		if proto.Resources.Memory != nil {
+			instance.Resources.Memory = types.ResourceLimit{
+				Request: proto.Resources.Memory.Request,
+				Limit:   proto.Resources.Memory.Limit,
+			}
+		}
+	}
+
 	// Parse timestamps
 	createdAt, err := parseTimestamp(proto.CreatedAt)
 	if err != nil {

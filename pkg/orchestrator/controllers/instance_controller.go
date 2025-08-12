@@ -159,6 +159,10 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 		Metadata:    &types.InstanceMetadata{},
 	}
 
+	// Propagate resolved resource constraints from service to instance
+	// Use a pointer so runners can access limits/requests directly
+	instance.Resources = &service.Resources
+
 	// Store the service generation in instance metadata
 	instance.Metadata.ServiceGeneration = service.Metadata.Generation
 	c.logger.Debug("Storing service generation in instance",

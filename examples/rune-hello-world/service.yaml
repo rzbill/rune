@@ -46,6 +46,14 @@ service:
   secretMounts:
     - name: keypairs-secret
       mountPath: /etc/secrets/keypairs-secret
+
+  resources:
+    cpu:
+      request: "100m"
+      limit: "200m"
+    memory:
+      request: "128Mi"
+      limit: "256Mi"
     
   #health:
   #  liveness:

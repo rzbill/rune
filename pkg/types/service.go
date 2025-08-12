@@ -108,6 +108,9 @@ type ServiceMetadata struct {
 
 	// Generation of the service
 	Generation int64 `json:"generation,omitempty" yaml:"generation,omitempty"`
+
+	// LastNonZeroScale tracks the most recent non-zero scale to support restart semantics
+	LastNonZeroScale int `json:"lastNonZeroScale,omitempty" yaml:"lastNonZeroScale,omitempty"`
 }
 
 // ServicePort represents a port exposed by a service.
@@ -429,14 +432,9 @@ func (s *Service) CalculateHash() string {
 	}
 	fmt.Fprintf(h, "]\n")
 
-	// Resources
-	if s.Resources.CPU.Request != "" || s.Resources.CPU.Limit != "" {
-		fmt.Fprintf(h, "cpu:%s:%s\n", s.Resources.CPU.Request, s.Resources.CPU.Limit)
-	}
-
-	if s.Resources.Memory.Request != "" || s.Resources.Memory.Limit != "" {
-		fmt.Fprintf(h, "memory:%s:%s\n", s.Resources.Memory.Request, s.Resources.Memory.Limit)
-	}
+	// Resources (always include deterministically)
+	fmt.Fprintf(h, "cpu:%s:%s\n", s.Resources.CPU.Request, s.Resources.CPU.Limit)
+	fmt.Fprintf(h, "memory:%s:%s\n", s.Resources.Memory.Request, s.Resources.Memory.Limit)
 
 	// Health checks
 	if s.Health != nil {

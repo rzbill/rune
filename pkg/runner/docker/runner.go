@@ -733,8 +733,44 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 		Env: formatEnvVars(instance.Environment),
 	}
 
-	// Configure host config with mounts
+	// Configure host config with mounts and resources
 	hostConfig := &container.HostConfig{}
+
+	// Map resource requests/limits to Docker host config if provided
+	if instance != nil && instance.Resources != nil {
+		cpuReqCores, _ := runetypes.ParseCPU(instance.Resources.CPU.Request)
+		cpuLimCores, _ := runetypes.ParseCPU(instance.Resources.CPU.Limit)
+		memReqBytes, _ := runetypes.ParseMemory(instance.Resources.Memory.Request)
+		memLimBytes, _ := runetypes.ParseMemory(instance.Resources.Memory.Limit)
+
+		// Apply CPU request as shares (soft)
+		if cpuReqCores > 0 {
+			shares := int64(cpuReqCores * 1024)
+			if shares < 2 {
+				shares = 2
+			}
+			hostConfig.Resources.CPUShares = shares
+		}
+
+		// Apply CPU limit (hard) via NanoCPUs when possible, else quota/period
+		if cpuLimCores > 0 {
+			// Prefer NanoCPUs (1e9 per core)
+			hostConfig.Resources.NanoCPUs = int64(cpuLimCores * 1e9)
+			if hostConfig.Resources.NanoCPUs == 0 {
+				// Fallback to quota/period
+				hostConfig.Resources.CPUPeriod = 100000
+				hostConfig.Resources.CPUQuota = int64(cpuLimCores * float64(hostConfig.Resources.CPUPeriod))
+			}
+		}
+
+		// Apply memory reservation (soft) and limit (hard)
+		if memReqBytes > 0 {
+			hostConfig.Resources.MemoryReservation = memReqBytes
+		}
+		if memLimBytes > 0 {
+			hostConfig.Resources.Memory = memLimBytes
+		}
+	}
 
 	// Handle secret and config mounts
 	if instance.Metadata != nil {

@@ -123,6 +123,14 @@ func runCast(cmd *cobra.Command, args []string) error {
 		printWatchModeSummary(deploymentResults, startTime)
 	}
 
+	// Capacity and allocation summary (single-node, best-effort)
+	if verbose {
+		if err := printCapacityAndAllocationSummary(apiClient, namespace); err != nil {
+			// Non-fatal; log and continue
+			fmt.Println("Note: capacity/allocation summary unavailable:", err.Error())
+		}
+	}
+
 	return nil
 }
 
@@ -552,6 +560,80 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
 	fmt.Printf("\n🎉 All resources ready in %.1fs\n", elapsedTime)
 }
 
+// printCapacityAndAllocationSummary prints single-node capacity and allocated requests summary
+func printCapacityAndAllocationSummary(apiClient *client.Client, namespace string) error {
+	fmt.Println()
+	fmt.Println("📊 Node capacity and allocation (MVP, best-effort)")
+	// Fetch capacity from server health (cached at startup)
+	hc := client.NewHealthClient(apiClient)
+	cpuCapacity, memCapacity, err := hc.GetAPIServerCapacity()
+	if err != nil {
+		return err
+	}
+
+	// Sum allocated (Requests) across active instances in the namespace
+	instClient := client.NewInstanceClient(apiClient)
+	instances, err := instClient.ListInstances(namespace, "", "", "")
+	if err != nil {
+		return fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	var cpuAllocated float64
+	var memAllocated int64
+	for _, inst := range instances {
+		if !isInstanceCounted(inst) {
+			continue
+		}
+		if inst.Resources != nil {
+			if inst.Resources.CPU.Request != "" {
+				if v, err := types.ParseCPU(inst.Resources.CPU.Request); err == nil {
+					cpuAllocated += v
+				}
+			}
+			if inst.Resources.Memory.Request != "" {
+				if v, err := types.ParseMemory(inst.Resources.Memory.Request); err == nil {
+					memAllocated += v
+				}
+			}
+		}
+	}
+
+	cpuRemaining := cpuCapacity - cpuAllocated
+	if cpuRemaining < 0 {
+		cpuRemaining = 0
+	}
+	memRemaining := memCapacity - memAllocated
+	if memRemaining < 0 {
+		memRemaining = 0
+	}
+
+	// Print summary
+	fmt.Printf("Capacity: CPU %.1f cores, Allocated %.1f, Remaining %.1f | Mem %s, Allocated %s, Remaining %s\n",
+		cpuCapacity, cpuAllocated, cpuRemaining,
+		types.FormatMemory(memCapacity), types.FormatMemory(memAllocated), types.FormatMemory(memRemaining))
+
+	// Warn on over-allocation
+	if cpuAllocated > cpuCapacity {
+		fmt.Printf("Warning: requested CPU %.1f cores exceeds capacity %.1f cores (deployment allowed in MVP)\n", cpuAllocated, cpuCapacity)
+	}
+	if memAllocated > memCapacity {
+		fmt.Printf("Warning: requested memory %s exceeds capacity %s (deployment allowed in MVP)\n",
+			types.FormatMemory(memAllocated), types.FormatMemory(memCapacity))
+	}
+
+	return nil
+}
+
+// isInstanceCounted returns true if the instance should count toward allocated resources
+func isInstanceCounted(inst *types.Instance) bool {
+	switch inst.Status {
+	case types.InstanceStatusRunning, types.InstanceStatusPending, types.InstanceStatusStarting, types.InstanceStatusCreated:
+		return true
+	default:
+		return false
+	}
+}
+
 // contains checks if a string slice contains a specific value
 func stringSliceContains(slice []string, value string) bool {
 	for _, item := range slice {
@@ -606,7 +688,6 @@ func waitForServiceReady(serviceClient *client.ServiceClient, namespace, name st
 			// Poll the service status
 			service, err := serviceClient.GetService(namespace, name)
 
-			fmt.Println("service", service.Status)
 			if err != nil {
 				log.Debug("Error getting service status", log.Err(err))
 				continue

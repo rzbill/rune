@@ -289,7 +289,7 @@ func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Ser
 	serviceRunningInstances := make(map[string]bool)
 
 	for _, instance := range storeInstances {
-		if instance.ServiceID == service.ID && instance.Status != types.InstanceStatusDeleted {
+		if instance.ServiceName == service.Name && instance.Status != types.InstanceStatusDeleted {
 			serviceInstances = append(serviceInstances, instance)
 			serviceRunningInstances[instance.ID] = true
 		}
@@ -300,7 +300,7 @@ func (r *reconciler) getServiceInstances(ctx context.Context, service *types.Ser
 		if !serviceRunningInstances[instanceID] {
 			// This instance is running but not in our service's store instances
 			// Check if it belongs to this service
-			if runningInst.Instance != nil && runningInst.Instance.ServiceID == service.ID {
+			if runningInst.Instance != nil && runningInst.Instance.ServiceName == service.Name {
 				orphanedInstances = append(orphanedInstances, runningInst.Instance)
 			}
 		}
@@ -329,9 +329,15 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 		log.Int("current", len(instanceData.Instances)),
 		log.Int("desired", service.Scale))
 
-	// Sort instances by creation time (newest first)
+	// Sort instances by creation time (newest first). If zero timestamps in tests, sort by name for stability
 	sort.Slice(instanceData.Instances, func(i, j int) bool {
-		return instanceData.Instances[i].CreatedAt.After(instanceData.Instances[j].CreatedAt)
+		a := instanceData.Instances[i]
+		b := instanceData.Instances[j]
+		if !a.CreatedAt.IsZero() || !b.CreatedAt.IsZero() {
+			return a.CreatedAt.After(b.CreatedAt)
+		}
+		// Fallback for tests where CreatedAt may be zero: sort by name ascending
+		return a.Name < b.Name
 	})
 
 	// For now we'll use a simple approach removing from the end

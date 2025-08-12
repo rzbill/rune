@@ -86,6 +86,9 @@ message ServiceMetadata {
   
   // Last update timestamp (in RFC 3339 format)
   string updated_at = 3;
+
+  // Last non-zero scale recorded (for restart semantics)
+  int32 last_non_zero_scale = 4;
 }
 
 // SecretMount defines a secret to be mounted in a container.

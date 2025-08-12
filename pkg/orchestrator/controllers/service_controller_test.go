@@ -11,42 +11,16 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// MockScalingController implements a minimal ScalingController for testing
-type MockScalingController struct {
-	mock.Mock
-}
-
-func (m *MockScalingController) Start(ctx context.Context) error {
-	args := m.Called(ctx)
-	return args.Error(0)
-}
-
-func (m *MockScalingController) Stop() {
-	m.Called()
-	// Stop doesn't return an error in the interface
-}
-
-func (m *MockScalingController) CreateScalingOperation(ctx context.Context, service *types.Service, params types.ScalingOperationParams) error {
-	args := m.Called(ctx, service, params)
-	return args.Error(0)
-}
-
-func (m *MockScalingController) GetActiveOperation(ctx context.Context, namespace, serviceName string) (*types.ScalingOperation, error) {
-	args := m.Called(ctx, namespace, serviceName)
-	return args.Get(0).(*types.ScalingOperation), args.Error(1)
-}
-
 // setupTestServiceController creates a service controller with test dependencies
-func setupTestServiceController(t *testing.T) (context.Context, *store.TestStore, *FakeInstanceController, *MockHealthController, *MockScalingController, ServiceController) {
+func setupTestServiceController(t *testing.T) (context.Context, *store.TestStore, *FakeInstanceController, *FakeHealthController, *FakeScalingController, ServiceController) {
 	ctx := context.Background()
 	testStore := store.NewTestStore()
 	testInstanceController := NewFakeInstanceController()
-	mockHealthController := new(MockHealthController)
-	mockScalingController := new(MockScalingController)
+	mockHealthController := NewFakeHealthController()
+	mockScalingController := NewFakeScalingController()
 	testLogger := log.NewLogger()
 
 	controller, err := NewServiceController(

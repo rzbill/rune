@@ -64,10 +64,15 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 
 	//Set Metadata with initial generation, creation and update times
 	now := time.Now()
+	last := service.Scale
+	if last < 1 {
+		last = 1
+	}
 	service.Metadata = &types.ServiceMetadata{
-		Generation: 1,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		Generation:       1,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		LastNonZeroScale: last,
 	}
 
 	// Set initial status
@@ -624,6 +629,16 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	currentScale := service.Scale
 	targetScale := int(req.Scale)
 
+	// Update last non-zero scale if scaling to >0
+	if targetScale > 0 {
+		if service.Metadata == nil {
+			service.Metadata = &types.ServiceMetadata{}
+		}
+		if targetScale > service.Metadata.LastNonZeroScale {
+			service.Metadata.LastNonZeroScale = targetScale
+		}
+	}
+
 	// Check if we're already at the target scale
 	if currentScale == targetScale {
 		// Convert service to proto and return it
@@ -660,20 +675,13 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 		}
 	}
 
-	// Initiate scaling operation
+	// Initiate scaling operation; ScalingController will drive service.Scale updates
 	err = s.orchestrator.CreateScalingOperation(ctx, service, params)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to initiate scaling: %v", err)
 	}
 
-	// Update the service scale and use orchestrator to save it
-	service.Scale = targetScale
-	if err := s.orchestrator.UpdateService(ctx, service); err != nil {
-		s.logger.Error("Failed to update service scale", log.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to update service scale: %v", err)
-	}
-
-	// Convert updated service to proto and return it
+	// Convert current service to proto and return it
 	protoService, err := s.serviceModelToProto(service)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
@@ -683,7 +691,7 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 		Service: protoService,
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
-			Message: fmt.Sprintf("Service scaling to %d instances initiated", req.Scale),
+			Message: fmt.Sprintf("Scaling operation initiated to %d", targetScale),
 		},
 	}, nil
 }
@@ -701,10 +709,21 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		Image:     service.Image,
 		Command:   service.Command,
 		Scale:     int32(service.Scale),
+		Resources: &generated.Resources{
+			Cpu: &generated.ResourceLimit{
+				Request: service.Resources.CPU.Request,
+				Limit:   service.Resources.CPU.Limit,
+			},
+			Memory: &generated.ResourceLimit{
+				Request: service.Resources.Memory.Request,
+				Limit:   service.Resources.Memory.Limit,
+			},
+		},
 		Metadata: &generated.ServiceMetadata{
-			Generation: int32(service.Metadata.Generation),
-			CreatedAt:  service.Metadata.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:  service.Metadata.UpdatedAt.Format(time.RFC3339),
+			Generation:       int32(service.Metadata.Generation),
+			CreatedAt:        service.Metadata.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        service.Metadata.UpdatedAt.Format(time.RFC3339),
+			LastNonZeroScale: int32(service.Metadata.LastNonZeroScale),
 		},
 		Runtime: string(service.Runtime),
 	}
@@ -969,6 +988,14 @@ func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.S
 		service.Status = types.ServiceStatusFailed
 	default:
 		service.Status = types.ServiceStatusPending
+	}
+
+	// Convert metadata extras
+	if proto.Metadata != nil {
+		if service.Metadata == nil {
+			service.Metadata = &types.ServiceMetadata{}
+		}
+		service.Metadata.LastNonZeroScale = int(proto.Metadata.LastNonZeroScale)
 	}
 
 	// Convert health check

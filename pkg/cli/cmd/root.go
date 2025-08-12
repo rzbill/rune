@@ -79,3 +79,9 @@ func initConfig() {
 		}
 	}
 }
+
+// getEnv is a small wrapper so other commands can mock env lookup in tests
+func getEnv(key string) (string, bool) {
+	v, ok := os.LookupEnv(key)
+	return v, ok
+}

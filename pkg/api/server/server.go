@@ -14,7 +14,7 @@ import (
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	grpc_validator "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	apigw_runtime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/api/service"
 	"github.com/rzbill/rune/pkg/log"
@@ -214,7 +214,7 @@ func (s *APIServer) startGRPCServer() error {
 // startRESTGateway starts the REST gateway.
 func (s *APIServer) startRESTGateway() error {
 	// Create HTTP mux
-	mux := runtime.NewServeMux()
+	mux := apigw_runtime.NewServeMux()
 
 	// Set up dial options
 	var dialOpts []grpc.DialOption

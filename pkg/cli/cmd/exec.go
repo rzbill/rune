@@ -242,11 +242,6 @@ func shouldAllocateTTY(command []string) bool {
 		return false
 	}
 
-	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return false
-	}
-
 	// Common interactive shells
 	interactiveShells := []string{"bash", "sh", "zsh", "fish", "tcsh", "dash"}
 	for _, shell := range interactiveShells {
@@ -261,11 +256,6 @@ func shouldAllocateTTY(command []string) bool {
 		if command[0] == cmd {
 			return true
 		}
-	}
-
-	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return false
 	}
 
 	// For other commands, default to non-TTY for better script compatibility

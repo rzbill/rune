@@ -44,6 +44,8 @@ type managedProcess struct {
 	mu           sync.RWMutex
 	stopCh       chan struct{}
 	cleanupFiles []string
+	// resource cgroup controller (Linux-only)
+	rc *resourceController
 }
 
 // ProcessOption is a function that configures a ProcessRunner
@@ -260,6 +262,15 @@ func (r *ProcessRunner) Start(ctx context.Context, instance *types.Instance) err
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
+	// Apply resource limits (Linux cgroups v2) if specified
+	if instance.Resources != nil {
+		if rc, err := newResourceController(proc.cmd.Process.Pid, instance.Resources); err != nil {
+			r.logger.Warn("Resource limits not applied", log.Err(err))
+		} else {
+			proc.rc = rc
+		}
+	}
+
 	// Update status
 	now := time.Now()
 	proc.status.State = types.InstanceStatusRunning
@@ -421,6 +432,12 @@ func (r *ProcessRunner) Remove(ctx context.Context, instance *types.Instance, fo
 	// Close log file
 	if proc.logFile != nil {
 		_ = proc.logFile.Close()
+	}
+
+	// Cleanup resource controller cgroup
+	if proc.rc != nil {
+		_ = proc.rc.cleanup()
+		proc.rc = nil
 	}
 
 	// Remove files created under workDir

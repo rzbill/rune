@@ -1,0 +1,8 @@
+{
+  "image": "nginx:latest",
+  "kind": "Service",
+  "name": "nginx-test",
+  "namespace": "default",
+  "runtime": "container",
+  "scale": "1"
+}

@@ -190,6 +190,11 @@ func (o *orchestrator) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start health controller: %w", err)
 	}
 
+	// Start scaling controller
+	if err := o.scalingController.Start(o.ctx); err != nil {
+		return fmt.Errorf("failed to start scaling controller: %w", err)
+	}
+
 	o.started = true
 	o.logger.Info("Orchestrator started successfully")
 	return nil
@@ -220,6 +225,9 @@ func (o *orchestrator) Stop() error {
 	if err := o.healthController.Stop(); err != nil {
 		o.logger.Error("Failed to stop health controller", log.Err(err))
 	}
+
+	// Stop scaling controller
+	o.scalingController.Stop()
 
 	// Wait for all goroutines to finish
 	o.wg.Wait()

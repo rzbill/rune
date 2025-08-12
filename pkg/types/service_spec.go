@@ -196,6 +196,64 @@ func (s *ServiceSpec) Validate() error {
 		}
 	}
 
+	// Validate resource constraints if present
+	if s.Resources != nil {
+		// CPU
+		if s.Resources.CPU.Request != "" {
+			v, err := ParseCPU(s.Resources.CPU.Request)
+			if err != nil {
+				return NewValidationError("invalid cpu.request: " + err.Error())
+			}
+			if v < 0 {
+				return NewValidationError("cpu.request cannot be negative")
+			}
+		}
+		if s.Resources.CPU.Limit != "" {
+			v, err := ParseCPU(s.Resources.CPU.Limit)
+			if err != nil {
+				return NewValidationError("invalid cpu.limit: " + err.Error())
+			}
+			if v < 0 {
+				return NewValidationError("cpu.limit cannot be negative")
+			}
+		}
+		// request <= limit when both set
+		if s.Resources.CPU.Request != "" && s.Resources.CPU.Limit != "" {
+			req, _ := ParseCPU(s.Resources.CPU.Request)
+			lim, _ := ParseCPU(s.Resources.CPU.Limit)
+			if req > lim {
+				return NewValidationError("cpu.request cannot exceed cpu.limit")
+			}
+		}
+
+		// Memory
+		if s.Resources.Memory.Request != "" {
+			v, err := ParseMemory(s.Resources.Memory.Request)
+			if err != nil {
+				return NewValidationError("invalid memory.request: " + err.Error())
+			}
+			if v < 0 {
+				return NewValidationError("memory.request cannot be negative")
+			}
+		}
+		if s.Resources.Memory.Limit != "" {
+			v, err := ParseMemory(s.Resources.Memory.Limit)
+			if err != nil {
+				return NewValidationError("invalid memory.limit: " + err.Error())
+			}
+			if v < 0 {
+				return NewValidationError("memory.limit cannot be negative")
+			}
+		}
+		if s.Resources.Memory.Request != "" && s.Resources.Memory.Limit != "" {
+			req, _ := ParseMemory(s.Resources.Memory.Request)
+			lim, _ := ParseMemory(s.Resources.Memory.Limit)
+			if req > lim {
+				return NewValidationError("memory.request cannot exceed memory.limit")
+			}
+		}
+	}
+
 	// Validate expose if present
 	if s.Expose != nil {
 		if s.Expose.Port == "" {

@@ -500,10 +500,19 @@ func (c *scalingController) recoverInProgressOperations(ctx context.Context) err
 		// First update the service's state to match current status
 		var service types.Service
 		if err := c.store.Get(ctx, types.ResourceTypeService, op.Namespace, op.ServiceName, &service); err != nil {
+			// If the service no longer exists, mark the scaling op as failed so we stop recovering it
 			c.logger.Error("Failed to get service for recovery",
 				log.Str("service", op.ServiceName),
 				log.Str("namespace", op.Namespace),
 				log.Err(err))
+
+			opCopy := op // avoid loop variable capture
+			failReason := fmt.Sprintf("service %s/%s not found during recovery: %v", op.Namespace, op.ServiceName, err)
+			if err := c.failOperation(ctx, &opCopy, failReason); err != nil {
+				c.logger.Error("Failed to mark scaling operation as failed after missing service",
+					log.Str("operation_id", op.ID),
+					log.Err(err))
+			}
 			continue
 		}
 
@@ -584,6 +593,12 @@ func (c *scalingController) recoverInProgressOperations(ctx context.Context) err
 					log.Str("service", op.ServiceName),
 					log.Str("operation_id", op.ID),
 					log.Err(err))
+				// Mark as failed so we don't repeatedly try to recover a broken op
+				if err := c.failOperation(ctx, &opCopy, fmt.Sprintf("Failed to recover: %v", err)); err != nil {
+					c.logger.Error("Failed to mark operation as failed",
+						log.Str("operation_id", op.ID),
+						log.Err(err))
+				}
 			}
 		}
 
