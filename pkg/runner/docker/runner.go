@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
 	"github.com/rzbill/rune/pkg/runner/docker/registryauth"
@@ -790,6 +792,55 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 				return nil, nil, fmt.Errorf("failed to prepare config mounts: %w", err)
 			}
 			hostConfig.Mounts = append(hostConfig.Mounts, configMounts...)
+		}
+	}
+
+	// Handle simple external exposure via port bindings (MVP)
+	if instance.Metadata != nil && instance.Metadata.Expose != nil && len(instance.Metadata.Ports) > 0 {
+		// Resolve the referenced port by name or number
+		var svcPort *runetypes.ServicePort
+		ref := instance.Metadata.Expose.Port
+		for i := range instance.Metadata.Ports {
+			p := &instance.Metadata.Ports[i]
+			if p.Name == ref {
+				svcPort = p
+				break
+			}
+			if ref != "" {
+				if n, err := strconv.Atoi(ref); err == nil && n == p.Port {
+					svcPort = p
+					break
+				}
+			}
+		}
+		if svcPort != nil {
+			// Default protocol
+			proto := strings.ToLower(strings.TrimSpace(svcPort.Protocol))
+			if proto == "" {
+				proto = "tcp"
+			}
+			if proto == "tcp" {
+				containerPort := nat.Port(fmt.Sprintf("%d/%s", svcPort.Port, proto))
+				if containerConfig.ExposedPorts == nil {
+					containerConfig.ExposedPorts = nat.PortSet{}
+				}
+				containerConfig.ExposedPorts[containerPort] = struct{}{}
+
+				// Determine host port
+				hostPort := instance.Metadata.Expose.HostPort
+				if hostPort == 0 {
+					hostPort = svcPort.Port
+				}
+				if hostConfig.PortBindings == nil {
+					hostConfig.PortBindings = nat.PortMap{}
+				}
+				hostBinding := nat.PortBinding{HostIP: "127.0.0.1", HostPort: fmt.Sprintf("%d", hostPort)}
+				hostConfig.PortBindings[containerPort] = []nat.PortBinding{hostBinding}
+
+				// Store resolved endpoint back on instance metadata (best-effort)
+				instance.Metadata.ExposedHost = "localhost"
+				instance.Metadata.ExposedHostPort = hostPort
+			}
 		}
 	}
 

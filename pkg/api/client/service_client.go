@@ -427,6 +427,16 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		}
 	}
 
+	// Convert expose (MVP)
+	if service.Expose != nil {
+		protoService.Expose = &generated.ServiceExpose{
+			Port:     service.Expose.Port,
+			Host:     service.Expose.Host,
+			HostPort: uint32(service.Expose.HostPort),
+			Path:     service.Expose.Path,
+		}
+	}
+
 	// Convert resources
 	if service.Resources != (types.Resources{}) {
 		protoService.Resources = &generated.Resources{
@@ -607,6 +617,16 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 				TargetPort: int(port.TargetPort),
 				Protocol:   port.Protocol,
 			}
+		}
+	}
+
+	// Convert expose (MVP)
+	if proto.Expose != nil {
+		service.Expose = &types.ServiceExpose{
+			Port:     proto.Expose.Port,
+			Host:     proto.Expose.Host,
+			HostPort: int(proto.Expose.HostPort),
+			Path:     proto.Expose.Path,
 		}
 	}
 

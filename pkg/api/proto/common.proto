@@ -129,6 +129,21 @@ message ServicePort {
   string protocol = 4;
 }
 
+// ServiceExpose defines simple external exposure configuration for a service (MVP)
+message ServiceExpose {
+  // Port or port name to expose (must match a declared service port)
+  string port = 1;
+
+  // Host for the exposed service (MVP: defaults to localhost)
+  string host = 2;
+
+  // Fixed host port to bind (0 means auto/default to same as container port)
+  uint32 host_port = 3;
+
+  // Optional path prefix (reserved for future use)
+  string path = 4;
+}
+
 // ProbeType defines the type of health check
 enum ProbeType {
   PROBE_TYPE_UNSPECIFIED = 0;

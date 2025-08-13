@@ -165,6 +165,14 @@ func (c *instanceController) CreateInstance(ctx context.Context, service *types.
 
 	// Store the service generation in instance metadata
 	instance.Metadata.ServiceGeneration = service.Metadata.Generation
+
+	// Propagate ports and expose spec for runner use and later status
+	if len(service.Ports) > 0 {
+		instance.Metadata.Ports = append(instance.Metadata.Ports, service.Ports...)
+	}
+	if service.Expose != nil {
+		instance.Metadata.Expose = service.Expose
+	}
 	c.logger.Debug("Storing service generation in instance",
 		log.Str("instance", instanceName),
 		log.Int64("generation", service.Metadata.Generation))

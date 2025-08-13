@@ -13,6 +13,10 @@ service:
       port: 8080
       targetPort: 8080
       protocol: tcp
+  expose:
+    port: http
+    host: localhost
+    hostPort: 8080
   env:
     # Basic configuration
     PORT: "8080"
@@ -55,8 +59,7 @@ service:
       request: "128Mi"
       limit: "256Mi"
   dependencies:
-    - service: log-generator
-      namespace: default
+    - log-generator
     
   #health:
   #  liveness:

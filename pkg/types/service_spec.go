@@ -272,6 +272,38 @@ func (s *ServiceSpec) Validate() error {
 		if s.Expose.Port == "" {
 			return NewValidationError("expose port is required")
 		}
+
+		// Resolve expose.port by name or number and ensure the port exists and is TCP
+		var resolved *ServicePort
+		for i := range s.Ports {
+			p := &s.Ports[i]
+			if p.Name == s.Expose.Port {
+				resolved = p
+				break
+			}
+			// Try numeric match if expose.port is a number string
+			if n, err := strconv.Atoi(s.Expose.Port); err == nil && n == p.Port {
+				resolved = p
+				break
+			}
+		}
+		if resolved == nil {
+			return NewValidationError("expose.port must reference a declared service port by name or number")
+		}
+		// Default protocol to tcp if empty
+		proto := strings.ToLower(strings.TrimSpace(resolved.Protocol))
+		if proto == "" {
+			proto = "tcp"
+		}
+		if proto != "tcp" {
+			return NewValidationError("expose only supports tcp protocol in MVP")
+		}
+		// Validate hostPort range if provided
+		if s.Expose.HostPort != 0 {
+			if s.Expose.HostPort < 1 || s.Expose.HostPort > 65535 {
+				return NewValidationError("expose.hostPort must be between 1 and 65535")
+			}
+		}
 	}
 
 	return nil

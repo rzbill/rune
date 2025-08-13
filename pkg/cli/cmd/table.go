@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,9 +64,9 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
 		if t.AllNamespaces {
-			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "GENERATION", "AGE"}
+			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "EXTERNAL", "GENERATION", "AGE"}
 		} else {
-			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "GENERATION", "AGE"}
+			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "EXTERNAL", "GENERATION", "AGE"}
 		}
 	}
 
@@ -104,6 +105,34 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 			imageOrCommand = imageOrCommand[:57] + "..."
 		}
 
+		// External endpoint (best-effort)
+		external := "-"
+		if service.Expose != nil {
+			var portNum int
+			for i := range service.Ports {
+				p := service.Ports[i]
+				if p.Name == service.Expose.Port {
+					portNum = p.Port
+					break
+				}
+				if n, err := strconv.Atoi(service.Expose.Port); err == nil && n == p.Port {
+					portNum = p.Port
+					break
+				}
+			}
+			if portNum > 0 {
+				host := service.Expose.Host
+				if host == "" {
+					host = "localhost"
+				}
+				hostPort := portNum
+				if service.Expose.HostPort > 0 {
+					hostPort = service.Expose.HostPort
+				}
+				external = fmt.Sprintf("http://%s:%d", host, hostPort)
+			}
+		}
+
 		// Calculate age
 		age := formatAgeTable(service.Metadata.CreatedAt)
 
@@ -123,6 +152,7 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				status,
 				instances,
 				imageOrCommand,
+				external,
 				generation,
 				age,
 			}
@@ -133,6 +163,7 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				status,
 				instances,
 				imageOrCommand,
+				external,
 				generation,
 				age,
 			}

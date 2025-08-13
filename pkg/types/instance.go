@@ -90,6 +90,16 @@ type InstanceMetadata struct {
 
 	// ConfigmapMounts contains the resolved config mount information for this instance
 	ConfigmapMounts []ResolvedConfigmapMount `json:"configMounts,omitempty" yaml:"configMounts,omitempty"`
+
+	// Ports declared by the service (propagated for runner use)
+	Ports []ServicePort `json:"ports,omitempty" yaml:"ports,omitempty"`
+
+	// Expose specification from the service (propagated for runner use)
+	Expose *ServiceExpose `json:"expose,omitempty" yaml:"expose,omitempty"`
+
+	// Resolved exposed endpoint on host (best-effort)
+	ExposedHost     string `json:"exposedHost,omitempty" yaml:"exposedHost,omitempty"`
+	ExposedHostPort int    `json:"exposedHostPort,omitempty" yaml:"exposedHostPort,omitempty"`
 }
 
 // ResolvedSecretMount contains the resolved secret data for mounting

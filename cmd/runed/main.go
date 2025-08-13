@@ -67,8 +67,8 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// loadConfig loads configuration from file and environment variables
-func loadConfig() {
+// initRuntimeConfig initializes runtime settings (viper defaults + config file + env + flags)
+func initRuntimeConfig() {
 	// Initialize viper
 	v := viper.New()
 
@@ -211,8 +211,8 @@ func main() {
 		return
 	}
 
-	// Load configuration
-	loadConfig()
+	// Initialize runtime configuration
+	initRuntimeConfig()
 
 	// If --pretty flag is set, override log format
 	if *prettyLogs {
@@ -269,22 +269,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load full config
-	cfg, _ := config.Load(*configFile)
+	// Load typed application config
+	appCfg, _ := config.Load(*configFile)
 	// If KEK file path not set, default it under the selected data dir so we
 	// can auto-generate on first run without needing root permissions.
-	if cfg.Secret.Encryption.KEK.Source == "file" && cfg.Secret.Encryption.KEK.File == "" {
-		cfg.Secret.Encryption.KEK.File = filepath.Join(*dataDir, "kek.b64")
+	if appCfg.Secret.Encryption.KEK.Source == "file" && appCfg.Secret.Encryption.KEK.File == "" {
+		appCfg.Secret.Encryption.KEK.File = filepath.Join(*dataDir, "kek.b64")
 	}
 
 	// Initialize state store with options (KEK from config)
 	logger.Info("Initializing state store", log.Str("path", storeDir))
 	stateStore := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{
 		Path:                    storeDir,
-		SecretEncryptionEnabled: cfg.Secret.Encryption.Enabled,
-		KEKOptions:              cfg.KEKOptions(),
-		SecretLimits:            cfg.Secret.Limits,
-		ConfigLimits:            cfg.ConfigResource.Limits,
+		SecretEncryptionEnabled: appCfg.Secret.Encryption.Enabled,
+		KEKOptions:              appCfg.KEKOptions(),
+		SecretLimits:            appCfg.Secret.Limits,
+		ConfigLimits:            appCfg.ConfigResource.Limits,
 	})
 	if err := stateStore.Open(storeDir); err != nil {
 		logger.Error("Failed to open state store", log.Err(err))
@@ -293,7 +293,7 @@ func main() {
 	defer stateStore.Close()
 
 	// Bootstrap and resolve registry secrets into viper before runner init
-	if err := bootstrapAndResolveRegistryAuth(cfg, stateStore, logger); err != nil {
+	if err := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); err != nil {
 		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(err))
 		os.Exit(1)
 	}
