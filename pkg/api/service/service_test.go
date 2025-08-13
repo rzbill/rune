@@ -120,3 +120,85 @@ func TestScaleService(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateService_DependencyCycleValidation(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewTestLogger()
+	fake := orchestrator.NewFakeOrchestrator()
+	svc := NewServiceService(fake, logger)
+
+	// Seed two services forming a chain a->b
+	a := &types.Service{Name: "a", Namespace: "default"}
+	b := &types.Service{Name: "b", Namespace: "default"}
+	a.Dependencies = []types.DependencyRef{{Service: "b", Namespace: "default"}}
+	require.NoError(t, fake.CreateService(ctx, a))
+	require.NoError(t, fake.CreateService(ctx, b))
+
+	// Attempt to create c that depends on a (ok)
+	cProto := &generated.Service{Name: "c", Namespace: "default", Dependencies: []*generated.DependencyRef{{Service: "a", Namespace: "default"}}}
+	_, err := svc.CreateService(ctx, &generated.CreateServiceRequest{Service: cProto})
+	require.NoError(t, err)
+
+	// Now attempt to update b to depend on c, which would create a cycle a->b->c->a
+	bProto := &generated.Service{Name: "b", Namespace: "default", Dependencies: []*generated.DependencyRef{{Service: "c", Namespace: "default"}}}
+	_, err = svc.UpdateService(ctx, &generated.UpdateServiceRequest{Service: bProto})
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestCreateService_DependencyCycleValidation_CreatePath(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewTestLogger()
+	fake := orchestrator.NewFakeOrchestrator()
+	svc := NewServiceService(fake, logger)
+
+	// Seed a->b
+	a := &types.Service{Name: "a", Namespace: "default"}
+	b := &types.Service{Name: "b", Namespace: "default"}
+	a.Dependencies = []types.DependencyRef{{Service: "b", Namespace: "default"}}
+	require.NoError(t, fake.CreateService(ctx, a))
+	require.NoError(t, fake.CreateService(ctx, b))
+
+	// Try to create c that depends on a (ok)
+	cProto := &generated.Service{Name: "c", Namespace: "default", Dependencies: []*generated.DependencyRef{{Service: "a", Namespace: "default"}}}
+	_, err := svc.CreateService(ctx, &generated.CreateServiceRequest{Service: cProto})
+	require.NoError(t, err)
+
+	// Now try to create d that depends on c (ok), then update a to depend on d (cycle)
+	dProto := &generated.Service{Name: "d", Namespace: "default", Dependencies: []*generated.DependencyRef{{Service: "c", Namespace: "default"}}}
+	_, err = svc.CreateService(ctx, &generated.CreateServiceRequest{Service: dProto})
+	require.NoError(t, err)
+
+	aCycleProto := &generated.Service{Name: "a", Namespace: "default", Dependencies: []*generated.DependencyRef{{Service: "d", Namespace: "default"}}}
+	_, err = svc.UpdateService(ctx, &generated.UpdateServiceRequest{Service: aCycleProto})
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestDeleteService_BlocksWhenDependentsExist(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewTestLogger()
+	fake := orchestrator.NewFakeOrchestrator()
+	svc := NewServiceService(fake, logger)
+
+	// Seed db and api depends on db
+	db := &types.Service{Name: "db", Namespace: "default"}
+	api := &types.Service{Name: "api", Namespace: "default", Dependencies: []types.DependencyRef{{Service: "db", Namespace: "default"}}}
+	require.NoError(t, fake.CreateService(ctx, db))
+	require.NoError(t, fake.CreateService(ctx, api))
+
+	// Attempt to delete db without force
+	_, err := svc.DeleteService(ctx, &generated.DeleteServiceRequest{Name: "db", Namespace: "default", Force: false})
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.FailedPrecondition, st.Code())
+
+	// Now with force (simulating --no-dependencies)
+	_, err = svc.DeleteService(ctx, &generated.DeleteServiceRequest{Name: "db", Namespace: "default", Force: true})
+	require.NoError(t, err)
+}

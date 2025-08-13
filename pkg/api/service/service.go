@@ -78,6 +78,11 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	// Set initial status
 	service.Status = types.ServiceStatusPending
 
+	// Validate global dependency cycles including this new service
+	if err := s.validateGlobalDependencyCycles(ctx, service); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "dependency validation failed: %v", err)
+	}
+
 	// Use orchestrator to create the service
 	if err := s.orchestrator.CreateService(ctx, service); err != nil {
 		// If the service already exists, fall back to the ServiceService.UpdateService
@@ -284,6 +289,9 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 
 	// Preserve the ID, creation time, and other fields that shouldn't change
 	updatedService.ID = existingService.ID
+	if existingService.Metadata == nil {
+		existingService.Metadata = &types.ServiceMetadata{}
+	}
 	updatedService.Metadata = existingService.Metadata
 	updatedService.Metadata.UpdatedAt = time.Now()
 
@@ -321,12 +329,23 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 			log.Int64("to_generation", existingService.Metadata.Generation+1))
 	}
 
+	// Validate global dependency cycles including the updated service
+	if err := s.validateGlobalDependencyCycles(ctx, updatedService); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "dependency validation failed: %v", err)
+	}
+
 	if needsGenUpdate {
 		// Increment generation to trigger reconciliation
+		if updatedService.Metadata == nil {
+			updatedService.Metadata = &types.ServiceMetadata{}
+		}
 		updatedService.Metadata.Generation = existingService.Metadata.Generation + 1
 		updatedService.Status = types.ServiceStatusDeploying
 	} else {
 		// Keep existing generation and status
+		if updatedService.Metadata == nil {
+			updatedService.Metadata = &types.ServiceMetadata{}
+		}
 		updatedService.Metadata.Generation = existingService.Metadata.Generation
 		updatedService.Status = existingService.Status
 	}
@@ -352,6 +371,65 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 	}, nil
 }
 
+// validateGlobalDependencyCycles ensures that adding/updating the provided service
+// does not introduce dependency cycles across all services stored in the system.
+func (s *ServiceService) validateGlobalDependencyCycles(ctx context.Context, candidate *types.Service) error {
+	// List all services across all namespaces
+	existing, err := s.orchestrator.ListServices(ctx, "")
+	if err != nil {
+		return fmt.Errorf("failed to list services: %w", err)
+	}
+
+	// Build presence and adjacency including candidate's dependencies
+	present := make(map[string]map[string]bool)
+	adj := make(map[string][]string)
+
+	// Index existing services and edges
+	for _, svc := range existing {
+		ns := svc.Namespace
+		if ns == "" {
+			ns = DefaultNamespace
+		}
+		if _, ok := present[ns]; !ok {
+			present[ns] = make(map[string]bool)
+		}
+		present[ns][svc.Name] = true
+		from := types.MakeDependencyNodeKey(ns, svc.Name)
+		for _, d := range svc.Dependencies {
+			depNS := d.Namespace
+			if depNS == "" {
+				depNS = ns
+			}
+			adj[from] = append(adj[from], types.MakeDependencyNodeKey(depNS, d.Service))
+		}
+	}
+
+	// Add/replace candidate node and its edges
+	cns := candidate.Namespace
+	if cns == "" {
+		cns = DefaultNamespace
+	}
+	if _, ok := present[cns]; !ok {
+		present[cns] = make(map[string]bool)
+	}
+	present[cns][candidate.Name] = true
+	cfrom := types.MakeDependencyNodeKey(cns, candidate.Name)
+	adj[cfrom] = nil // reset edges for candidate
+	for _, d := range candidate.Dependencies {
+		depNS := d.Namespace
+		if depNS == "" {
+			depNS = cns
+		}
+		adj[cfrom] = append(adj[cfrom], types.MakeDependencyNodeKey(depNS, d.Service))
+	}
+
+	// Run shared cycle detection
+	if errs := types.DetectDependencyCycles(adj); len(errs) > 0 {
+		return fmt.Errorf(errs[0].Error())
+	}
+	return nil
+}
+
 // DeleteService removes a service.
 func (s *ServiceService) DeleteService(ctx context.Context, req *generated.DeleteServiceRequest) (*generated.DeleteServiceResponse, error) {
 	s.logger.Debug("DeleteService called", log.Str("name", req.Name))
@@ -374,6 +452,22 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 			}
 			s.logger.Error("Failed to get service", log.Err(err))
 			return nil, status.Errorf(codes.Internal, "failed to get service: %v", err)
+		}
+	}
+
+	// If not forced, block deletion when dependents exist
+	if !req.Force {
+		dependents, err := s.findDependents(ctx, namespace, req.Name)
+		if err != nil {
+			s.logger.Error("Failed to check dependents", log.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to check dependents: %v", err)
+		}
+		if len(dependents) > 0 {
+			names := make([]string, 0, len(dependents))
+			for _, d := range dependents {
+				names = append(names, fmt.Sprintf("%s/%s", d.Namespace, d.Name))
+			}
+			return nil, status.Errorf(codes.FailedPrecondition, "cannot delete %s/%s; dependents exist: %s (use --no-dependencies to override)", namespace, req.Name, strings.Join(names, ", "))
 		}
 	}
 
@@ -415,6 +509,29 @@ func (s *ServiceService) DeleteService(ctx context.Context, req *generated.Delet
 	}
 
 	return response, nil
+}
+
+// findDependents returns services that declare a dependency on target namespace/name
+func (s *ServiceService) findDependents(ctx context.Context, targetNamespace, targetName string) ([]*types.Service, error) {
+	// List across all namespaces
+	services, err := s.orchestrator.ListServices(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	var result []*types.Service
+	for _, svc := range services {
+		for _, dep := range svc.Dependencies {
+			ns := dep.Namespace
+			if ns == "" {
+				ns = svc.Namespace
+			}
+			if ns == targetNamespace && dep.Service == targetName {
+				result = append(result, svc)
+				break
+			}
+		}
+	}
+	return result, nil
 }
 
 // convertFinalizersToProto converts domain finalizers to protobuf finalizers
@@ -872,6 +989,14 @@ func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated
 		}
 	}
 
+	// Dependencies
+	if len(service.Dependencies) > 0 {
+		protoService.Dependencies = make([]*generated.DependencyRef, 0, len(service.Dependencies))
+		for _, d := range service.Dependencies {
+			protoService.Dependencies = append(protoService.Dependencies, &generated.DependencyRef{Service: d.Service, Namespace: d.Namespace})
+		}
+	}
+
 	return protoService, nil
 }
 
@@ -1042,6 +1167,14 @@ func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.S
 				service.Health.Readiness.Type = "command"
 				service.Health.Readiness.Command = proto.Health.Readiness.Command
 			}
+		}
+	}
+
+	// Dependencies
+	if len(proto.Dependencies) > 0 {
+		service.Dependencies = make([]types.DependencyRef, 0, len(proto.Dependencies))
+		for _, d := range proto.Dependencies {
+			service.Dependencies = append(service.Dependencies, types.DependencyRef{Service: d.Service, Namespace: d.Namespace})
 		}
 	}
 

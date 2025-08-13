@@ -8,3 +8,6 @@ service:
   scale: 1
   env:
     LOG_INTERVAL: "500"
+  dependencies:
+    - service: rune-hello-world
+      namespace: default

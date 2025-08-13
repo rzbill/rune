@@ -536,6 +536,14 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		}
 	}
 
+	// Dependencies
+	if len(service.Dependencies) > 0 {
+		protoService.Dependencies = make([]*generated.DependencyRef, 0, len(service.Dependencies))
+		for _, d := range service.Dependencies {
+			protoService.Dependencies = append(protoService.Dependencies, &generated.DependencyRef{Service: d.Service, Namespace: d.Namespace})
+		}
+	}
+
 	return protoService
 }
 
@@ -710,6 +718,14 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 				service.Health.Readiness.Type = "command"
 				service.Health.Readiness.Command = proto.Health.Readiness.Command
 			}
+		}
+	}
+
+	// Dependencies
+	if len(proto.Dependencies) > 0 {
+		service.Dependencies = make([]types.DependencyRef, 0, len(proto.Dependencies))
+		for _, d := range proto.Dependencies {
+			service.Dependencies = append(service.Dependencies, types.DependencyRef{Service: d.Service, Namespace: d.Namespace})
 		}
 	}
 

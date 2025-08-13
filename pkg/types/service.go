@@ -75,6 +75,9 @@ type Service struct {
 	// Service discovery configuration
 	Discovery *ServiceDiscovery `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 
+	// Dependencies this service declares (normalized internal form)
+	Dependencies []DependencyRef `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
+
 	// Status of the service
 	Status ServiceStatus `json:"status" yaml:"status"`
 
@@ -156,6 +159,12 @@ type ExposeServiceTLS struct {
 type ServiceDiscovery struct {
 	// Discovery mode (load-balanced or headless)
 	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
+}
+
+// DependencyRef is the normalized internal representation of a dependency
+type DependencyRef struct {
+	Service   string `json:"service" yaml:"service"`
+	Namespace string `json:"namespace" yaml:"namespace"`
 }
 
 // ServiceAffinity defines placement rules for a service.

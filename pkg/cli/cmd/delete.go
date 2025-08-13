@@ -25,6 +25,7 @@ type deleteOptions struct {
 	ignoreNotFound bool
 	finalizers     []string
 	output         string
+	noDependencies bool
 }
 
 // newDeleteCmd creates the delete command
@@ -40,6 +41,7 @@ func newDeleteCmd() *cobra.Command {
 	var shorthandIgnoreNotFound bool
 	var shorthandFinalizers []string
 	var shorthandOutput string
+	var shorthandNoDeps bool
 
 	cmd := &cobra.Command{
 		Use:     "delete",
@@ -95,22 +97,27 @@ Examples:
 					ignoreNotFound: shorthandIgnoreNotFound,
 					finalizers:     shorthandFinalizers,
 					output:         shorthandOutput,
+					noDependencies: shorthandNoDeps,
 				}
 
-				// Detect resource type: try service, then secret, then config
-				// Service path
-				if err := runDelete(cmd.Context(), target, opts); err == nil {
-					return nil
+				// Try deleting as a service first
+				if err := runDelete(cmd.Context(), target, opts); err != nil {
+					// Only fall back to secret/config when the service truly doesn't exist
+					if strings.Contains(strings.ToLower(err.Error()), "not found") {
+						// Secret path
+						if err := runDeleteSecret(cmd.Context(), target, opts); err == nil {
+							return nil
+						}
+						// Config path
+						if err := runDeleteConfig(cmd.Context(), target, opts); err == nil {
+							return nil
+						}
+						return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, shorthandNamespace)
+					}
+					// For any other error (e.g., dependents exist), return immediately
+					return err
 				}
-				// Secret path
-				if err := runDeleteSecret(cmd.Context(), target, opts); err == nil {
-					return nil
-				}
-				// Config path
-				if err := runDeleteConfig(cmd.Context(), target, opts); err == nil {
-					return nil
-				}
-				return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, shorthandNamespace)
+				return nil
 			}
 
 			// If no args provided, show help
@@ -128,6 +135,7 @@ Examples:
 	cmd.Flags().BoolVar(&shorthandIgnoreNotFound, "ignore-not-found", false, "Don't error if target doesn't exist")
 	cmd.Flags().StringSliceVar(&shorthandFinalizers, "finalizers", nil, "Optional finalizers to run")
 	cmd.Flags().StringVarP(&shorthandOutput, "output", "o", "text", "Output format (text, json, yaml)")
+	cmd.Flags().BoolVar(&shorthandNoDeps, "no-dependencies", false, "Ignore dependents and proceed with deletion")
 
 	// Mark mutually exclusive flags
 	cmd.MarkFlagsMutuallyExclusive("detach", "now")
@@ -202,6 +210,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.ignoreNotFound, "ignore-not-found", false, "Don't error if service doesn't exist")
 	cmd.Flags().StringSliceVar(&opts.finalizers, "finalizers", nil, "Optional finalizers to run")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "text", "Output format (text, json, yaml)")
+	cmd.Flags().BoolVar(&opts.noDependencies, "no-dependencies", false, "Ignore dependents and proceed with deletion")
 
 	// Mark mutually exclusive flags
 	cmd.MarkFlagsMutuallyExclusive("detach", "now")
@@ -339,7 +348,7 @@ func runDelete(ctx context.Context, serviceName string, opts *deleteOptions) err
 	deleteReq := &generated.DeleteServiceRequest{
 		Name:           serviceName,
 		Namespace:      opts.namespace,
-		Force:          opts.force,
+		Force:          opts.force || opts.noDependencies,
 		TimeoutSeconds: opts.timeoutSeconds,
 		Detach:         opts.detach,
 		DryRun:         opts.dryRun,

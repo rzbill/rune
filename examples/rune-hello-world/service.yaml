@@ -54,6 +54,9 @@ service:
     memory:
       request: "128Mi"
       limit: "256Mi"
+  dependencies:
+    - service: log-generator
+      namespace: default
     
   #health:
   #  liveness:

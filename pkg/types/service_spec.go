@@ -77,6 +77,12 @@ type ServiceSpec struct {
 	// Skip indicates this spec should be ignored by castfile parsing
 	Skip bool `json:"skip,omitempty" yaml:"skip,omitempty"`
 
+	// Dependencies in user-facing form. Accepts either:
+	// - FQDN strings (e.g., "db.prod.rune") as YAML sequence entries
+	// - Structured objects (service/name with optional namespace)
+	// These will be normalized to []DependencyRef in internal Service
+	Dependencies []ServiceDependency `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
+
 	// rawNode holds the original YAML mapping node for structural validation
 	rawNode *yaml.Node `json:"-" yaml:"-"`
 }
@@ -196,6 +202,13 @@ func (s *ServiceSpec) Validate() error {
 		}
 	}
 
+	// Basic dependency validation (independent of autoscale)
+	for i, dep := range s.Dependencies {
+		if dep.Service == "" && dep.FQDN == "" {
+			return NewValidationError("dependency at index " + strconv.Itoa(i) + " must specify service or FQDN")
+		}
+	}
+
 	// Validate resource constraints if present
 	if s.Resources != nil {
 		// CPU
@@ -294,6 +307,7 @@ func (s *ServiceSpec) validateStructureFromNode() error {
 		"imageRegistry": true,
 		"registry":      true,
 		"skip":          true,
+		"dependencies":  true,
 	}
 
 	validHealthFields := map[string]bool{
@@ -363,6 +377,26 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		resources = *s.Resources
 	}
 
+	// Normalize dependencies
+	deps := make([]DependencyRef, 0, len(s.Dependencies))
+	for _, d := range s.Dependencies {
+		if d.FQDN != "" {
+			parts := strings.Split(d.FQDN, ".")
+			switch len(parts) {
+			case 1:
+				deps = append(deps, DependencyRef{Service: parts[0], Namespace: namespace})
+			default:
+				deps = append(deps, DependencyRef{Service: parts[0], Namespace: parts[1]})
+			}
+			continue
+		}
+		ns := d.Namespace
+		if ns == "" {
+			ns = namespace
+		}
+		deps = append(deps, DependencyRef{Service: d.Service, Namespace: ns})
+	}
+
 	return &Service{
 		ID:              uuid.New().String(),
 		Name:            s.Name,
@@ -385,9 +419,49 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		SecretMounts:    s.SecretMounts,
 		ConfigmapMounts: s.ConfigmapMounts,
 		Discovery:       s.Discovery,
+		Dependencies:    deps,
 		Status:          ServiceStatusPending,
 		Metadata:        &ServiceMetadata{CreatedAt: now, UpdatedAt: now},
 	}, nil
+}
+
+// ServiceDependency is the spec-facing dependency format.
+// YAML supports either string FQDN or this structured form per entry.
+type ServiceDependency struct {
+	// Optional raw FQDN captured by YAML parsing helpers
+	FQDN string `json:"-" yaml:"-"`
+
+	Service   string `json:"service,omitempty" yaml:"service,omitempty"`
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+}
+
+// UnmarshalYAML allows ServiceDependency entries to be specified as either
+// a plain string (FQDN) or a structured object.
+func (d *ServiceDependency) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// String form (e.g., "db" or "cache.shared.rune")
+		d.FQDN = strings.TrimSpace(value.Value)
+		d.Service = ""
+		d.Namespace = ""
+		return nil
+	case yaml.MappingNode:
+		// Structured form
+		type depAlias struct {
+			Service   string `yaml:"service"`
+			Namespace string `yaml:"namespace"`
+		}
+		var a depAlias
+		if err := value.Decode(&a); err != nil {
+			return err
+		}
+		d.FQDN = ""
+		d.Service = a.Service
+		d.Namespace = a.Namespace
+		return nil
+	default:
+		return fmt.Errorf("invalid dependency format: expected string or mapping")
+	}
 }
 
 // RestoreTemplateReferences restores template references in environment variables

@@ -473,6 +473,87 @@ services:
 	}
 }
 
+func TestCastFile_DependencyCyclesWithinFile(t *testing.T) {
+	t.Parallel()
+	yamlContent := `
+services:
+  - name: a
+    image: nginx
+    dependencies:
+      - b
+  - name: b
+    image: nginx
+    dependencies:
+      - c
+  - name: c
+    image: nginx
+    dependencies:
+      - a
+`
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "cycles.yaml")
+	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("failed to write temp yaml: %v", err)
+	}
+	cf, err := ParseCastFile(fp)
+	if err != nil {
+		t.Fatalf("ParseCastFile returned error: %v", err)
+	}
+	errs := cf.Lint()
+	foundCycle := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "dependency cycle detected") {
+			foundCycle = true
+			break
+		}
+	}
+	if !foundCycle {
+		t.Fatalf("expected cycle detection error, got: %+v", errs)
+	}
+}
+
+func TestCastFile_ExternalDependenciesIgnoredForExistence(t *testing.T) {
+	t.Parallel()
+	yamlContent := `
+services:
+  - name: api
+    image: nginx
+    dependencies:
+      - db.otherns
+`
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "external.yaml")
+	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("failed to write temp yaml: %v", err)
+	}
+	cf, err := ParseCastFile(fp)
+	if err != nil {
+		t.Fatalf("ParseCastFile returned error: %v", err)
+	}
+	errs := cf.Lint()
+	// Should not error just because external dep isn't present in the same file
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "not found in this cast file") {
+			t.Fatalf("did not expect existence error for external deps, got: %v", e)
+		}
+	}
+}
+
+func TestValidateDependencyCycles_Helper(t *testing.T) {
+	// Build a small graph with a cycle: a->b->c->a and a tail d->e
+	adj := map[string][]string{
+		MakeDependencyNodeKey("ns", "a"): {MakeDependencyNodeKey("ns", "b")},
+		MakeDependencyNodeKey("ns", "b"): {MakeDependencyNodeKey("ns", "c")},
+		MakeDependencyNodeKey("ns", "c"): {MakeDependencyNodeKey("ns", "a")},
+		MakeDependencyNodeKey("ns", "d"): {MakeDependencyNodeKey("ns", "e")},
+		MakeDependencyNodeKey("ns", "e"): nil,
+	}
+	errs := DetectDependencyCycles(adj)
+	if len(errs) == 0 {
+		t.Fatalf("expected at least one cycle error, got none")
+	}
+}
+
 func TestParseCastFile_TemplateSyntax(t *testing.T) {
 	t.Parallel()
 

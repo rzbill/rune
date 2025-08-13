@@ -74,6 +74,9 @@ message Service {
 
   // Metadata for the service
   ServiceMetadata metadata = 19;
+  
+  // Dependencies declared by this service (normalized form)
+  repeated DependencyRef dependencies = 20;
 }
 
 // ServiceMetadata represents metadata for a service.
@@ -90,6 +93,13 @@ message ServiceMetadata {
   // Last non-zero scale recorded (for restart semantics)
   int32 last_non_zero_scale = 4;
 }
+
+// DependencyRef represents a dependency on another service
+message DependencyRef {
+  string service = 1;
+  string namespace = 2;
+}
+
 
 // SecretMount defines a secret to be mounted in a container.
 message SecretMount {
@@ -228,6 +238,9 @@ message DeleteServiceRequest {
   
   // Optional finalizers to run
   repeated string finalizers = 10;
+
+  // Ignore dependents and proceed with deletion (MVP override)
+  bool no_dependencies = 11;
 }
 
 // DeleteServiceResponse returns the result of a service deletion.

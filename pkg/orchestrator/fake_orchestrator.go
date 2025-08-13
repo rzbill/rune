@@ -158,7 +158,8 @@ func (fo *FakeOrchestrator) ListServices(ctx context.Context, namespace string) 
 	defer fo.mu.RUnlock()
 	var services []*types.Service
 	for _, service := range fo.services {
-		if service.Namespace == namespace {
+		// Support all-namespaces queries when namespace is empty or "*"
+		if namespace == "" || namespace == "*" || service.Namespace == namespace {
 			services = append(services, service)
 		}
 	}

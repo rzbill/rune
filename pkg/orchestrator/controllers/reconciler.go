@@ -365,6 +365,24 @@ func (r *reconciler) scaleDownService(ctx context.Context, service *types.Servic
 
 // ensureServiceInstances makes sure we have the right number of instances and they're up to date
 func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.Service) error {
+	// If the service declares dependencies, gate instance creation until deps are ready
+	if len(service.Dependencies) > 0 {
+		ready, err := r.dependenciesReady(ctx, service)
+		if err != nil {
+			r.logger.Error("Dependency readiness check failed",
+				log.Str("service", service.Name),
+				log.Err(err))
+			// Be safe: do not proceed with instance creation on error
+			return nil
+		}
+		if !ready {
+			r.logger.Info("Delaying instance creation; dependencies not ready",
+				log.Str("service", service.Name),
+				log.Str("namespace", service.Namespace))
+			return nil
+		}
+	}
+
 	// Get existing instances for this service
 	instanceData, err := r.getServiceInstances(ctx, service)
 	if err != nil {
@@ -430,6 +448,56 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 	}
 
 	return nil
+}
+
+// dependenciesReady evaluates whether all declared dependencies for a service are ready.
+// Readiness definition (MVP):
+// - If dependency service defines readiness probe: at least one instance is Running and readiness=true
+// - Else: at least one instance is Running
+func (r *reconciler) dependenciesReady(ctx context.Context, service *types.Service) (bool, error) {
+	for _, dep := range service.Dependencies {
+		depNS := dep.Namespace
+		if depNS == "" {
+			depNS = service.Namespace
+		}
+		// Fetch dependency service
+		var depService types.Service
+		if err := r.store.Get(ctx, types.ResourceTypeService, depNS, dep.Service, &depService); err != nil {
+			return false, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, dep.Service, err)
+		}
+		// List instances for dependency
+		instances, err := r.listInstancesForService(ctx, depNS, dep.Service)
+		if err != nil {
+			return false, fmt.Errorf("failed to list instances for dependency %s/%s: %w", depNS, dep.Service, err)
+		}
+		// Evaluate readiness
+		readyFound := false
+		hasReadinessProbe := depService.Health != nil && depService.Health.Readiness != nil
+		for _, inst := range instances {
+			if inst.Status != types.InstanceStatusRunning {
+				continue
+			}
+			if !hasReadinessProbe {
+				// Running instance is sufficient
+				readyFound = true
+				break
+			}
+			// Check readiness via health controller
+			status, err := r.healthController.GetHealthStatus(ctx, inst.ID)
+			if err != nil {
+				// On error, treat as not ready; continue
+				continue
+			}
+			if status != nil && status.Readiness {
+				readyFound = true
+				break
+			}
+		}
+		if !readyFound {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // reconcileExistingInstance updates an existing instance, recreating it if necessary

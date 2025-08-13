@@ -51,6 +51,9 @@ func init() {
 	// Add global environment variables
 	viper.SetEnvPrefix("RUNE")
 	viper.AutomaticEnv() // read in environment variables that match
+
+	// Register deps command group
+	rootCmd.AddCommand(newDepsCmd())
 }
 
 // initConfig reads in config file and ENV variables if set.

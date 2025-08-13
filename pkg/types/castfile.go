@@ -311,7 +311,7 @@ func (cf *CastFile) GetSpecs() []Spec {
 func (cf *CastFile) Lint() []error {
 	var errs []error
 
-	// Services
+	// Services: run per-spec validation
 	for i := range cf.Services {
 		spec := &cf.Services[i]
 		if err := spec.Validate(); err != nil {
@@ -320,6 +320,23 @@ func (cf *CastFile) Lint() []error {
 			} else {
 				errs = append(errs, fmt.Errorf("Service %q (ns=%q): %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), err))
 			}
+		}
+	}
+
+	// Dependency-aware validation within the cast file
+	if len(cf.Services) > 0 {
+		present := buildServicePresenceMap(cf.Services)
+		adjLocal := buildDependencyAdjacency(cf.Services, present)
+		// Convert to string-keyed adjacency for shared detector
+		adj := make(map[string][]string, len(adjLocal))
+		for k, vs := range adjLocal {
+			sk := string(k)
+			for _, v := range vs {
+				adj[sk] = append(adj[sk], string(v))
+			}
+		}
+		for _, e := range DetectDependencyCycles(adj) {
+			errs = append(errs, e)
 		}
 	}
 
@@ -348,6 +365,79 @@ func (cf *CastFile) Lint() []error {
 	}
 
 	return errs
+}
+
+// nodeKey uniquely identifies a service by namespace/name for graph operations
+type nodeKey string
+
+func makeNodeKey(namespace, name string) nodeKey {
+	return nodeKey(MakeDependencyNodeKey(namespace, name))
+}
+
+// buildServicePresenceMap returns a map of namespace -> service name -> true
+func buildServicePresenceMap(services []ServiceSpec) map[string]map[string]bool {
+	present := make(map[string]map[string]bool)
+	for i := range services {
+		ns := services[i].Namespace
+		if ns == "" {
+			ns = "default"
+		}
+		if _, ok := present[ns]; !ok {
+			present[ns] = make(map[string]bool)
+		}
+		present[ns][services[i].Name] = true
+	}
+	return present
+}
+
+// buildDependencyAdjacency constructs an adjacency list of dependencies limited to
+// services present in the same cast file. External dependencies are ignored.
+func buildDependencyAdjacency(services []ServiceSpec, present map[string]map[string]bool) map[nodeKey][]nodeKey {
+	adj := make(map[nodeKey][]nodeKey)
+	for i := range services {
+		spec := &services[i]
+		specNS := spec.Namespace
+		if specNS == "" {
+			specNS = "default"
+		}
+		from := makeNodeKey(specNS, spec.Name)
+		if _, ok := adj[from]; !ok {
+			adj[from] = nil
+		}
+		for _, dep := range spec.Dependencies {
+			depName, depNS := normalizeDependencyRef(specNS, dep)
+			if names, ok := present[depNS]; ok && names[depName] {
+				adj[from] = append(adj[from], makeNodeKey(depNS, depName))
+			}
+		}
+	}
+	return adj
+}
+
+// validateDependencyCycles detects cycles in the dependency graph and returns errors describing each cycle found.
+// validateDependencyCycles is provided by DetectDependencyCycles in dependency_graph.go
+
+// normalizeDependencyRef converts a ServiceDependency into name/namespace using the
+// same rules as ServiceSpec.ToService normalization. If the dependency is specified
+// as a single-part FQDN or without namespace, it defaults to the source service's namespace.
+func normalizeDependencyRef(sourceNamespace string, d ServiceDependency) (name string, namespace string) {
+	if d.FQDN != "" {
+		parts := strings.Split(d.FQDN, ".")
+		switch len(parts) {
+		case 0:
+			return "", sourceNamespace
+		case 1:
+			return parts[0], sourceNamespace
+		default:
+			// Interpret first as service, second as namespace (MVP behavior)
+			return parts[0], parts[1]
+		}
+	}
+	ns := d.Namespace
+	if ns == "" {
+		ns = sourceNamespace
+	}
+	return d.Service, ns
 }
 
 // Validate runs Lint and returns a single error if any issues are found.
