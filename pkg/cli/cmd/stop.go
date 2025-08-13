@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -37,7 +38,6 @@ func init() {
 	stopCmd.Flags().DurationVar(&stopTimeout, "timeout", 5*time.Minute, "Timeout for wait operation")
 
 	// API client flags
-	stopCmd.Flags().StringVar(&stopClientKey, "api-key", "", "API key for authentication")
 	stopCmd.Flags().StringVar(&stopClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -49,8 +49,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if stopClientAddr != "" {
 		options.Address = stopClientAddr
 	}
-	if stopClientKey != "" {
-		options.APIKey = stopClientKey
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 	apiClient, err := client.NewClient(options)
 	if err != nil {

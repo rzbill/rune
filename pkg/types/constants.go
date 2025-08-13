@@ -32,6 +32,12 @@ const (
 
 	// ResourceTypeConfigMap represents non-sensitive configs
 	ResourceTypeConfigMap ResourceType = "configmap"
+
+	// ResourceTypeUser represents user identities
+	ResourceTypeUser ResourceType = "user"
+
+	// ResourceTypeToken represents authentication tokens
+	ResourceTypeToken ResourceType = "token"
 )
 
 // RunnerType is the type of runner for an instance.

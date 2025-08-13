@@ -15,6 +15,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // Valid output formats
@@ -118,7 +119,6 @@ func init() {
 	logsCmd.Flags().StringVarP(&logsOutputFormat, "output", "o", OutputFormatText, "Output format: text, json, or raw")
 
 	// API client flags
-	logsCmd.Flags().StringVar(&logsClientKey, "api-key", "", "API key for authentication")
 	logsCmd.Flags().StringVar(&logsClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -234,9 +234,15 @@ func createLogsAPIClient() (*client.Client, error) {
 	}
 
 	if logsClientKey != "" {
-		options.APIKey = logsClientKey
+		// token resolved by client via config/env
 	}
 
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
+	}
 	// Create client
 	return client.NewClient(options)
 }

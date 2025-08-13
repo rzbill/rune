@@ -12,6 +12,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
 
@@ -24,7 +25,7 @@ var (
 	execNoTTY     bool
 	execTimeout   string
 	execAPIServer string
-	execAPIKey    string
+	// removed api key
 )
 
 // ExecOptions defines the configuration for the exec command
@@ -35,7 +36,6 @@ type ExecOptions struct {
 	TTY       bool
 	Timeout   time.Duration
 	APIServer string
-	APIKey    string
 }
 
 // execCmd represents the exec command
@@ -84,7 +84,6 @@ func init() {
 	execCmd.Flags().BoolVar(&execNoTTY, "no-tty", false, "disable TTY allocation for non-interactive commands")
 	execCmd.Flags().StringVar(&execTimeout, "timeout", "5m", "timeout for the exec session")
 	execCmd.Flags().StringVar(&execAPIServer, "api-server", "", "address of the API server")
-	execCmd.Flags().StringVar(&execAPIKey, "api-key", "", "API key for authentication")
 
 	// After the first positional arg (TARGET), stop parsing flags so command args like '-c' are passed through
 	execCmd.Flags().SetInterspersed(false)
@@ -180,7 +179,6 @@ func parseExecOptions() (*ExecOptions, error) {
 		Workdir:   execWorkdir,
 		TTY:       execTTY,
 		APIServer: execAPIServer,
-		APIKey:    execAPIKey,
 	}
 
 	// Parse timeout
@@ -221,10 +219,15 @@ func createExecAPIClient(options *ExecOptions) (*client.Client, error) {
 	// Create client options
 	clientOptions := &client.ClientOptions{
 		Address:     apiServer,
-		APIKey:      options.APIKey,
 		DialTimeout: 30 * time.Second,
 		CallTimeout: options.Timeout,
 		Logger:      log.GetDefaultLogger().WithComponent("exec-client"),
+	}
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		clientOptions.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		clientOptions.Token = t
 	}
 
 	// Create client

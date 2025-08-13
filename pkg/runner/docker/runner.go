@@ -247,6 +247,38 @@ func (r *DockerRunner) Create(ctx context.Context, instance *runetypes.Instance)
 	)
 
 	if err != nil {
+		// Handle container name conflict by auto-cleaning safe, Rune-managed stale containers
+		if isNameConflictError(err) {
+			r.logger.Warn("Container name conflict detected; attempting safe cleanup",
+				log.Str("instance_name", instance.Name),
+				log.Str("service_id", instance.ServiceID),
+			)
+			removed, cleanErr := r.tryRemoveConflictingContainer(ctx, instance)
+			if cleanErr != nil {
+				return fmt.Errorf("container name conflict for %q; cleanup failed: %v (original: %w)", instance.Name, cleanErr, err)
+			}
+			if removed {
+				// Retry create once
+				resp, err = r.client.ContainerCreate(
+					ctx,
+					containerConfig,
+					hostConfig,
+					nil,
+					nil,
+					instance.Name,
+				)
+				if err == nil {
+					// Proceed after successful retry
+					instance.ContainerID = resp.ID
+					r.logger.Info("Created container after cleanup",
+						log.Str("container_id", resp.ID),
+						log.Str("instance_id", instance.ID))
+					return nil
+				}
+			}
+			// Not removed or retry failed; return conflict with guidance
+			return fmt.Errorf("container name conflict for %q; not safe to auto-remove (ensure no non-Rune container uses this name) : %w", instance.Name, err)
+		}
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 
@@ -258,6 +290,59 @@ func (r *DockerRunner) Create(ctx context.Context, instance *runetypes.Instance)
 		log.Str("instance_id", instance.ID))
 
 	return nil
+}
+
+// isNameConflictError returns true if the error indicates a Docker name conflict
+func isNameConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "is already in use by container") || strings.Contains(msg, "Conflict. The container name")
+}
+
+// tryRemoveConflictingContainer attempts to remove a conflicting container with the same name
+// only if it is clearly Rune-managed and matches the same instance/service/namespace context.
+// Returns (removedAny, error)
+func (r *DockerRunner) tryRemoveConflictingContainer(ctx context.Context, instance *runetypes.Instance) (bool, error) {
+	args := filters.NewArgs()
+	// Filter by name to narrow search; Docker requires the leading slash in names list, but filter handles plain
+	args.Add("name", instance.Name)
+	containers, err := r.client.ContainerList(ctx, container.ListOptions{All: true, Filters: args})
+	if err != nil {
+		return false, fmt.Errorf("failed to list containers for conflict check: %w", err)
+	}
+
+	removedAny := false
+	for _, c := range containers {
+		// Confirm exact name match
+		exactName := false
+		for _, n := range c.Names {
+			if n == "/"+instance.Name {
+				exactName = true
+				break
+			}
+		}
+		if !exactName {
+			continue
+		}
+		// Only remove if clearly Rune-managed and matches the same logical resource
+		if c.Labels["rune.managed"] == "true" {
+			sameInstance := c.Labels["rune.instance.id"] == instance.ID && instance.ID != ""
+			sameServiceCtx := c.Labels["rune.service.id"] == instance.ServiceID && c.Labels["rune.namespace"] == instance.Namespace
+			if sameInstance || sameServiceCtx {
+				r.logger.Warn("Removing stale conflicting container",
+					log.Str("container_id", c.ID),
+					log.Str("name", instance.Name))
+				// Force remove to ensure cleanup even if exited
+				if rmErr := r.client.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); rmErr != nil {
+					return removedAny, fmt.Errorf("failed to remove conflicting container %s: %w", c.ID, rmErr)
+				}
+				removedAny = true
+			}
+		}
+	}
+	return removedAny, nil
 }
 
 // Start starts an existing container.

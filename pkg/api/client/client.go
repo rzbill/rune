@@ -20,8 +20,8 @@ type ClientOptions struct {
 	UseTLS      bool
 	TLSCertFile string
 
-	// Authentication
-	APIKey string
+	// Authentication (token-only)
+	Token string
 
 	// Timeouts
 	DialTimeout time.Duration
@@ -83,12 +83,9 @@ func NewClient(options *ClientOptions) (*Client, error) {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	// Add authentication if provided
-	if options.APIKey != "" {
-		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(&apiKeyCredentials{
-			apiKey: options.APIKey,
-			secure: options.UseTLS,
-		}))
+	// Add bearer auth if provided
+	if options.Token != "" {
+		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(&bearerCredentials{token: options.Token}))
 	}
 
 	// Connect to the API server
@@ -115,28 +112,28 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Conn exposes the underlying gRPC connection for generated clients
+func (c *Client) Conn() *grpc.ClientConn { return c.conn }
+
 // Context returns a context with the configured call timeout.
 func (c *Client) Context() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), c.options.CallTimeout)
 }
 
 // apiKeyCredentials implements the grpc.PerRPCCredentials interface for API key authentication.
-type apiKeyCredentials struct {
-	apiKey string
-	secure bool
-}
+// removed apiKeyCredentials; tokens only
 
-// GetRequestMetadata implements the grpc.PerRPCCredentials interface.
-func (c *apiKeyCredentials) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+// bearerCredentials implements Authorization: Bearer <token>
+type bearerCredentials struct{ token string }
+
+func (b *bearerCredentials) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
 	return map[string]string{
-		"x-api-key": c.apiKey,
+		"authorization": "Bearer " + b.token,
 	}, nil
 }
 
-// RequireTransportSecurity implements the grpc.PerRPCCredentials interface.
-func (c *apiKeyCredentials) RequireTransportSecurity() bool {
-	return c.secure
-}
+// For local dev we allow sending token over insecure; production should use TLS
+func (b *bearerCredentials) RequireTransportSecurity() bool { return false }
 
 // parseTimestamp parses a timestamp string into a time.Time.
 func parseTimestamp(timestampStr string) (*time.Time, error) {

@@ -58,7 +58,6 @@ func TestParseExecOptions(t *testing.T) {
 			execNoTTY = tt.noTTY
 			execTimeout = tt.timeout
 			execAPIServer = tt.apiServer
-			execAPIKey = tt.apiKey
 
 			options, err := parseExecOptions()
 

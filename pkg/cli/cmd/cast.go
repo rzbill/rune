@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -24,7 +24,6 @@ var (
 	detach          bool
 	timeoutStr      string
 	recursiveDir    bool
-	clientAPIKey    string
 	clientAddr      string
 	forceGeneration bool
 )
@@ -58,8 +57,6 @@ func init() {
 	castCmd.Flags().BoolVarP(&recursiveDir, "recursive", "r", false, "Recursively process directories")
 	castCmd.Flags().BoolVar(&forceGeneration, "force", false, "Force generation increment even if no changes are detected")
 
-	// API client flags
-	castCmd.Flags().StringVar(&clientAPIKey, "api-key", "", "API key for authentication")
 	castCmd.Flags().StringVar(&clientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -527,9 +524,10 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
 	for resourceType, names := range results.SuccessfulResources {
 		for _, name := range names {
 			endpoint := ""
-			if resourceType == "Service" {
+			switch resourceType {
+			case "Service":
 				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, namespace)
-			} else if resourceType == "Function" {
+			case "Function":
 				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, namespace)
 			}
 			fmt.Printf("- %s: %s%s\n", resourceType, name, endpoint)
@@ -542,12 +540,13 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
 
 	// Add service-specific tips
 	for resourceType, names := range results.SuccessfulResources {
-		if resourceType == "Service" {
+		switch resourceType {
+		case "Service":
 			for _, name := range names {
 				fmt.Printf("- Monitor: rune trace %s\n", name)
 				fmt.Printf("- Scale Service: rune scale %s --replicas=2\n", name)
 			}
-		} else if resourceType == "Function" {
+		case "Function":
 			for _, name := range names {
 				fmt.Printf("- Function Logs: rune trace %s\n", name)
 			}
@@ -653,13 +652,11 @@ func createAPIClient() (*client.Client, error) {
 		options.Address = clientAddr
 	}
 
-	if clientAPIKey != "" {
-		options.APIKey = clientAPIKey
-	} else {
-		// Try to get API key from environment
-		if apiKey, ok := os.LookupEnv("RUNE_API_KEY"); ok {
-			options.APIKey = apiKey
-		}
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 
 	// Create the client

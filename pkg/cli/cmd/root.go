@@ -54,6 +54,10 @@ func init() {
 
 	// Register deps command group
 	rootCmd.AddCommand(newDepsCmd())
+	// Register auth-related commands
+	rootCmd.AddCommand(newLoginCmd())
+	rootCmd.AddCommand(newWhoAmICmd())
+	rootCmd.AddCommand(newTokenCmd())
 }
 
 // initConfig reads in config file and ENV variables if set.

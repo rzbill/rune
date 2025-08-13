@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -37,7 +38,6 @@ func init() {
 	restartCmd.Flags().DurationVar(&restartTimeout, "timeout", 10*time.Minute, "Timeout for the restart operation")
 
 	// API client flags
-	restartCmd.Flags().StringVar(&restartClientKey, "api-key", "", "API key for authentication")
 	restartCmd.Flags().StringVar(&restartClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -49,8 +49,11 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	if restartClientAddr != "" {
 		options.Address = restartClientAddr
 	}
-	if restartClientKey != "" {
-		options.APIKey = restartClientKey
+	// Resolve bearer token from config/env (same behavior as get)
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 	apiClient, err := client.NewClient(options)
 	if err != nil {

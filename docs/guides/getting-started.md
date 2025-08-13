@@ -85,4 +85,18 @@ If you encounter any issues, check the following:
 - Verify that the ports are not already in use
 - Check the service logs with `rune trace <service-name>`
 
+### Login/config file permissions
+
+If `rune login` fails with `permission denied` writing `~/.rune/config.yaml`, it likely means `~/.rune` is owned by root. Options:
+
+```bash
+# Fix ownership (recommended)
+sudo chown -R "$(id -un)":"$(id -gn)" ~/.rune
+
+# Or choose a different config path
+rune login --server https://localhost:8443 --token-file /secure/token.txt --config "$HOME/.config/rune/config.yaml"
+```
+
+The CLI will also try `XDG_CONFIG_HOME/rune/config.yaml` automatically as a fallback if `~/.rune` is not writable.
+
 For more help, please [open an issue](https://github.com/rzbill/rune/issues) on GitHub. 

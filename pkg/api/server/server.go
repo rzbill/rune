@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,15 +17,19 @@ import (
 	grpc_validator "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	apigw_runtime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/api/rest"
 	"github.com/rzbill/rune/pkg/api/service"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
+	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 )
 
 // APIServer represents the gRPC API server for Rune.
@@ -40,6 +45,7 @@ type APIServer struct {
 	healthService   *service.HealthService
 	secretService   *service.SecretService
 	configService   *service.ConfigMapService
+	authService     *service.AuthService
 
 	// gRPC server
 	grpcServer *grpc.Server
@@ -131,6 +137,7 @@ func (s *APIServer) Start() error {
 	s.healthService = service.NewHealthService(s.store, s.logger)
 	s.secretService = service.NewSecretService(s.store, s.logger)
 	s.configService = service.NewConfigMapService(s.store, s.logger)
+	s.authService = service.NewAuthService(s.store, s.logger)
 
 	// Start gRPC server
 	if err := s.startGRPCServer(); err != nil {
@@ -172,6 +179,7 @@ func (s *APIServer) startGRPCServer() error {
 	opts = append(opts, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
 		s.logUnaryInterceptor(),
 		s.authInterceptor(),
+		s.rbacUnaryInterceptor(),
 		grpc_recovery.UnaryServerInterceptor(),
 		grpc_validator.UnaryServerInterceptor(),
 	)))
@@ -179,6 +187,7 @@ func (s *APIServer) startGRPCServer() error {
 	opts = append(opts, grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(
 		s.logStreamInterceptor(),
 		s.authStreamInterceptor(),
+		s.rbacStreamInterceptor(),
 		grpc_recovery.StreamServerInterceptor(),
 		grpc_validator.StreamServerInterceptor(),
 	)))
@@ -194,6 +203,7 @@ func (s *APIServer) startGRPCServer() error {
 	generated.RegisterHealthServiceServer(s.grpcServer, s.healthService)
 	generated.RegisterSecretServiceServer(s.grpcServer, s.secretService)
 	generated.RegisterConfigMapServiceServer(s.grpcServer, s.configService)
+	generated.RegisterAuthServiceServer(s.grpcServer, s.authService)
 
 	// Register reflection service for grpcurl/development
 	reflection.Register(s.grpcServer)
@@ -213,8 +223,8 @@ func (s *APIServer) startGRPCServer() error {
 
 // startRESTGateway starts the REST gateway.
 func (s *APIServer) startRESTGateway() error {
-	// Create HTTP mux
-	mux := apigw_runtime.NewServeMux()
+	// Create gRPC-Gateway mux
+	gw := apigw_runtime.NewServeMux()
 
 	// Set up dial options
 	var dialOpts []grpc.DialOption
@@ -236,30 +246,37 @@ func (s *APIServer) startRESTGateway() error {
 	endpoint := s.options.GRPCAddr
 
 	// Register service handlers
-	if err := generated.RegisterServiceServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+	if err := generated.RegisterServiceServiceHandlerFromEndpoint(ctx, gw, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register service handler: %w", err)
 	}
 
-	if err := generated.RegisterInstanceServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+	if err := generated.RegisterInstanceServiceHandlerFromEndpoint(ctx, gw, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register instance handler: %w", err)
 	}
 
-	if err := generated.RegisterHealthServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+	if err := generated.RegisterHealthServiceHandlerFromEndpoint(ctx, gw, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register health handler: %w", err)
 	}
 
-	if err := generated.RegisterSecretServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+	if err := generated.RegisterSecretServiceHandlerFromEndpoint(ctx, gw, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register secret handler: %w", err)
 	}
 
-	if err := generated.RegisterConfigMapServiceHandlerFromEndpoint(ctx, mux, endpoint, dialOpts); err != nil {
+	if err := generated.RegisterConfigMapServiceHandlerFromEndpoint(ctx, gw, endpoint, dialOpts); err != nil {
 		return fmt.Errorf("failed to register config map handler: %w", err)
 	}
+
+	// Use gRPC-Gateway mux as the root handler
+	handler := rest.Chain(
+		rest.CORS(),
+		rest.Logger(s.logger),
+		rest.Timeout(30*time.Second),
+	)(gw)
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
 		Addr:    s.options.HTTPAddr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	// Start HTTP server in a goroutine
@@ -279,6 +296,105 @@ func (s *APIServer) startRESTGateway() error {
 	}()
 
 	return nil
+}
+
+// rbac interceptors (MVP: allow all; hooks for future policy checks)
+func (s *APIServer) rbacUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Minimal RBAC: admin=all; readwrite=read + mutate; readonly=read only
+		// Determine required action by method name suffix
+		method := info.FullMethod
+		// Extract roles from context (set by auth interceptor)
+		var roles []types.Role
+		if v := ctx.Value(authCtxKey); v != nil {
+			if ai, ok := v.(*AuthInfo); ok {
+				roles = ai.Roles
+			}
+		}
+		// If no roles (unauthenticated), rely on auth interceptor to have blocked; allow here
+		if !s.options.EnableAuth {
+			return handler(ctx, req)
+		}
+		// Admin always allowed
+		if hasRole(roles, types.RoleAdmin) {
+			return handler(ctx, req)
+		}
+		// Read-only methods: Get/List/Watch/Logs/Health/WhoAmI
+		if hasAnyPrefix(method,
+			"/rune.api.ServiceService/Get",
+			"/rune.api.ServiceService/List",
+			"/rune.api.ServiceService/Watch",
+			"/rune.api.InstanceService/Get",
+			"/rune.api.InstanceService/List",
+			"/rune.api.InstanceService/Watch",
+			"/rune.api.LogService/StreamLogs",
+			"/rune.api.HealthService/GetHealth",
+			"/rune.api.ConfigMapService/Get",
+			"/rune.api.ConfigMapService/List",
+			"/rune.api.SecretService/Get",
+			"/rune.api.SecretService/List",
+			"/rune.api.AuthService/WhoAmI",
+		) {
+			// readonly and readwrite both allowed
+			if hasRole(roles, types.RoleReadOnly) || hasRole(roles, types.RoleReadWrite) {
+				return handler(ctx, req)
+			}
+			return nil, status.Errorf(codes.PermissionDenied, "read access denied")
+		}
+		// Mutating methods: Create/Update/Delete/Scale/Exec/Token ops
+		if hasRole(roles, types.RoleReadWrite) {
+			return handler(ctx, req)
+		}
+		return nil, status.Errorf(codes.PermissionDenied, "write access denied")
+	}
+}
+
+func (s *APIServer) rbacStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		// Apply same minimal check for streams (e.g., logs, exec)
+		ctx := ss.Context()
+		method := info.FullMethod
+		var roles []types.Role
+		if v := ctx.Value(authCtxKey); v != nil {
+			if ai, ok := v.(*AuthInfo); ok {
+				roles = ai.Roles
+			}
+		}
+		if !s.options.EnableAuth || hasRole(roles, types.RoleAdmin) {
+			return handler(srv, ss)
+		}
+		if hasAnyPrefix(method, "/rune.api.LogService/StreamLogs") {
+			if hasRole(roles, types.RoleReadOnly) || hasRole(roles, types.RoleReadWrite) {
+				return handler(srv, ss)
+			}
+			return status.Errorf(codes.PermissionDenied, "read access denied")
+		}
+		// Treat other streams (e.g., exec) as write
+		if hasRole(roles, types.RoleReadWrite) {
+			return handler(srv, ss)
+		}
+		return status.Errorf(codes.PermissionDenied, "write access denied")
+	}
+}
+
+// hasRole returns true if the roles slice contains the given role
+func hasRole(roles []types.Role, target types.Role) bool {
+	for _, r := range roles {
+		if r == target {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyPrefix returns true if s has any of the provided prefixes
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop stops the API server gracefully.

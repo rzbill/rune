@@ -10,6 +10,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -57,7 +58,6 @@ func init() {
 	scaleCmd.Flags().DurationVar(&scaleTimeout, "timeout", 5*time.Minute, "Timeout for the wait operation")
 
 	// API client flags
-	scaleCmd.Flags().StringVar(&scaleClientKey, "api-key", "", "API key for authentication")
 	scaleCmd.Flags().StringVar(&scaleClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -207,8 +207,11 @@ func createScaleAPIClient() (*client.Client, error) {
 		options.Address = scaleClientAddr
 	}
 
-	if scaleClientKey != "" {
-		options.APIKey = scaleClientKey
+	// Resolve bearer token from config/env (align with get command)
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 
 	// Create client

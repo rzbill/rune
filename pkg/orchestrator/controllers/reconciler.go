@@ -18,7 +18,7 @@ import (
 const deletedInstanceRetentionTime = 10 * time.Minute
 
 // The amount of time to wait before running garbage collection
-const garbageCollectionInterval = 10 * time.Minute
+const garbageCollectionInterval = 1 * time.Minute
 
 // reconciler is responsible for ensuring the actual state of instances
 // matches the desired state defined in the services

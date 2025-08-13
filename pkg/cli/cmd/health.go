@@ -7,13 +7,13 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
-	healthNamespace    string
-	includeChecks      bool
-	healthClientAPIKey string
-	healthClientAddr   string
+	healthNamespace  string
+	includeChecks    bool
+	healthClientAddr string
 )
 
 // healthCmd represents the health command
@@ -44,8 +44,6 @@ func init() {
 	rootCmd.AddCommand(healthCmd)
 	healthCmd.Flags().StringVarP(&healthNamespace, "namespace", "n", "default", "Namespace for namespaced targets")
 	healthCmd.Flags().BoolVar(&includeChecks, "checks", false, "Include detailed check results")
-	// API client flags
-	healthCmd.Flags().StringVar(&healthClientAPIKey, "api-key", "", "API key for authentication")
 	healthCmd.Flags().StringVar(&healthClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -134,12 +132,11 @@ func createHealthAPIClient() (*client.Client, error) {
 	if healthClientAddr != "" {
 		options.Address = healthClientAddr
 	}
-	if healthClientAPIKey != "" {
-		options.APIKey = healthClientAPIKey
-	} else {
-		if apiKey, ok := lookupEnv("RUNE_API_KEY"); ok {
-			options.APIKey = apiKey
-		}
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := lookupEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 	return client.NewClient(options)
 }

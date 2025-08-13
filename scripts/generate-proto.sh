@@ -21,6 +21,7 @@ rm -rf $GENERATED_DIR/*
 # Generate Go code
 protoc \
   --proto_path=$PROJECT_ROOT \
+  --proto_path=$PROJECT_ROOT/pkg/api/proto \
   --go_out=$PROJECT_ROOT \
   --go_opt=module=github.com/rzbill/rune \
   --go-grpc_out=$PROJECT_ROOT \

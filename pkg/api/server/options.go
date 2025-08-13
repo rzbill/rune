@@ -19,9 +19,8 @@ type Options struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
-	// Authentication
+	// Authentication (token-only)
 	EnableAuth bool
-	APIKeys    []string
 
 	// Logging
 	Logger log.Logger
@@ -72,9 +71,8 @@ func WithTLS(certFile, keyFile string) Option {
 }
 
 // WithAuth enables authentication with the given API keys.
-func WithAuth(apiKeys []string) Option {
+func WithAuth(_ []string) Option { // argument ignored; tokens only
 	return func(o *Options) {
-		o.APIKeys = apiKeys
 		o.EnableAuth = true
 	}
 }

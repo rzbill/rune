@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // newDepsCmd creates the top-level deps command group
@@ -252,6 +253,12 @@ func newDepsDependentsCmd() *cobra.Command {
 
 func newDepsAPIClient() (*client.Client, error) {
 	opts := client.DefaultClientOptions()
+	// Inject bearer token from config/env like other commands
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		opts.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		opts.Token = t
+	}
 	return client.NewClient(opts)
 }
 

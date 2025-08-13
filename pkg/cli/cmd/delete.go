@@ -11,6 +11,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // deleteOptions holds the options for the delete command
@@ -709,6 +710,12 @@ func convertProtoFinalizersToTypes(protoFinalizers []*generated.Finalizer) []typ
 func createDeleteAPIClient() (*client.Client, error) {
 	// Create a gRPC client using the default connection
 	options := client.DefaultClientOptions()
+	// Inject bearer token from config/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		options.Token = t
+	}
 	return client.NewClient(options)
 }
 

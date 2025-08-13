@@ -34,7 +34,7 @@ rune exec TARGET COMMAND [args...] [flags]
 | `--no-tty` | | Disable TTY allocation | |
 | `--timeout` | | Timeout for the exec session | `5m` |
 | `--api-server` | | Address of the API server | `localhost:8443` |
-| `--api-key` | | API key for authentication | |
+| `--token-file` | | Path to a file containing the bearer token (recommended) | |
 
 ## Usage Examples
 

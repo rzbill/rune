@@ -12,6 +12,7 @@ import (
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -26,7 +27,6 @@ var (
 	showLabels      bool
 	noHeaders       bool
 	limit           int
-	getClientAPIKey string
 	getClientAddr   string
 	watchTimeout    string
 	getServiceName  string
@@ -112,8 +112,7 @@ func init() {
 	getCmd.Flags().StringVar(&watchTimeout, "timeout", "", "Timeout for watch operations (e.g., 30s, 5m, 1h) - default is no timeout")
 	getCmd.Flags().StringVar(&getServiceName, "service-name", "", "Filter instances by service name")
 
-	// API client flags
-	getCmd.Flags().StringVar(&getClientAPIKey, "api-key", "", "API key for authentication")
+	// Remove api-key flag; token comes from config/env
 	getCmd.Flags().StringVar(&getClientAddr, "api-server", "", "Address of the API server")
 }
 
@@ -579,13 +578,12 @@ func createGetAPIClient() (*client.Client, error) {
 		options.Address = getClientAddr
 	}
 
-	if getClientAPIKey != "" {
-		options.APIKey = getClientAPIKey
-	} else {
-		// Try to get API key from environment
-		if apiKey, ok := os.LookupEnv("RUNE_API_KEY"); ok {
-			options.APIKey = apiKey
-		}
+	// Prefer token from config/env, fall back to deprecated API key
+	// Read CLI config via viper if available
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		options.Token = t
+	} else if t, ok := os.LookupEnv("RUNE_TOKEN"); ok {
+		options.Token = t
 	}
 
 	// Create the client
