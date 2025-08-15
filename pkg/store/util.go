@@ -95,3 +95,8 @@ func UnmarshalResource(source interface{}, target interface{}) error {
 func IsAlreadyExistsError(err error) bool {
 	return strings.Contains(err.Error(), "already exists")
 }
+
+// IsNotFoundError checks if an error is a not found error.
+func IsNotFoundError(err error) bool {
+	return strings.Contains(err.Error(), "not found")
+}

@@ -73,11 +73,12 @@ func TestHealthControllerAddRemoveInstance(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "test-instance",
-		Name:      "test-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "test-instance",
+		Name:        "test-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -196,11 +197,12 @@ func TestHTTPHealthCheck(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "http-test-instance",
-		Name:      "http-test-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "http-test-instance",
+		Name:        "http-test-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -262,11 +264,12 @@ func TestTCPHealthCheck(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "tcp-test-instance",
-		Name:      "tcp-test-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "tcp-test-instance",
+		Name:        "tcp-test-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -324,11 +327,12 @@ func TestExecHealthCheck(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "exec-test-instance",
-		Name:      "exec-test-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "exec-test-instance",
+		Name:        "exec-test-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -381,11 +385,12 @@ func TestRestartAfterHealthCheckFailure(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "restart-test-instance",
-		Name:      "restart-test-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "restart-test-instance",
+		Name:        "restart-test-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -426,11 +431,12 @@ func TestNoHealthCheckService(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "no-health-instance",
-		Name:      "no-health-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "no-health-instance",
+		Name:        "no-health-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -479,11 +485,12 @@ func TestInvalidHealthCheckType(t *testing.T) {
 
 	// Create test instance
 	instance := &types.Instance{
-		ID:        "invalid-health-instance",
-		Name:      "invalid-health-instance",
-		Namespace: "default",
-		ServiceID: service.ID,
-		Status:    types.InstanceStatusRunning,
+		ID:          "invalid-health-instance",
+		Name:        "invalid-health-instance",
+		Namespace:   "default",
+		ServiceID:   service.ID,
+		ServiceName: service.Name,
+		Status:      types.InstanceStatusRunning,
 	}
 
 	err = testStore.CreateInstance(ctx, instance)
@@ -531,12 +538,13 @@ func TestHealthControllerNilContext(t *testing.T) {
 	}
 
 	instance := &types.Instance{
-		ID:        "test-instance",
-		Name:      "test-instance",
-		ServiceID: "test-service",
-		Status:    "Running",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:          "test-instance",
+		Name:        "test-instance",
+		ServiceID:   "test-service",
+		ServiceName: "test-service",
+		Status:      "Running",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// This should not panic even though the context is nil

@@ -71,7 +71,13 @@ func (fo *FakeOrchestrator) AddInstance(instance *types.Instance) {
 
 // GetInstanceByID implements Orchestrator interface
 func (fo *FakeOrchestrator) GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
-	return nil, nil
+	fo.mu.RLock()
+	defer fo.mu.RUnlock()
+	inst, ok := fo.instances[instanceID]
+	if !ok {
+		return nil, errors.New("resource not found")
+	}
+	return inst, nil
 }
 
 // ListDeletionOperations implements Orchestrator interface
@@ -81,12 +87,28 @@ func (fo *FakeOrchestrator) ListDeletionOperations(ctx context.Context, namespac
 
 // ListInstances implements Orchestrator interface
 func (fo *FakeOrchestrator) ListInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
-	return nil, nil
+	fo.mu.RLock()
+	defer fo.mu.RUnlock()
+	var out []*types.Instance
+	for _, inst := range fo.instances {
+		if namespace == "" || namespace == "*" || inst.Namespace == namespace {
+			out = append(out, inst)
+		}
+	}
+	return out, nil
 }
 
 // ListRunningInstances implements Orchestrator interface
 func (fo *FakeOrchestrator) ListRunningInstances(ctx context.Context, namespace string) ([]*types.Instance, error) {
-	return nil, nil
+	fo.mu.RLock()
+	defer fo.mu.RUnlock()
+	var out []*types.Instance
+	for _, inst := range fo.instances {
+		if (namespace == "" || namespace == "*" || inst.Namespace == namespace) && inst.Status == types.InstanceStatusRunning {
+			out = append(out, inst)
+		}
+	}
+	return out, nil
 }
 
 // WatchServices implements Orchestrator interface
@@ -116,6 +138,19 @@ func (fo *FakeOrchestrator) CreateService(ctx context.Context, service *types.Se
 	defer fo.mu.Unlock()
 	key := service.Namespace + "/" + service.Name
 	fo.services[key] = service
+	return nil
+}
+
+// ScaleService updates the scale of a service in the fake orchestrator
+func (fo *FakeOrchestrator) ScaleService(ctx context.Context, namespace, name string, scale int) error {
+	fo.mu.Lock()
+	defer fo.mu.Unlock()
+	key := namespace + "/" + name
+	svc, ok := fo.services[key]
+	if !ok {
+		return errors.New("resource not found")
+	}
+	svc.Scale = scale
 	return nil
 }
 
@@ -294,7 +329,15 @@ func (fo *FakeOrchestrator) StopInstance(ctx context.Context, namespace, service
 
 // CreateScalingOperation implements Orchestrator interface
 func (fo *FakeOrchestrator) CreateScalingOperation(ctx context.Context, service *types.Service, params types.ScalingOperationParams) error {
-	// For fake implementation, just return success
+	// For fake implementation, immediately apply the target scale
+	fo.mu.Lock()
+	defer fo.mu.Unlock()
+	key := service.Namespace + "/" + service.Name
+	if svc, ok := fo.services[key]; ok {
+		svc.Scale = params.TargetScale
+		// Update pointer passed in as well to reflect change in response
+		service.Scale = params.TargetScale
+	}
 	return nil
 }
 
@@ -314,7 +357,7 @@ type fakeExecStream struct {
 
 func (fes *fakeExecStream) Read(p []byte) (n int, err error) {
 	if fes.closed || len(fes.stdout) == 0 {
-		return 0, errors.New("stream closed")
+		return 0, io.EOF
 	}
 	n = copy(p, fes.stdout)
 	fes.stdout = fes.stdout[n:]

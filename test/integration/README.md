@@ -1,57 +1,78 @@
-# Rune Integration Tests
+# Integration Testing
 
-This directory contains integration tests for the Rune project. These tests interact with real dependencies like Docker to verify that Rune's components work correctly in a realistic environment.
+This directory contains integration tests for the Rune platform. The tests are designed to work with different storage backends to ensure compatibility and reliability.
 
-## Prerequisites
+## Storage Types
 
-- Docker must be installed and running
-- Go 1.20 or later
+The integration tests support two storage types:
 
-## Running Integration Tests
+- **Memory Store** (`memory`): Fast, in-memory storage for quick development feedback
+- **BadgerDB Store** (`badger`): Real persistent storage that matches production behavior
 
-### Via Makefile
+## Running Tests
 
+### Default (BadgerDB Store - Production-like)
 ```bash
-# Run the integration tests
+# Run all integration tests with BadgerDB store (production-like)
 make test-integration
+
+# Or run directly
+cd test/integration/cmd && go test -v -tags=integration
 ```
 
-### Directly with Go
+### Specific Storage Types
+
+#### Memory Store (Fast)
+```bash
+make test-integration-memory
+```
+
+#### BadgerDB Store (Real Storage)
+```bash
+make test-integration-badger
+```
+
+#### Custom Storage Type
+```bash
+make test-integration-store STORE=memory
+make test-integration-store STORE=badger
+```
+
+### Environment Variable Control
+
+You can also control the storage type directly via environment variable:
 
 ```bash
-# Run all integration tests
-go test -tags=integration ./test/integration/...
+# Memory store (fast development)
+RUNE_TEST_STORE_TYPE=memory go test -v -tags=integration
 
-# Run specific integration tests
-go test -tags=integration ./test/integration/docker/...
+# BadgerDB store (default, production-like)
+RUNE_TEST_STORE_TYPE=badger go test -v -tags=integration
+# Or simply omit the variable - BadgerDB is the default
+go test -v -tags=integration
 ```
 
 ## Test Structure
 
-The integration tests use build tags to separate them from unit tests:
+- **`get_test.go`**: Tests the `rune get` command functionality
+- **`helpers/test_helper.go`**: Configurable test helper that supports both storage types
 
-- All integration test files should include `// +build integration` or `//go:build integration` at the top
-- Integration tests are not run by default with `go test ./...`
-- The continuous integration pipeline runs them separately from unit tests
+## Benefits
 
-## Test Helpers
+1. **Fast Development**: Use memory store for quick feedback during development
+2. **Production Confidence**: Use BadgerDB store to test against real storage behavior
+3. **Flexible**: Easy to switch between storage types via Makefile or environment variables
+4. **Consistent**: Same test code works with both storage backends
 
-The integration test suite includes several helpers to make writing tests easier:
+## Example Workflow
 
-- `DockerHelper`: A wrapper around the Docker client to create containers, pull images, etc.
-- `IntegrationTest`: A function to set up and tear down test infrastructure
+```bash
+# Quick development testing (fast)
+make test-integration-memory
 
-## Adding New Tests
+# Production confidence testing (slower but more realistic)
+make test-integration-badger
 
-1. Create a new test file in the appropriate package
-2. Add the build tag `// +build integration` at the top
-3. Use the helper functions to set up any required infrastructure
-4. Implement the test cases, making sure to clean up resources
-
-## CI/CD Integration
-
-The integration tests are run in CI/CD only on:
-- Scheduled runs
-- When explicitly triggered via workflow_dispatch
-
-This is to avoid long test runs on every push, while still ensuring that integration tests are run regularly. 
+# Run specific test with custom storage
+RUNE_TEST_STORE_TYPE=badger go test -v -tags=integration -run TestGetCommand
+``` 

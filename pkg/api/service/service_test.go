@@ -8,7 +8,6 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
-	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,14 +16,10 @@ import (
 )
 
 func TestScaleService(t *testing.T) {
-	// Create in-memory store
-	store := store.NewMemoryStore()
-	require.NotNil(t, store)
-
 	// Create service service with logger and fake orchestrator
 	logger := log.NewTestLogger()
 	fakeOrchestrator := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fakeOrchestrator, logger)
+	svc := NewServiceService(fakeOrchestrator, nil, logger)
 
 	// Create test service
 	testService := &types.Service{
@@ -38,10 +33,9 @@ func TestScaleService(t *testing.T) {
 		},
 	}
 
-	// Store test service
+	// Store test service in orchestrator (ServiceService reads via orchestrator)
 	ctx := context.Background()
-	err := store.Create(ctx, types.ResourceTypeService, testService.Namespace, testService.Name, testService)
-	require.NoError(t, err)
+	require.NoError(t, fakeOrchestrator.CreateService(ctx, testService))
 
 	// Test cases
 	testCases := []struct {
@@ -112,11 +106,10 @@ func TestScaleService(t *testing.T) {
 			require.NotNil(t, resp.Service)
 			assert.Equal(t, tc.wantScale, int(resp.Service.Scale), "unexpected scale value")
 
-			// Verify service was updated in the store
-			var updatedService types.Service
-			err = store.Get(ctx, types.ResourceTypeService, tc.request.Namespace, tc.request.Name, &updatedService)
+			// Verify service was updated in the orchestrator
+			updatedService, err := fakeOrchestrator.GetService(ctx, tc.request.Namespace, tc.request.Name)
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantScale, updatedService.Scale, "service scale not updated in store")
+			assert.Equal(t, tc.wantScale, updatedService.Scale, "service scale not updated")
 		})
 	}
 }
@@ -125,7 +118,7 @@ func TestCreateService_DependencyCycleValidation(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, logger)
+	svc := NewServiceService(fake, nil, logger)
 
 	// Seed two services forming a chain a->b
 	a := &types.Service{Name: "a", Namespace: "default"}
@@ -152,7 +145,7 @@ func TestCreateService_DependencyCycleValidation_CreatePath(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, logger)
+	svc := NewServiceService(fake, nil, logger)
 
 	// Seed a->b
 	a := &types.Service{Name: "a", Namespace: "default"}
@@ -183,7 +176,7 @@ func TestDeleteService_BlocksWhenDependentsExist(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, logger)
+	svc := NewServiceService(fake, nil, logger)
 
 	// Seed db and api depends on db
 	db := &types.Service{Name: "db", Namespace: "default"}

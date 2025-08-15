@@ -252,7 +252,17 @@ func (m *MemoryStore) Transaction(ctx context.Context, fn func(ctx Transaction) 
 
 func (m *MemoryStore) Watch(ctx context.Context, resourceType types.ResourceType, namespace string) (<-chan WatchEvent, error) {
 	ch := make(chan WatchEvent)
-	close(ch)
+
+	// For testing purposes, we'll keep the channel open and never close it
+	// This prevents the infinite restart loop in controllers
+	// In a real implementation, this would watch for actual changes
+
+	go func() {
+		// Wait for context cancellation
+		<-ctx.Done()
+		// Don't close the channel - let the context cancellation handle cleanup
+	}()
+
 	return ch, nil
 }
 

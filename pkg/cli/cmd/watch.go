@@ -530,6 +530,54 @@ func (a ServiceWatcherAdapter) Watch(ctx context.Context, namespace, labelSelect
 		return nil, err
 	}
 
+	// Fast-path: if an immediate error is already available, surface it
+	select {
+	case ev, ok := <-svcCh:
+		if ok {
+			if ev.Error != nil {
+				eventCh := make(chan WatchEvent, 1)
+				eventCh <- WatchEvent{Error: ev.Error}
+				close(eventCh)
+				cancelWatch()
+				return eventCh, nil
+			}
+			// Push back non-error event into a new buffered channel to not lose it
+			eventCh := make(chan WatchEvent, 1)
+			// Convert service to ServiceResource and forward
+			if ev.Service != nil {
+				svcResource := ServiceResource{ev.Service}
+				eventCh <- WatchEvent{Resource: svcResource, EventType: ev.EventType}
+			}
+			// Start normal forwarding goroutine for subsequent events
+			go func(firstHandled bool) {
+				defer close(eventCh)
+				defer cancelWatch()
+				if !firstHandled && ev.Error != nil {
+					eventCh <- WatchEvent{Error: ev.Error}
+				}
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case event, ok := <-svcCh:
+						if !ok {
+							return
+						}
+						if event.Error != nil {
+							eventCh <- WatchEvent{Error: event.Error}
+							continue
+						}
+						svcResource := ServiceResource{event.Service}
+						eventCh <- WatchEvent{Resource: svcResource, EventType: event.EventType}
+					}
+				}
+			}(true)
+			return eventCh, nil
+		}
+	default:
+		// No immediate event available; proceed normally
+	}
+
 	// Create a new channel and adapt the events
 	eventCh := make(chan WatchEvent)
 	go func() {

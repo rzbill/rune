@@ -76,7 +76,7 @@ func TestGetLogs(t *testing.T) {
 	)
 
 	// Create Docker runner
-	runner, err := docker.NewDockerRunner(namespace, logger)
+	runner, err := docker.NewDockerRunner(logger)
 	if err != nil {
 		t.Fatalf("Failed to create Docker runner: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestGetLogs(t *testing.T) {
 
 	// Test 1: Get all logs
 	t.Run("GetAllLogs", func(t *testing.T) {
-		logs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		logs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Tail:       0, // Get all logs
 			Timestamps: false,
@@ -161,7 +161,7 @@ func TestGetLogs(t *testing.T) {
 
 	// Test 2: Get limited logs
 	t.Run("GetLimitedLogs", func(t *testing.T) {
-		logs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		logs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Tail:       1, // Only get the last line
 			Timestamps: false,
@@ -189,7 +189,7 @@ func TestGetLogs(t *testing.T) {
 	// Test 3: Test timestamp-based filtering with Since
 	t.Run("GetLogsSince", func(t *testing.T) {
 		// First, get logs with timestamps to capture the timestamp of the last message
-		timestampedLogs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		timestampedLogs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Tail:       0,
 			Timestamps: true, // Enable timestamps
@@ -239,7 +239,7 @@ func TestGetLogs(t *testing.T) {
 		t.Logf("Using Since time: %s", sinceTime.Format(time.RFC3339))
 
 		// Get logs with Since filter
-		sinceLogs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		sinceLogs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Since:      sinceTime,
 			Timestamps: false,
@@ -270,7 +270,7 @@ func TestGetLogs(t *testing.T) {
 	// Test 4: Test timestamp-based filtering with Until
 	t.Run("GetLogsUntil", func(t *testing.T) {
 		// First, get logs with timestamps to capture timestamps
-		timestampedLogs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		timestampedLogs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Tail:       0,
 			Timestamps: true, // Enable timestamps
@@ -319,7 +319,7 @@ func TestGetLogs(t *testing.T) {
 		t.Logf("Using Until time: %s", untilTime.Format(time.RFC3339))
 
 		// Get logs with Until filter
-		untilLogs, err := runner.GetLogs(ctx, instanceID, runeRunner.LogOptions{
+		untilLogs, err := runner.GetLogs(ctx, instance, runeRunner.LogOptions{
 			Follow:     false,
 			Until:      untilTime,
 			Timestamps: false,
@@ -409,7 +409,7 @@ func TestGetLogs(t *testing.T) {
 		time.Sleep(3 * time.Second)
 
 		// Get logs with timestamps to extract timing information
-		timestampedLogs, err := runner.GetLogs(ctx, combinedInstanceID, runeRunner.LogOptions{
+		timestampedLogs, err := runner.GetLogs(ctx, combinedInstance, runeRunner.LogOptions{
 			Follow:     false,
 			Timestamps: true,
 		})
@@ -474,7 +474,7 @@ func TestGetLogs(t *testing.T) {
 		t.Logf("Using Until time: %s", untilTime.Format(time.RFC3339))
 
 		// Get logs with combined filters
-		combinedLogs, err := runner.GetLogs(ctx, combinedInstanceID, runeRunner.LogOptions{
+		combinedLogs, err := runner.GetLogs(ctx, combinedInstance, runeRunner.LogOptions{
 			Follow:     false,
 			Since:      sinceTime,
 			Until:      untilTime,

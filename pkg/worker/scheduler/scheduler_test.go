@@ -430,8 +430,8 @@ func TestSchedulerWithZeroMaxRuns(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Wait for task to run multiple times
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// Verify task was executed multiple times
-	assert.Greater(t, executionCount, 3)
+	assert.GreaterOrEqual(t, executionCount, 5)
 }

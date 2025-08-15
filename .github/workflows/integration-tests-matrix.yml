@@ -1,0 +1,95 @@
+name: Integration Tests Matrix
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  schedule:
+    # Run integration tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      storage_type:
+        description: 'Storage type for tests'
+        required: false
+        default: 'badger'
+        type: choice
+        options:
+        - memory
+        - badger
+
+jobs:
+  integration-tests:
+    name: Integration Tests Matrix
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        storage: [memory, badger]
+        go-version: [1.23]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+        cache: true
+        
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Start Docker daemon
+      run: |
+        sudo systemctl start docker
+        sudo usermod -aG docker $USER
+        sudo chmod 666 /var/run/docker.sock
+        
+    - name: Verify Docker
+      run: |
+        docker --version
+        docker info
+        docker run --rm hello-world
+        
+    - name: Install dependencies
+      run: |
+        go mod download
+        go mod verify
+        
+    - name: Build test binary
+      run: |
+        go build -o bin/rune-test ./cmd/rune-test
+        
+    - name: Run integration tests with ${{ matrix.storage }} store
+      env:
+        RUNE_TEST_STORE_TYPE: ${{ matrix.storage }}
+        RUNE_INTEGRATION_TESTS: 1
+        DOCKER_HOST: unix:///var/run/docker.sock
+      run: |
+        echo "Running integration tests with ${{ matrix.storage }} storage..."
+        cd test/integration/cmd
+        go test -v -tags=integration -timeout=10m
+        
+    - name: Run full integration test suite
+      env:
+        RUNE_TEST_STORE_TYPE: ${{ matrix.storage }}
+        RUNE_INTEGRATION_TESTS: 1
+        DOCKER_HOST: unix:///var/run/docker.sock
+      run: |
+        echo "Running full integration test suite with ${{ matrix.storage }} storage..."
+        bash scripts/run_integration_tests.sh
+        
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.storage }}-go${{ matrix.go-version }}
+        path: |
+          coverage_integration.out
+          test-results/
+        retention-days: 7
+
+

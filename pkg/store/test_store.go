@@ -542,9 +542,6 @@ func (s *TestStore) GetVersion(ctx context.Context, resourceType types.ResourceT
 
 // Transaction implements the Store interface.
 func (s *TestStore) Transaction(ctx context.Context, fn func(tx Transaction) error) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	if !s.opened {
 		return errors.New("store is not opened")
 	}

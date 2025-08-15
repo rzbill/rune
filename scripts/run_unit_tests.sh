@@ -18,16 +18,36 @@ echo -e "${GREEN}=========================================${NC}"
 echo -e "${YELLOW}Testing environment:${NC}"
 echo -e "  - Go version: $(go version)"
 
-# Get list of packages excluding tests/integrations
-UNIT_PACKAGES=$(go list ./... | grep -v 'tests/integrations')
+# Get list of packages excluding test/integration
+UNIT_PACKAGES=$(go list ./... | grep -v 'test/integration')
 
 # Run unit tests and generate coverage report
 echo -e "${YELLOW}Running unit tests...${NC}"
 # Skip docker package integration-like tests unless explicitly enabled
 export SKIP_DOCKER_TESTS=${SKIP_DOCKER_TESTS:-1}
-go test -tags=unit $UNIT_PACKAGES -v -coverprofile=$COVERAGE_FILE
 
-TEST_EXIT_CODE=$?
+# Run tests on each package individually to handle packages without tests
+FAILED_PACKAGES=()
+for pkg in $UNIT_PACKAGES; do
+    echo -e "${YELLOW}Testing $pkg...${NC}"
+    if go test -tags=unit $pkg -v 2>&1; then
+        echo -e "${GREEN}✓ $pkg passed${NC}"
+    else
+        echo -e "${RED}✗ $pkg failed${NC}"
+        FAILED_PACKAGES+=("$pkg")
+    fi
+done
+
+# Check if any packages failed
+if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
+    echo -e "${RED}The following packages failed:${NC}"
+    for pkg in "${FAILED_PACKAGES[@]}"; do
+        echo -e "${RED}  - $pkg${NC}"
+    done
+    TEST_EXIT_CODE=1
+else
+    TEST_EXIT_CODE=0
+fi
 
 if [ $TEST_EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}All unit tests passed!${NC}"

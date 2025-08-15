@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var (
-	cfgFile string
-	verbose bool
+	cfgFile  string
+	verbose  bool
+	logLevel string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -47,10 +49,14 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.rune/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 
 	// Add global environment variables
 	viper.SetEnvPrefix("RUNE")
 	viper.AutomaticEnv() // read in environment variables that match
+
+	// Bind specific environment variables to config keys
+	viper.BindEnv("log.level", "RUNE_LOG_LEVEL")
 
 	// Register deps command group
 	rootCmd.AddCommand(newDepsCmd())
@@ -85,6 +91,32 @@ func initConfig() {
 			fmt.Println("Using config file:", viper.ConfigFileUsed())
 		}
 	}
+
+	// Configure log level
+	configureLogLevel()
+}
+
+// configureLogLevel sets the global log level based on command line flags and environment variables
+func configureLogLevel() {
+	// Get log level from flag, environment variable, or config file
+	levelStr := logLevel
+	if levelStr == "" {
+		levelStr = viper.GetString("log.level")
+	}
+	if levelStr == "" {
+		levelStr = "info" // default
+	}
+
+	// Parse and set the log level
+	level, err := log.ParseLevel(levelStr)
+	if err != nil {
+		fmt.Printf("Invalid log level: %s, defaulting to 'info'\n", levelStr)
+		level = log.InfoLevel
+	}
+
+	// Create a new logger with the specified level and set it as the default
+	logger := log.NewLogger(log.WithLevel(level))
+	log.SetDefaultLogger(logger)
 }
 
 // getEnv is a small wrapper so other commands can mock env lookup in tests

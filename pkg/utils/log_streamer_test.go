@@ -149,33 +149,42 @@ func TestMultiLogStreamer_WithMetadata(t *testing.T) {
 
 	// Check each line has the correct format
 	for _, line := range outputLines {
-		// Verify line format: [instance-id instance-name timestamp] content
-		if len(line) < 10 {
+		// Verify line format: @@LOG_META|[instanceID|instanceName|timestamp]@@ content
+		if len(line) < 20 {
 			t.Errorf("Line too short: %s", line)
 			continue
 		}
 
-		// Check for opening bracket
-		if !strings.HasPrefix(line, "[") {
-			t.Errorf("Line doesn't start with '[': %s", line)
+		// Check for the metadata prefix
+		if !strings.HasPrefix(line, "@@LOG_META|[") {
+			t.Errorf("Line doesn't start with '@@LOG_META|[': %s", line)
 			continue
 		}
 
-		// Check for closing bracket and space before content
-		closeBracketPos := strings.Index(line, "] ")
-		if closeBracketPos == -1 {
-			t.Errorf("Line doesn't contain '] ' separator: %s", line)
+		// Check for the metadata closing marker
+		closingMarkerPos := strings.Index(line, "]@@")
+		if closingMarkerPos == -1 {
+			t.Errorf("Line doesn't contain ']@@' marker: %s", line)
 			continue
 		}
 
 		// Check metadata contains instance ID and name
-		metadata := line[1:closeBracketPos]
-		if !strings.Contains(metadata, "inst-") || !strings.Contains(metadata, "instance-") {
-			t.Errorf("Metadata doesn't contain instance information: %s", metadata)
+		metadata := line[12:closingMarkerPos] // Skip "@@LOG_META|["
+		parts := strings.Split(metadata, "|")
+		if len(parts) < 3 {
+			t.Errorf("Metadata doesn't have enough parts: %s", metadata)
+			continue
+		}
+
+		instanceID := parts[0]
+		instanceName := parts[1]
+
+		if !strings.Contains(instanceID, "inst-") || !strings.Contains(instanceName, "instance-") {
+			t.Errorf("Metadata doesn't contain expected instance information: ID=%s, Name=%s", instanceID, instanceName)
 		}
 
 		// Check for content after metadata
-		content := line[closeBracketPos+2:]
+		content := line[closingMarkerPos+3:] // Skip past "]@@"
 		if !strings.Contains(content, "log line") {
 			t.Errorf("Content doesn't contain expected log text: %s", content)
 		}

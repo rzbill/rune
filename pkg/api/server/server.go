@@ -130,7 +130,7 @@ func (s *APIServer) Start() error {
 	}
 
 	// Create service implementations
-	s.serviceService = service.NewServiceService(s.orchestrator, s.logger)
+	s.serviceService = service.NewServiceService(s.orchestrator, s.runnerManager, s.logger)
 	s.instanceService = service.NewInstanceService(s.store, s.runnerManager, s.logger)
 	s.logService = service.NewLogService(s.store, s.logger, s.orchestrator)
 	s.execService = service.NewExecService(s.logger, s.orchestrator)
@@ -242,7 +242,7 @@ func (s *APIServer) startRESTGateway() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Get the gRPC server endpoint
+	// Use the configured gRPC address
 	endpoint := s.options.GRPCAddr
 
 	// Register service handlers
@@ -476,6 +476,11 @@ func (s *APIServer) logUnaryInterceptor() grpc.UnaryServerInterceptor {
 
 		return resp, err
 	}
+}
+
+// GetStore returns the store instance.
+func (s *APIServer) GetStore() store.Store {
+	return s.store
 }
 
 // logStreamInterceptor returns a stream interceptor for logging.

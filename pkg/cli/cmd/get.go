@@ -51,6 +51,7 @@ var resourceAliases = map[string]string{
 	"svc":        "service",
 	"inst":       "instance",
 	"ns":         "namespace",
+	"cfg":        "config",
 	"configmap":  "configmap",
 	"configmaps": "configmap",
 }

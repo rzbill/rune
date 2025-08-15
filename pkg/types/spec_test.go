@@ -247,6 +247,12 @@ func TestServiceSpec_Validate(t *testing.T) {
 				Name:  "test-service",
 				Image: "nginx:latest",
 				Scale: 1,
+				Ports: []ServicePort{
+					{
+						Name: "http",
+						Port: 80,
+					},
+				},
 				Expose: &ServiceExpose{
 					Port: "http",
 					Host: "example.com",

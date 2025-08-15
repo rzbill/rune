@@ -40,9 +40,42 @@ test: test-unit test-integration
 test-unit:
 	@bash scripts/run_unit_tests.sh
 
-## Run integration tests via script
+## Run integration tests via script (defaults to BadgerDB store)
 test-integration:
-	@bash scripts/integration/run_tests.sh
+	@bash scripts/run_integration_tests.sh
+
+## Run integration tests with memory store (fast)
+test-integration-memory:
+	@echo "Running integration tests with memory store..."
+	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=memory go test -v -tags=integration
+
+## Run integration tests with BadgerDB store (real storage)
+test-integration-badger:
+	@echo "Running integration tests with BadgerDB store..."
+	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=badger go test -v -tags=integration
+
+## Run integration tests with specific storage type
+test-integration-store:
+	@echo "Running integration tests with $(STORE) store..."
+	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=$(STORE) go test -v -tags=integration
+
+## Run integration tests in Docker (GitHub Actions style)
+test-integration-docker:
+	@echo "Running integration tests in Docker environment..."
+	@docker-compose -f docker-compose.test.yml --profile test up --abort-on-container-exit --exit-code-from test-runner
+
+## Run integration tests in Go container with Docker access
+test-integration-docker-go:
+	@echo "Running integration tests in Go container with Docker access..."
+	@docker run --rm \
+		-v $(PWD):/workspace \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-e RUNE_TEST_STORE_TYPE=badger \
+		-e RUNE_INTEGRATION_TESTS=1 \
+		-e DOCKER_HOST=unix:///var/run/docker.sock \
+		-w /workspace \
+		golang:1.23-alpine \
+		sh -c "apk add --no-cache git bash && go build -o bin/rune-test ./cmd/rune-test && bash scripts/integration/run_tests.sh"
 
 ## Open unit test coverage report
 coverage-unit:
@@ -88,10 +121,7 @@ setup:
 	@$(GO) install golang.org/x/tools/cmd/godoc@latest
 	@echo "Setup completed!"
 
-## Start development environment
-dev:
-	@echo "Starting dev environment..."
-	@docker-compose up -d
+
 
 ## Run code generation
 generate:
@@ -126,7 +156,12 @@ help:
 	@echo "Testing:"
 	@echo "  test              Run all tests"
 	@echo "  test-unit         Run unit tests"
-	@echo "  test-integration  Run integration tests"
+	@echo "  test-integration  Run integration tests (BadgerDB store by default)"
+	@echo "  test-integration-memory  Run integration tests with memory store (fast)"
+	@echo "  test-integration-badger  Run integration tests with BadgerDB store (real storage)"
+	@echo "  test-integration-store STORE=<type>  Run integration tests with specific store type"
+	@echo "  test-integration-docker              Run integration tests in Docker environment"
+	@echo "  test-integration-docker-go           Run integration tests in Go container with Docker access"
 	@echo "  coverage          Open coverage reports"
 	@echo "  coverage-summary  Show text-based summaries"
 	@echo ""
@@ -134,7 +169,7 @@ help:
 	@echo "  lint              Run linters"
 	@echo "  clean             Clean all artifacts"
 	@echo "  setup             Install dev tools"
-	@echo "  dev               Start dev environment (Docker)"
+
 	@echo "  generate          Run go generate"
 	@echo ""
 	@echo "Protobuf:"

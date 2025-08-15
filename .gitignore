@@ -11,9 +11,14 @@ rune
 *.test
 
 # Output of the go coverage tool
-*.out
+*.out 
+*.out.html
 coverage.html
 *coverage.html
+
+# Token files
+*.token
+rune-test
 
 # Dependency directories (remove the comment below to include it)
 vendor/

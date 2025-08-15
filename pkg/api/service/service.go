@@ -11,6 +11,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
+	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc/codes"
@@ -26,15 +27,17 @@ const (
 type ServiceService struct {
 	generated.UnimplementedServiceServiceServer
 
-	orchestrator orchestrator.Orchestrator
-	logger       log.Logger
+	orchestrator  orchestrator.Orchestrator
+	runnerManager *manager.RunnerManager
+	logger        log.Logger
 }
 
 // NewServiceService creates a new ServiceService with the given orchestrator and logger.
-func NewServiceService(orchestrator orchestrator.Orchestrator, logger log.Logger) *ServiceService {
+func NewServiceService(orchestrator orchestrator.Orchestrator, runnerManager *manager.RunnerManager, logger log.Logger) *ServiceService {
 	return &ServiceService{
-		orchestrator: orchestrator,
-		logger:       logger,
+		orchestrator:  orchestrator,
+		runnerManager: runnerManager,
+		logger:        logger,
 	}
 }
 
@@ -81,6 +84,15 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	// Validate global dependency cycles including this new service
 	if err := s.validateGlobalDependencyCycles(ctx, service); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "dependency validation failed: %v", err)
+	}
+
+	// If service uses container runtime, ensure Docker runner is available
+	if service.Runtime == "" || service.Runtime == types.RuntimeType("container") {
+		if s.runnerManager != nil {
+			if _, err := s.runnerManager.GetDockerRunner(); err != nil {
+				return nil, status.Errorf(codes.FailedPrecondition, "docker is not available: install Docker and ensure the daemon is running")
+			}
+		}
 	}
 
 	// Use orchestrator to create the service

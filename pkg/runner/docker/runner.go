@@ -820,6 +820,11 @@ func (r *DockerRunner) instanceToContainerConfig(instance *runetypes.Instance) (
 		Env: formatEnvVars(instance.Environment),
 	}
 
+	// Set the command if specified in the instance
+	if instance.Exec != nil && len(instance.Exec.Command) > 0 {
+		containerConfig.Cmd = instance.Exec.Command
+	}
+
 	// Configure host config with mounts and resources
 	hostConfig := &container.HostConfig{}
 

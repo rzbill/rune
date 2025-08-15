@@ -69,7 +69,7 @@ func TestTestStore(t *testing.T) {
 
 	// Test Update
 	service.Scale = 2
-	err = store.Update(ctx, "services", "default", "test-service", service)
+	err = store.Update(ctx, types.ResourceTypeService, "default", "test-service", service)
 	assert.NoError(t, err, "Update should not return an error")
 
 	// Verify update
@@ -78,7 +78,7 @@ func TestTestStore(t *testing.T) {
 	assert.Equal(t, 2, retrievedService.Scale, "Service scale should be updated to 2")
 
 	// Test Delete
-	err = store.Delete(ctx, "services", "default", "test-service")
+	err = store.Delete(ctx, types.ResourceTypeService, "default", "test-service")
 	assert.NoError(t, err, "Delete should not return an error")
 
 	// Verify delete
@@ -100,7 +100,7 @@ func TestWatch(t *testing.T) {
 	defer cancel()
 
 	// Set up a watch
-	watchCh, err := store.Watch(ctx, "services", "default")
+	watchCh, err := store.Watch(ctx, types.ResourceTypeService, "default")
 	assert.NoError(t, err, "Watch should not return an error")
 
 	// Add an event receiver
@@ -129,11 +129,11 @@ func TestWatch(t *testing.T) {
 
 	// Update the service
 	service.Scale = 3
-	err = store.Update(ctx, "services", "default", "watched-service", service)
+	err = store.Update(ctx, types.ResourceTypeService, "default", "watched-service", service)
 	assert.NoError(t, err, "Update should not return an error")
 
 	// Delete the service
-	err = store.Delete(ctx, "services", "default", "watched-service")
+	err = store.Delete(ctx, types.ResourceTypeService, "default", "watched-service")
 	assert.NoError(t, err, "Delete should not return an error")
 
 	// Wait for all events to be received

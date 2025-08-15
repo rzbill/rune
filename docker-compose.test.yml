@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # Test runner with Docker-in-Docker
+  test-runner:
+    image: docker:24.0.5-dind
+    container_name: rune-test-runner
+    privileged: true
+    environment:
+      - DOCKER_TLS_CERTDIR=""
+      - RUNE_TEST_STORE_TYPE=badger
+      - RUNE_INTEGRATION_TESTS=1
+    volumes:
+      - .:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspace
+    profiles:
+      - test
+
+    command: >
+      sh -c "
+        apk add --no-cache go git bash &&
+        cd /workspace &&
+        go build -o bin/rune-test ./cmd/rune-test &&
+        bash scripts/run_integration_tests.sh
+      "

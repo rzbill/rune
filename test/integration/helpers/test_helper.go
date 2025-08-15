@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rzbill/rune/pkg/api/server"
 	"github.com/rzbill/rune/pkg/log"
@@ -18,18 +19,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// StoreType defines the type of store to use in tests
+type StoreType string
+
+const (
+	StoreTypeMemory StoreType = "memory"
+	StoreTypeBadger StoreType = "badger"
+)
+
 // TestHelper provides utilities for integration testing
 type TestHelper struct {
 	t          *testing.T
 	tempDir    string
 	apiServer  *server.APIServer
 	runeBinary string
-	store      *store.MemoryStore
+	store      store.Store
 	fixtureDir string
+	storeType  StoreType
+	memStore   *store.MemoryStore // Keep reference for helper methods
 }
 
-// NewTestHelper creates a new test helper
+// NewTestHelper creates a new test helper with configurable store type
 func NewTestHelper(t *testing.T) *TestHelper {
+	// Check environment variable for store type
+	storeType := StoreTypeBadger // Default to BadgerDB store (production-like)
+	if envStoreType := os.Getenv("RUNE_TEST_STORE_TYPE"); envStoreType != "" {
+		switch envStoreType {
+		case "memory", "Memory", "MEMORY":
+			storeType = StoreTypeMemory
+		case "badger", "Badger", "BADGER":
+			storeType = StoreTypeBadger
+		default:
+			t.Logf("Unknown store type '%s', defaulting to BadgerDB", envStoreType)
+			storeType = StoreTypeBadger
+		}
+	}
+
+	return NewTestHelperWithStore(t, storeType)
+}
+
+// NewTestHelperWithStore creates a new test helper with specified store type
+func NewTestHelperWithStore(t *testing.T, storeType StoreType) *TestHelper {
 	tempDir, err := os.MkdirTemp("", "rune-test-*")
 	require.NoError(t, err)
 
@@ -38,20 +68,52 @@ func NewTestHelper(t *testing.T) *TestHelper {
 	err = os.MkdirAll(fixtureDir, 0755)
 	require.NoError(t, err)
 
-	// Find rune binary
+	// Always use rune-test binary for integration tests
+	// This gives us full control over the test environment
 	runeBinary := os.Getenv("RUNE_BINARY")
 	if runeBinary == "" {
-		// Look for test binary
-		runeBinary, err = exec.LookPath("rune-test")
-		if err != nil {
-			// Build the test binary
-			cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "rune-test"), "github.com/rzbill/rune/cmd/rune-test")
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("Failed to build test binary: %s\nOutput: %s", err, output)
+		// Look for rune-test binary in the project's bin directory first
+		// Get the current working directory to build absolute path
+		cwd, err := os.Getwd()
+		if err == nil {
+			projectBin := filepath.Join(cwd, "bin", "rune-test")
+			if _, err := os.Stat(projectBin); err == nil {
+				runeBinary = projectBin
 			}
-			runeBinary = filepath.Join(tempDir, "rune-test")
 		}
+
+		// If not found in project bin, fall back to PATH lookup
+		if runeBinary == "" {
+			runeBinary, err = exec.LookPath("rune-test")
+			if err != nil {
+				// Build the test binary
+				cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "rune-test"), "github.com/rzbill/rune/cmd/rune-test")
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("Failed to build test binary: %s\nOutput: %s", err, output)
+				}
+				runeBinary = filepath.Join(tempDir, "rune-test")
+			}
+		}
+	}
+
+	// Initialize store based on type
+	var storeInstance store.Store
+	var memStore *store.MemoryStore
+
+	switch storeType {
+	case StoreTypeMemory:
+		memStore = store.NewMemoryStore()
+		storeInstance = memStore
+	case StoreTypeBadger:
+		logger := log.GetDefaultLogger().WithComponent("test-badger-store")
+		badgerStore := store.NewBadgerStore(logger)
+		// Open store with temporary directory
+		err = badgerStore.Open(filepath.Join(tempDir, "badger"))
+		require.NoError(t, err)
+		storeInstance = badgerStore
+	default:
+		t.Fatalf("Unknown store type: %s", storeType)
 	}
 
 	return &TestHelper{
@@ -59,6 +121,9 @@ func NewTestHelper(t *testing.T) *TestHelper {
 		tempDir:    tempDir,
 		runeBinary: runeBinary,
 		fixtureDir: fixtureDir,
+		store:      storeInstance,
+		storeType:  storeType,
+		memStore:   memStore,
 	}
 }
 
@@ -75,6 +140,8 @@ func (h *TestHelper) Cleanup() {
 
 // StartAPIServer starts a test API server
 func (h *TestHelper) StartAPIServer() *server.APIServer {
+	// Set log level to error for tests to suppress repetitive background controller logs
+	log.SetDefaultLogger(log.NewLogger(log.WithLevel(log.ErrorLevel)))
 	logger := log.GetDefaultLogger().WithComponent("test-api-server")
 
 	// Create a memory store for testing
@@ -96,6 +163,10 @@ func (h *TestHelper) StartAPIServer() *server.APIServer {
 	require.NoError(h.t, err)
 
 	h.apiServer = apiServer
+
+	// Note: Since we're using rune-test binary, we don't need to set up
+	// environment variables for API server connection
+
 	return apiServer
 }
 
@@ -104,7 +175,16 @@ func (h *TestHelper) RunCommand(args ...string) (string, error) {
 	// Set environment for the test binary
 	env := append(os.Environ(),
 		fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir),
+		"RUNE_LOG_LEVEL=error", // Set log level to error to suppress repetitive logs
 	)
+
+	// Check if this is a watch command
+	for _, arg := range args {
+		if arg == "--watch" {
+			env = append(env, "RUNE_TEST_WATCH=true")
+			break
+		}
+	}
 
 	// Run the command
 	cmd := exec.Command(h.runeBinary, args...)
@@ -112,6 +192,46 @@ func (h *TestHelper) RunCommand(args ...string) (string, error) {
 
 	// Get output
 	out, err := cmd.CombinedOutput()
+
+	// After running a cast command, load any fixtures that were created
+	if len(args) > 0 && args[0] == "cast" && err == nil {
+		h.loadFixtures(context.Background())
+	}
+
+	return string(out), err
+}
+
+// RunCommandWithTimeout executes a rune CLI command with a timeout
+func (h *TestHelper) RunCommandWithTimeout(timeout time.Duration, args ...string) (string, error) {
+
+	// Set environment for the test binary
+	env := append(os.Environ(),
+		fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir),
+		"RUNE_LOG_LEVEL=error", // Set log level to error to suppress repetitive logs
+	)
+
+	// Check if this is a watch command
+	for _, arg := range args {
+		if arg == "--watch" {
+			env = append(env, "RUNE_TEST_WATCH=true")
+		}
+	}
+
+	// Create context with timeout
+	fmt.Printf("DEBUG: Creating context with timeout\n")
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Run the command with context
+	fmt.Printf("DEBUG: Creating exec.CommandContext\n")
+	cmd := exec.CommandContext(ctx, h.runeBinary, args...)
+	fmt.Printf("DEBUG: Setting environment variables\n")
+	cmd.Env = env
+
+	// Get output
+	fmt.Printf("DEBUG: Calling cmd.CombinedOutput()\n")
+	out, err := cmd.CombinedOutput()
+	fmt.Printf("DEBUG: cmd.CombinedOutput() completed\n")
 
 	// After running a cast command, load any fixtures that were created
 	if len(args) > 0 && args[0] == "cast" && err == nil {
@@ -133,8 +253,10 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		return err
 	}
 
-	// Make sure services resource type exists in the store
-	h.store.EnsureResourceType("services")
+	// Make sure service resource type exists in the store
+	if h.memStore != nil {
+		h.memStore.EnsureResourceType(types.ResourceTypeService)
+	}
 
 	for _, file := range files {
 		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
@@ -168,7 +290,9 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		}
 
 		// Make sure the namespace exists in the store
-		h.store.EnsureNamespace("services", svc.Namespace)
+		if h.memStore != nil {
+			h.memStore.EnsureNamespace(types.ResourceTypeService, svc.Namespace)
+		}
 
 		if runtime, ok := serviceMap["runtime"].(string); ok {
 			svc.Runtime = types.RuntimeType(runtime)
@@ -202,7 +326,7 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		svc.Status = types.ServiceStatusRunning
 
 		// Store the service
-		err = h.store.Create(ctx, "services", svc.Namespace, svc.Name, svc)
+		err = h.store.Create(ctx, types.ResourceTypeService, svc.Namespace, svc.Name, svc)
 		if err != nil {
 			// If it already exists, that's not a fatal error
 			if !strings.Contains(err.Error(), "already exists") {
@@ -221,8 +345,12 @@ func (h *TestHelper) GetService(ctx context.Context, namespace, name string) (*t
 	}
 
 	// First ensure the namespace exists
-	h.store.EnsureResourceType("services")
-	h.store.EnsureNamespace("services", namespace)
+	if h.memStore != nil {
+		h.memStore.EnsureResourceType(types.ResourceTypeService)
+	}
+	if h.memStore != nil {
+		h.memStore.EnsureNamespace(types.ResourceTypeService, namespace)
+	}
 
 	var svc types.Service
 	err := h.store.Get(ctx, types.ResourceTypeService, namespace, name, &svc)
@@ -243,7 +371,7 @@ func (h *TestHelper) CreateTestService(ctx context.Context, svc *types.Service) 
 		svc.Namespace = "default"
 	}
 
-	return h.store.Create(ctx, "services", svc.Namespace, svc.Name, svc)
+	return h.store.Create(ctx, types.ResourceTypeService, svc.Namespace, svc.Name, svc)
 }
 
 // TempDir returns the temporary directory for this test

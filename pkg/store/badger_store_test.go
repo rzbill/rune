@@ -243,7 +243,7 @@ func TestBadgerStoreTransaction(t *testing.T) {
 				Image: fmt.Sprintf("image-%d:latest", i),
 			}
 
-			err := tx.Create("services", "default", fmt.Sprintf("service-%d", i), service)
+			err := tx.Create(types.ResourceTypeService, "default", fmt.Sprintf("service-%d", i), service)
 			if err != nil {
 				return err
 			}
@@ -280,13 +280,13 @@ func TestBadgerStoreTransaction(t *testing.T) {
 			Image: "rollback:latest",
 		}
 
-		err := tx.Create("services", "default", "will-rollback", service)
+		err := tx.Create(types.ResourceTypeService, "default", "will-rollback", service)
 		if err != nil {
 			return err
 		}
 
 		// This will trigger a rollback, service already exists
-		return tx.Create("services", "default", "service-1", service)
+		return tx.Create(types.ResourceTypeService, "default", "service-1", service)
 	})
 
 	if err == nil {
@@ -310,7 +310,7 @@ func TestBadgerStoreWatch(t *testing.T) {
 	defer cancel()
 
 	// Set up watch for services in default namespace
-	events, err := store.Watch(ctx, "services", "default")
+	events, err := store.Watch(ctx, types.ResourceTypeService, "default")
 	if err != nil {
 		t.Fatalf("Failed to set up watch: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestBadgerStoreWatch(t *testing.T) {
 	}
 
 	// Create service and capture event
-	err = store.Create(ctx, "services", "default", "watched-service", service)
+	err = store.Create(ctx, types.ResourceTypeService, "default", "watched-service", service)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestBadgerStoreWatch(t *testing.T) {
 		t.Fatalf("Expected create event, got %s", createEvent.Type)
 	}
 
-	if createEvent.ResourceType != "services" ||
+	if createEvent.ResourceType != types.ResourceTypeService ||
 		createEvent.Namespace != "default" ||
 		createEvent.Name != "watched-service" {
 		t.Fatalf("Event contains incorrect data: %+v", createEvent)
@@ -359,7 +359,7 @@ func TestBadgerStoreWatch(t *testing.T) {
 		Image: "nginx:1.19",
 	}
 
-	err = store.Update(ctx, "services", "default", "watched-service", updatedService)
+	err = store.Update(ctx, types.ResourceTypeService, "default", "watched-service", updatedService)
 	if err != nil {
 		t.Fatalf("Failed to update service: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestBadgerStoreWatch(t *testing.T) {
 	}
 
 	// Delete the service
-	err = store.Delete(ctx, "services", "default", "watched-service")
+	err = store.Delete(ctx, types.ResourceTypeService, "default", "watched-service")
 	if err != nil {
 		t.Fatalf("Failed to delete service: %v", err)
 	}
