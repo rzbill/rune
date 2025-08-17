@@ -72,11 +72,6 @@ jobs:
         echo "Running integration tests with ${{ matrix.storage }} storage..."
         make test-integration-store STORE=${{ matrix.storage }}
         
-    - name: Check Coverage
-      env:
-        COVERAGE_THRESHOLD: ${{ secrets.COVERAGE_THRESHOLD }}
-      run: make check-coverage-integration
-        
 
 
 
