@@ -61,7 +61,7 @@ test-integration-badger:
 ## Run integration tests with specific storage type
 test-integration-store:
 	@echo "Running integration tests with $(STORE) store..."
-	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=$(STORE) go test -v -tags=integration -coverprofile=../../$(INTEGRATION_COVERAGE)
+	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=$(STORE) go test -v -tags=integration -coverprofile=$(CURDIR)/$(INTEGRATION_COVERAGE)
 
 ## Run integration tests in Docker (GitHub Actions style)
 test-integration-docker:
