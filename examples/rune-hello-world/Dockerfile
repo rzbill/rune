@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /rune-hello-world .
 
 # Create a simple script for interactive testing
-RUN echo '#!/bin/bash\necho "Interactive shell for Rune Hello World"\necho "Available commands:"\necho "  - curl localhost:8080/health"\necho "  - curl localhost:8080/"\necho "  - curl localhost:8080/debug"\necho "  - ps aux"\necho "  - env"\necho "  - ls -la"\necho ""\necho "Starting bash..."\nexec bash' > /app/debug.sh && chmod +x /app/debug.sh
+RUN echo '#!/bin/bash\necho "Interactive shell for Rune Hello World"\necho "Available commands:"\necho "  - curl localhost:7863/health"\necho "  - curl localhost:7863/"\necho "  - curl localhost:7863/debug"\necho "  - ps aux"\necho "  - env"\necho "  - ls -la"\necho ""\necho "Starting bash..."\nexec bash' > /app/debug.sh && chmod +x /app/debug.sh
 
 # Expose the port
 EXPOSE 8080

@@ -79,7 +79,7 @@ rune cast examples/rune-hello-world/service.yaml
 rune cast -f <cloudflared-service-yaml>
 ```
 
-Now `https://api.example.com` will forward to your local service on `127.0.0.1:8080` without opening inbound ports or using an AWS load balancer.
+Now `https://api.example.com` will forward to your local service on `127.0.0.1:7863` without opening inbound ports or using an AWS load balancer.
 
 If you've created an example that you think would be helpful to others, please submit a pull request. Be sure to include:
 

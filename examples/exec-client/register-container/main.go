@@ -68,7 +68,7 @@ func main() {
 
 	// Step 2: Call StartInstance to activate it
 	// Connect to the Rune gRPC server
-	conn, err := grpc.Dial("localhost:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial("localhost:7863", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Printf("Failed to connect to gRPC server: %v\n", err)
 		os.Exit(1)

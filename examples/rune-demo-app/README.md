@@ -55,19 +55,19 @@ rune health rune-demo-app --namespace=demo
 
 ```bash
 # Get service info
-curl http://localhost:8080/
+curl http://localhost:7863/
 
 # Check health
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 
 # View metrics (Prometheus format)
-curl http://localhost:8080/metrics
+curl http://localhost:7863/metrics
 
 # Debug information (requires DEBUG_MODE=true)
-curl http://localhost:8080/debug
+curl http://localhost:7863/debug
 
 # Interactive commands
-curl -X POST http://localhost:8080/interactive \
+curl -X POST http://localhost:7863/interactive \
   -H "Content-Type: application/json" \
   -d '{"command": "status"}'
 ```
@@ -129,7 +129,7 @@ rune exec rune-demo-app --namespace=demo env | grep RUNE
 rune discover rune-demo-app --namespace=demo
 
 # Test connectivity
-curl http://rune-demo-app.demo.rune:8080/health
+curl http://rune-demo-app.demo.rune:7863/health
 ```
 
 ## Environment Variables
@@ -178,7 +178,7 @@ Returns detailed debug information when `DEBUG_MODE=true`.
 ### `/interactive` - Command Execution
 POST endpoint for executing commands:
 ```bash
-curl -X POST http://localhost:8080/interactive \
+curl -X POST http://localhost:7863/interactive \
   -H "Content-Type: application/json" \
   -d '{"command": "status"}'
 ```
@@ -280,7 +280,7 @@ The application exposes Prometheus-compatible metrics at `/metrics`:
    rune health rune-demo-app --namespace=demo
    
    # Test health endpoint directly
-   curl http://localhost:8080/health
+   curl http://localhost:7863/health
    ```
 
 3. **Exec not working**
@@ -301,7 +301,7 @@ Enable debug mode to get more detailed information:
 rune cast service.yaml --set-env DEBUG_MODE=true
 
 # Check debug endpoint
-curl http://localhost:8080/debug
+curl http://localhost:7863/debug
 ```
 
 ## Development
@@ -316,7 +316,7 @@ go run main.go
 go build -o rune-demo-app main.go
 
 # Test endpoints
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 ```
 
 ### Docker Development
@@ -326,10 +326,10 @@ curl http://localhost:8080/health
 docker build -t rune-demo-app:latest .
 
 # Run container
-docker run -p 8080:8080 rune-demo-app:latest
+docker run -p 8080:7863 rune-demo-app:latest
 
 # Test container
-curl http://localhost:8080/
+curl http://localhost:7863/
 ```
 
 ## Cleanup

@@ -3,11 +3,11 @@ output "instance_public_ip" {
 }
 
 output "grpc_endpoint" {
-  value = "${aws_instance.rune.public_ip}:8080"
+  value = "${aws_instance.rune.public_ip}:7863"
 }
 
 output "http_endpoint" {
-  value = "http://${aws_instance.rune.public_ip}:8081"
+  value = "http://${aws_instance.rune.public_ip}:7861"
 }
 
 

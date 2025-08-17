@@ -42,7 +42,7 @@ The demo app uses extensive environment variables to demonstrate Rune's configur
 rune exec rune-demo-app --namespace=development env | grep -E "(ENVIRONMENT|VERSION|DEBUG|FEATURE)"
 
 # Test configuration endpoint
-curl http://localhost:8080/ | jq '.config'
+curl http://localhost:7863/ | jq '.config'
 ```
 
 **Key Environment Variables:**
@@ -61,10 +61,10 @@ The app implements comprehensive health checks:
 rune health rune-demo-app --namespace=development
 
 # Test health endpoint directly
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 
 # Monitor health over time
-watch -n 5 'curl -s http://localhost:8080/health | jq .'
+watch -n 5 'curl -s http://localhost:7863/health | jq .'
 ```
 
 **Health Check Features:**
@@ -146,7 +146,7 @@ rune scale rune-demo-app 2 --namespace=development
 rune discover rune-demo-app --namespace=development
 
 # Test internal connectivity
-curl http://rune-demo-app.development.rune:8080/health
+curl http://rune-demo-app.development.rune:7863/health
 
 # Check service DNS
 nslookup rune-demo-app.development.rune
@@ -158,19 +158,19 @@ The demo app provides several HTTP endpoints for testing:
 
 ```bash
 # Service information
-curl http://localhost:8080/ | jq '.'
+curl http://localhost:7861/ | jq '.'
 
 # Health check
-curl http://localhost:8080/health | jq '.'
+curl http://localhost:7861/health | jq '.'
 
 # Prometheus metrics
-curl http://localhost:8080/metrics
+curl http://localhost:7861/metrics
 
 # Debug information (requires DEBUG_MODE=true)
-curl http://localhost:8080/debug | jq '.'
+curl http://localhost:7861/debug | jq '.'
 
 # Interactive commands
-curl -X POST http://localhost:8080/interactive \
+curl -X POST http://localhost:7863/interactive \
   -H "Content-Type: application/json" \
   -d '{"command": "status"}' | jq '.'
 ```
@@ -225,7 +225,7 @@ The app simulates health check failures:
 
 ```bash
 # Monitor health checks
-watch -n 2 'curl -s http://localhost:8080/health | jq ".status"'
+watch -n 2 'curl -s http://localhost:7863/health | jq ".status"'
 
 # Check Rune's health monitoring
 rune health rune-demo-app --namespace=development
@@ -236,11 +236,11 @@ rune health rune-demo-app --namespace=development
 ```bash
 # Generate load
 for i in {1..100}; do
-  curl -s http://localhost:8080/ > /dev/null
+  curl -s http://localhost:7863/ > /dev/null
 done
 
 # Check metrics
-curl http://localhost:8080/metrics | grep requests_total
+curl http://localhost:7863/metrics | grep requests_total
 ```
 
 ### 4. Instance Management
@@ -264,7 +264,7 @@ rune logs rune-demo-app-instance-123 --namespace=development
 # Test all available commands
 for cmd in ls pwd env ps config status memory help; do
   echo "Testing command: $cmd"
-  curl -s -X POST http://localhost:8080/interactive \
+  curl -s -X POST http://localhost:7863/interactive \
     -H "Content-Type: application/json" \
     -d "{\"command\": \"$cmd\"}" | jq '.result'
 done
@@ -297,23 +297,23 @@ done
 
 ```bash
 # View all metrics
-curl http://localhost:8080/metrics
+curl http://localhost:7863/metrics
 
 # Filter specific metrics
-curl http://localhost:8080/metrics | grep -E "(requests_total|uptime_seconds|memory_bytes)"
+curl http://localhost:7863/metrics | grep -E "(requests_total|uptime_seconds|memory_bytes)"
 ```
 
 ### 2. Application Metrics
 
 ```bash
 # Check request count
-curl -s http://localhost:8080/metrics | grep requests_total
+curl -s http://localhost:7863/metrics | grep requests_total
 
 # Check memory usage
-curl -s http://localhost:8080/metrics | grep memory_bytes
+curl -s http://localhost:7863/metrics | grep memory_bytes
 
 # Check uptime
-curl -s http://localhost:8080/metrics | grep uptime_seconds
+curl -s http://localhost:7863/metrics | grep uptime_seconds
 ```
 
 ## 🛠️ Troubleshooting
@@ -335,7 +335,7 @@ rune health rune-demo-app --namespace=development
 
 ```bash
 # Test health endpoint directly
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 
 # Check Rune health status
 rune health rune-demo-app --namespace=development

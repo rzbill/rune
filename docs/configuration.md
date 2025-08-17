@@ -21,10 +21,10 @@ Rune looks for configuration in the following locations:
 # Server endpoints
 server:
   # gRPC endpoint for API services
-  grpc_address: ":8080"
+  grpc_address: ":7863"
   
   # HTTP endpoint for REST gateway
-  http_address: ":8081"
+  http_address: ":7861"
   
   # TLS configuration
   tls:
@@ -103,8 +103,8 @@ Rune provides several command-line flags that override any configuration from fi
 
 ```
 --config string       Configuration file path
---grpc-addr string    gRPC server address (default ":8080")
---http-addr string    HTTP server address (default ":8081")
+--grpc-addr string    gRPC server address (default ":7863")
+--http-addr string    HTTP server address (default ":7861")
 --data-dir string     Data directory
 --log-level string    Log level (debug, info, warn, error) (default "info")
 --debug               Enable debug mode (shorthand for --log-level=debug)

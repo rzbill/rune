@@ -9,7 +9,7 @@ A context in Rune represents a connection to a specific Rune server with authent
 ## Context Structure
 
 Each context contains:
-- **Server**: The URL of the Rune server (e.g., `https://prod-server.com:8081`)
+- **Server**: The URL of the Rune server (e.g., `https://prod-server.com:7861`)
 - **Token**: Authentication token for the server
 - **Namespace**: Optional default namespace for the context
 
@@ -24,14 +24,14 @@ The `login` command now supports named contexts and is a shortcut for `config se
 rune login --token "your-token"
 
 # Login to a named context
-rune login production --server https://prod-server.com:8081 --token "prod-token"
+rune login production --server https://prod-server.com:7861 --token "prod-token"
 
 # Login with namespace
-rune login staging --server https://staging-server.com:8081 --token "staging-token" --namespace staging
+rune login staging --server https://staging-server.com:7861 --token "staging-token" --namespace staging
 ```
 
 **Flags:**
-- `--server`: Server URL (defaults to `http://localhost:8081`)
+- `--server`: Server URL (defaults to `http://localhost:7861`)
 - `--token`: Authentication token
 - `--token-file`: Path to file containing the token
 - `--namespace`: Optional default namespace
@@ -47,10 +47,10 @@ Shows the current context and its settings.
 #### Set/Update Context
 ```bash
 # Set default context
-rune config set-context --server https://server.com:8081 --token "token123"
+rune config set-context --server https://server.com:7861 --token "token123"
 
 # Set named context
-rune config set-context production --server https://prod.com:8081 --token "prod-token"
+rune config set-context production --server https://prod.com:7861 --token "prod-token"
 
 # Update existing context
 rune config set-context production --namespace prod-namespace
@@ -80,10 +80,10 @@ Removes a context (cannot delete the current context).
 
 ```bash
 # Set up development context
-rune login dev --server http://localhost:8081 --token "dev-token" --namespace dev
+rune login dev --server http://localhost:7861 --token "dev-token" --namespace dev
 
 # Set up production context
-rune login prod --server https://prod.company.com:8081 --token "prod-token" --namespace production
+rune login prod --server https://prod.company.com:7861 --token "prod-token" --namespace production
 
 # List contexts
 rune config list-contexts
@@ -102,13 +102,13 @@ rune config use-context dev
 
 ```bash
 # Set up staging environment
-rune config set-context staging --server https://staging.company.com:8081 --token "staging-token" --namespace staging
+rune config set-context staging --server https://staging.company.com:7861 --token "staging-token" --namespace staging
 
 # Set up QA environment
-rune config set-context qa --server https://qa.company.com:8081 --token "qa-token" --namespace qa
+rune config set-context qa --server https://qa.company.com:7861 --token "qa-token" --namespace qa
 
 # Set up production environment
-rune config set-context production --server https://prod.company.com:8081 --token "prod-token" --namespace production
+rune config set-context production --server https://prod.company.com:7861 --token "prod-token" --namespace production
 
 # List all environments
 rune config list-contexts
@@ -126,10 +126,10 @@ rune cast service.yaml
 
 ```bash
 # Set up your personal development context
-rune login personal --server http://localhost:8081 --token "personal-token" --namespace personal
+rune login personal --server http://localhost:7861 --token "personal-token" --namespace personal
 
 # Set up shared team context
-rune login team --server https://team-server.com:8081 --token "team-token" --namespace team
+rune login team --server https://team-server.com:7861 --token "team-token" --namespace team
 
 # Work on personal project
 rune config use-context personal
@@ -148,15 +148,15 @@ Contexts are stored in `~/.rune/config.yaml` with this structure:
 current-context: production
 contexts:
   default:
-    server: http://localhost:8081
+    server: http://localhost:7861
     token: default-token-123
     namespace: default
   production:
-    server: https://prod-server.com:8081
+    server: https://prod-server.com:7861
     token: prod-token-456
     namespace: prod
   staging:
-    server: https://staging-server.com:8081
+    server: https://staging-server.com:7861
     token: staging-token-789
     namespace: staging
 ```

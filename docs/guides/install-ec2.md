@@ -19,7 +19,7 @@ Notes:
 
 Verify after install:
 ```bash
-curl -s http://localhost:8081/health || true
+curl -s http://localhost:7861/health || true
 systemctl status runed --no-pager || true
 rune version || true
 ```
@@ -107,7 +107,7 @@ Step 6 — Open firewall/security group ports
 
 Step 7 — Verify
 ```bash
-curl -s http://localhost:8081/health || true
+curl -s http://localhost:7861/health || true
 /usr/local/bin/runed --version || true
 rune version || true
 ```

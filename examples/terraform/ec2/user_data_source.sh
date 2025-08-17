@@ -110,7 +110,7 @@ fi
 
 # Test health endpoint
 echo "Testing health endpoint..."
-if curl -s http://localhost:8081/health > /dev/null; then
+if curl -s http://localhost:7861/health > /dev/null; then
     echo "✅ Health endpoint is responding"
 else
     echo "⚠️  Health endpoint not yet responding (may need more time)"
@@ -129,6 +129,6 @@ rm -f /tmp/go${GO_VERSION}.linux-amd64.tar.gz
 
 echo "Installation script completed successfully!"
 echo "Rune is now running on:"
-echo "  - gRPC: localhost:8080"
-echo "  - HTTP: localhost:8081"
+echo "  - gRPC: localhost:7863"
+echo "  - HTTP: localhost:7861"
 echo "  - Logs: journalctl -u runed -f"

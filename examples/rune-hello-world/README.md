@@ -41,7 +41,7 @@ rune get services
 rune logs rune-hello-world
 
 # Test health endpoint
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 ```
 
 ### 3. Test Environment Variables
@@ -61,7 +61,7 @@ rune exec rune-hello-world bash -c "echo \$DEBUG_MODE"
 Returns comprehensive application information including configuration, environment variables, and system details.
 
 ```bash
-curl http://localhost:8080/
+curl http://localhost:7863/
 ```
 
 **Response:**
@@ -96,7 +96,7 @@ curl http://localhost:8080/
 Returns application health status and uptime information.
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:7863/health
 ```
 
 **Response:**
@@ -114,14 +114,14 @@ curl http://localhost:8080/health
 Returns detailed debug information including memory stats, goroutines, and full configuration (only when DEBUG_MODE=true).
 
 ```bash
-curl http://localhost:8080/debug
+curl http://localhost:7863/debug
 ```
 
 ### `/interactive` - Interactive Commands
 POST endpoint for executing commands within the container.
 
 ```bash
-curl -X POST http://localhost:8080/interactive \
+curl -X POST http://localhost:7863/interactive \
   -H "Content-Type: application/json" \
   -d '{"command": "ls"}'
 ```
@@ -168,7 +168,7 @@ rune exec rune-hello-world ps aux
 rune exec rune-hello-world ls -la
 
 # Test interactive commands
-rune exec rune-hello-world bash -c "curl localhost:8080/health"
+rune exec rune-hello-world bash -c "curl localhost:7863/health"
 ```
 
 ### 2. Testing Environment Variable Injection
@@ -197,7 +197,7 @@ rune logs rune-hello-world | grep health
 
 ```bash
 # Enable debug mode and check debug endpoint
-rune exec rune-hello-world bash -c "curl localhost:8080/debug"
+rune exec rune-hello-world bash -c "curl localhost:7863/debug"
 
 # Check memory usage
 rune exec rune-hello-world bash -c "free -h"
@@ -231,16 +231,16 @@ netstat -tuln
 ### Application Testing
 ```bash
 # Test health endpoint
-curl localhost:8080/health
+curl localhost:7863/health
 
 # Test main endpoint
-curl localhost:8080/
+curl localhost:7863/
 
 # Test debug endpoint
-curl localhost:8080/debug
+curl localhost:7863/debug
 
 # Test interactive endpoint
-curl -X POST localhost:8080/interactive \
+curl -X POST localhost:7863/interactive \
   -H "Content-Type: application/json" \
   -d '{"command": "help"}'
 ```
@@ -282,7 +282,7 @@ tail -f /var/log/application.log 2>/dev/null || echo "No log file"
 3. **Health checks failing**
    ```bash
    # Test health endpoint directly
-   rune exec rune-hello-world curl localhost:8080/health
+   rune exec rune-hello-world curl localhost:7863/health
    
    # Check if port is listening
    rune exec rune-hello-world netstat -tuln | grep 8080
@@ -322,9 +322,9 @@ go build -o rune-hello-world main.go
 DEBUG_MODE=true CUSTOM_MESSAGE="Local Test" ./rune-hello-world
 
 # Test endpoints
-curl http://localhost:8080/health
-curl http://localhost:8080/
-curl http://localhost:8080/debug
+curl http://localhost:7863/health
+curl http://localhost:7863/
+curl http://localhost:7863/debug
 ```
 
 ## Configuration Examples
