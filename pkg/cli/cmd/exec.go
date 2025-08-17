@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/spf13/cobra"
@@ -213,7 +214,7 @@ func createExecAPIClient(options *ExecOptions) (*client.Client, error) {
 	// Get API server address
 	apiServer := options.APIServer
 	if apiServer == "" {
-		apiServer = "localhost:8443"
+		apiServer = fmt.Sprintf("localhost:%d", config.DefaultGRPCPort)
 	}
 
 	// Create client options

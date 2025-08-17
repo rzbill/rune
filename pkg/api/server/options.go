@@ -1,6 +1,9 @@
 package server
 
 import (
+	"fmt"
+
+	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/runner"
@@ -41,8 +44,8 @@ type Option func(*Options)
 // DefaultOptions returns the default options.
 func DefaultOptions() *Options {
 	return &Options{
-		GRPCAddr:  ":8080",
-		HTTPAddr:  ":8081",
+		GRPCAddr:  fmt.Sprintf(":%d", config.DefaultGRPCPort),
+		HTTPAddr:  fmt.Sprintf(":%d", config.DefaultHTTPPort),
 		EnableTLS: false,
 	}
 }

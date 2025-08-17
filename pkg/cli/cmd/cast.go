@@ -9,11 +9,10 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/cli/format"
-	"github.com/rzbill/rune/pkg/cli/util"
+	"github.com/rzbill/rune/pkg/cli/utils"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -71,7 +70,7 @@ func runCast(cmd *cobra.Command, args []string) error {
 	}
 
 	// Expand file paths (including directories and glob patterns)
-	filePaths, err := util.ExpandFilePaths(args, recursiveDir)
+	filePaths, err := utils.ExpandFilePaths(args, recursiveDir)
 	if err != nil {
 		return err
 	}
@@ -97,7 +96,7 @@ func runCast(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create API client
-	apiClient, err := createAPIClient()
+	apiClient, err := newAPIClient(clientAddr, "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -478,15 +477,7 @@ func printResourceInfo(info *ResourceInfo) {
 
 	fmt.Println("- Namespace:", format.Highlight(namespace))
 
-	// Determine target display name
-	targetDisplay := "local agent"
-	if clientAddr != "" {
-		targetDisplay = clientAddr
-	} else {
-		// Get default address from client options
-		options := client.DefaultClientOptions()
-		targetDisplay = options.Address
-	}
+	targetDisplay := getTargetRuneServer(clientAddr)
 	fmt.Printf("- Target: %s (%s)\n", format.Highlight(targetDisplay), targetDisplay)
 	fmt.Println()
 
@@ -641,26 +632,6 @@ func stringSliceContains(slice []string, value string) bool {
 		}
 	}
 	return false
-}
-
-// createAPIClient creates an API client with the configured options.
-func createAPIClient() (*client.Client, error) {
-	options := client.DefaultClientOptions()
-
-	// Override defaults with command-line flags if set
-	if clientAddr != "" {
-		options.Address = clientAddr
-	}
-
-	// Inject bearer token from config/env
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-
-	// Create the client
-	return client.NewClient(options)
 }
 
 // waitForServiceReady waits for a service to be fully deployed.

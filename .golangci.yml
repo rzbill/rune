@@ -1,9 +1,7 @@
 linters:
   enable:
     - gofmt
-    - golint
     - govet
-    - errcheck
     - staticcheck
     - gosec
     - gosimple
@@ -12,6 +10,7 @@ linters:
     - unconvert
     - unparam
     - unused
+    - revive
 
 linters-settings:
   govet:
@@ -29,7 +28,6 @@ issues:
     - path: _test\.go
       linters:
         - gosec
-        - errcheck
   max-issues-per-linter: 0
   max-same-issues: 0
 

@@ -15,6 +15,9 @@ LDFLAGS = -X github.com/rzbill/rune/pkg/version.Version=$(VERSION) \
 UNIT_COVERAGE = coverage_unit.out
 INTEGRATION_COVERAGE = coverage_integration.out
 
+# Coverage threshold (default 60%, can be overridden via COVERAGE_THRESHOLD env var)
+THRESHOLD ?= $(or $(COVERAGE_THRESHOLD),23)
+
 # Default goal
 .DEFAULT_GOAL := build
 
@@ -39,6 +42,7 @@ test: test-unit test-integration
 ## Run unit tests via script
 test-unit:
 	@bash scripts/run_unit_tests.sh
+	@$(GO) test -coverprofile=$(UNIT_COVERAGE) ./... 
 
 ## Run integration tests via script (defaults to BadgerDB store)
 test-integration:
@@ -57,7 +61,7 @@ test-integration-badger:
 ## Run integration tests with specific storage type
 test-integration-store:
 	@echo "Running integration tests with $(STORE) store..."
-	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=$(STORE) go test -v -tags=integration
+	@cd test/integration/cmd && RUNE_TEST_STORE_TYPE=$(STORE) go test -v -tags=integration -coverprofile=../../$(INTEGRATION_COVERAGE)
 
 ## Run integration tests in Docker (GitHub Actions style)
 test-integration-docker:
@@ -76,6 +80,10 @@ test-integration-docker-go:
 		-w /workspace \
 		golang:1.23-alpine \
 		sh -c "apk add --no-cache git bash && go build -o bin/rune-test ./cmd/rune-test && bash scripts/integration/run_tests.sh"
+
+## Run end-to-end tests (real CLI + test server)
+test-e2e:
+	@bash scripts/run_e2e_tests.sh
 
 ## Open unit test coverage report
 coverage-unit:
@@ -100,6 +108,67 @@ coverage-summary:
 		$(GO) tool cover -func=$(INTEGRATION_COVERAGE) | grep total; fi
 
 coverage: unit-coverage integration-coverage
+
+## Check coverage against threshold
+check-coverage:
+	@echo "Checking coverage threshold: $(THRESHOLD)%"
+	@if [ -f $(UNIT_COVERAGE) ]; then \
+		echo "Checking unit test coverage..."; \
+		unit_coverage=$$(go tool cover -func=$(UNIT_COVERAGE) | grep total: | awk '{print $$3}' | sed 's/%//'); \
+		echo "Unit test coverage: $$unit_coverage%"; \
+		if [ $$(echo "$$unit_coverage >= $(THRESHOLD)" | bc -l 2>/dev/null || echo "$$unit_coverage >= $(THRESHOLD)" | awk '{print $$1 >= $$3}') -eq 1 ]; then \
+			echo "✅ Unit coverage ($$unit_coverage%) meets threshold ($(THRESHOLD)%)"; \
+		else \
+			echo "❌ Unit coverage ($$unit_coverage%) below threshold ($(THRESHOLD)%)"; \
+			exit 1; \
+		fi; \
+	fi
+	@if [ -f $(INTEGRATION_COVERAGE) ]; then \
+		echo "Checking integration test coverage..."; \
+		integration_coverage=$$(go tool cover -func=$(INTEGRATION_COVERAGE) | grep total: | awk '{print $$3}' | sed 's/%//'); \
+		echo "Integration test coverage: $$integration_coverage%"; \
+		if [ $$(echo "$$integration_coverage >= $(THRESHOLD)" | bc -l 2>/dev/null || echo "$$integration_coverage >= $(THRESHOLD)" | awk '{print $$1 >= $$3}') -eq 1 ]; then \
+			echo "✅ Integration coverage ($$integration_coverage%) meets threshold ($(THRESHOLD)%)"; \
+		else \
+			echo "❌ Integration coverage ($$integration_coverage%) below threshold ($(THRESHOLD)%)"; \
+			exit 1; \
+		fi; \
+	fi
+	@echo "✅ All coverage thresholds met!"
+
+## Check unit test coverage only
+check-coverage-unit:
+	@echo "Checking unit test coverage threshold: $(THRESHOLD)%"
+	@if [ -f $(UNIT_COVERAGE) ]; then \
+		unit_coverage=$$(go tool cover -func=$(UNIT_COVERAGE) | grep total: | awk '{print $$3}' | sed 's/%//'); \
+		echo "Unit test coverage: $$unit_coverage%"; \
+		if [ $$(echo "$$unit_coverage >= $(THRESHOLD)" | bc -l 2>/dev/null || echo "$$unit_coverage >= $(THRESHOLD)" | awk '{print $$1 >= $$3}') -eq 1 ]; then \
+			echo "✅ Unit coverage ($$unit_coverage%) meets threshold ($(THRESHOLD)%)"; \
+		else \
+			echo "❌ Unit coverage ($$unit_coverage%) below threshold ($(THRESHOLD)%)"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "❌ No unit coverage file found: $(UNIT_COVERAGE)"; \
+		exit 1; \
+	fi
+
+## Check integration test coverage only
+check-coverage-integration:
+	@echo "Checking integration test coverage threshold: $(THRESHOLD)%"
+	@if [ -f $(INTEGRATION_COVERAGE) ]; then \
+		integration_coverage=$$(go tool cover -func=$(INTEGRATION_COVERAGE) | grep total: | awk '{print $$3}' | sed 's/%//'); \
+		echo "Integration test coverage: $$integration_coverage%"; \
+		if [ $$(echo "$$integration_coverage >= $(THRESHOLD)" | bc -l 2>/dev/null || echo "$$integration_coverage >= $(THRESHOLD)" | awk '{print $$1 >= $$3}') -eq 1 ]; then \
+			echo "✅ Integration coverage ($$integration_coverage%) meets threshold ($(THRESHOLD)%)"; \
+		else \
+			echo "❌ Integration coverage ($$integration_coverage%) below threshold ($(THRESHOLD)%)"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "❌ No integration coverage file found: $(INTEGRATION_COVERAGE)"; \
+		exit 1; \
+	fi
 
 ## Lint the project
 lint:
@@ -162,6 +231,7 @@ help:
 	@echo "  test-integration-store STORE=<type>  Run integration tests with specific store type"
 	@echo "  test-integration-docker              Run integration tests in Docker environment"
 	@echo "  test-integration-docker-go           Run integration tests in Go container with Docker access"
+	@echo "  test-e2e          Run end-to-end tests (real CLI + test server)"
 	@echo "  coverage          Open coverage reports"
 	@echo "  coverage-summary  Show text-based summaries"
 	@echo ""
@@ -179,3 +249,8 @@ help:
 	@echo "Docs & Docker:"
 	@echo "  docs              Serve documentation"
 	@echo "  docker            Build Docker image"
+		echo ""
+		echo "Coverage:"
+		echo "  check-coverage    Check coverage against threshold ($(THRESHOLD)%)"
+		echo "  check-coverage-unit    Check unit test coverage against threshold"
+		echo "  check-coverage-integration    Check integration test coverage against threshold"

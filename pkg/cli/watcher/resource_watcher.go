@@ -1,13 +1,10 @@
-package cmd
+package watcher
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
-	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,7 +28,7 @@ type ResourceWatcher struct {
 	WatchTimeout      time.Duration
 
 	// Internal state
-	resources              map[string]Resource
+	resources              map[string]types.Resource
 	events                 []Event
 	lastUpdateTime         time.Time
 	initialSyncComplete    bool
@@ -41,23 +38,15 @@ type ResourceWatcher struct {
 	termWidth, termHeight  int
 	maxEvents              int
 	headerRenderer         func() string
-	resourceToRowsRenderer func(resources []Resource) [][]string
+	resourceToRowsRenderer func(resources []types.Resource) [][]string
 	eventRenderer          func(events []Event) []string
-}
-
-// Resource is a generic interface that all watchable resources must implement
-type Resource interface {
-	// GetKey returns a unique identifier for the resource
-	GetKey() string
-	// Equals checks if two resources are functionally equivalent
-	Equals(other Resource) bool
 }
 
 // Event represents a resource change event for display
 type Event struct {
-	EventType string    // "ADDED", "MODIFIED", "DELETED"
-	Resource  Resource  // The resource that changed
-	Timestamp time.Time // When the event occurred
+	EventType string         // "ADDED", "MODIFIED", "DELETED"
+	Resource  types.Resource // The resource that changed
+	Timestamp time.Time      // When the event occurred
 }
 
 // ResourceToWatch is a generic interface for resource watchers
@@ -68,7 +57,7 @@ type ResourceToWatch interface {
 
 // WatchEvent represents a resource change event from the API
 type WatchEvent struct {
-	Resource  Resource
+	Resource  types.Resource
 	EventType string // "ADDED", "MODIFIED", "DELETED"
 	Error     error
 }
@@ -80,7 +69,7 @@ func NewResourceWatcher() *ResourceWatcher {
 		AllNamespaces:     false,
 		RefreshInterval:   2 * time.Second,
 		InitialBufferTime: 500 * time.Millisecond,
-		resources:         make(map[string]Resource),
+		resources:         make(map[string]types.Resource),
 		events:            make([]Event, 0, 10),
 		maxEvents:         10,
 		reconnectDelay:    1 * time.Second,
@@ -100,7 +89,7 @@ func (w *ResourceWatcher) SetHeaderRenderer(renderer func() string) {
 }
 
 // SetResourceToRowsRenderer sets a custom function to convert resources to table rows
-func (w *ResourceWatcher) SetResourceToRowsRenderer(renderer func(resources []Resource) [][]string) {
+func (w *ResourceWatcher) SetResourceToRowsRenderer(renderer func(resources []types.Resource) [][]string) {
 	w.resourceToRowsRenderer = renderer
 }
 
@@ -250,7 +239,7 @@ func (w *ResourceWatcher) Watch(ctx context.Context, watcher ResourceToWatch) er
 			}
 
 			resource := event.Resource
-			resourceKey := resource.GetKey()
+			resourceKey := resource.String()
 			w.lastUpdateTime = time.Now()
 
 			// Update our local state based on event type
@@ -339,7 +328,7 @@ func (w *ResourceWatcher) refreshScreen() {
 	fmt.Println()
 
 	// Convert map to slice for sorting and rendering
-	var resourcesList []Resource
+	var resourcesList []types.Resource
 	for _, res := range w.resources {
 		resourcesList = append(resourcesList, res)
 	}
@@ -443,7 +432,7 @@ func (w *ResourceWatcher) printDefaultEvents() {
 		eventText := fmt.Sprintf("[%s] %s resource \"%s\"",
 			format.Colorize(color, symbol),
 			eventPrefix,
-			format.Colorize(format.Bold, event.Resource.GetKey()))
+			format.Colorize(format.Bold, event.Resource.String()))
 
 		fmt.Println(eventText)
 	}
@@ -458,339 +447,4 @@ func (w *ResourceWatcher) updateTerminalSize() {
 	}
 	w.termWidth = width
 	w.termHeight = height
-}
-
-// getTerminalSize returns the dimensions of the terminal
-func getTerminalSize() (width, height int, err error) {
-	// Default sizes if detection fails
-	width, height = 80, 24
-
-	// Try to get actual terminal size
-	cmd := exec.Command("stty", "size")
-	cmd.Stdin = os.Stdin
-	out, err := cmd.Output()
-	if err == nil {
-		parts := strings.Split(strings.TrimSpace(string(out)), " ")
-		if len(parts) == 2 {
-			if h, err := strconv.Atoi(parts[0]); err == nil {
-				height = h
-			}
-			if w, err := strconv.Atoi(parts[1]); err == nil {
-				width = w
-			}
-		}
-	}
-
-	return width, height, err
-}
-
-// min returns the smaller of two time.Duration values
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// ServiceResource is a wrapper around types.Service that implements the Resource interface
-type ServiceResource struct {
-	*types.Service
-}
-
-// GetKey returns a unique identifier for the service
-func (s ServiceResource) GetKey() string {
-	return fmt.Sprintf("%s/%s", s.Namespace, s.Name)
-}
-
-// Equals checks if two services are functionally equivalent for watch purposes
-func (s ServiceResource) Equals(other Resource) bool {
-	otherService, ok := other.(ServiceResource)
-	if !ok {
-		return false
-	}
-
-	// Check key fields that would make a service visibly different in the table
-	return s.Name == otherService.Name &&
-		s.Namespace == otherService.Namespace &&
-		s.Status == otherService.Status &&
-		s.Scale == otherService.Scale &&
-		s.Image == otherService.Image &&
-		s.Runtime == otherService.Runtime
-}
-
-// ServiceWatcherAdapter adapts the ServiceWatcher interface to ResourceToWatch
-type ServiceWatcherAdapter struct {
-	ServiceWatcher
-}
-
-// Watch implements the ResourceToWatch interface
-func (a ServiceWatcherAdapter) Watch(ctx context.Context, namespace, labelSelector, fieldSelector string) (<-chan WatchEvent, error) {
-	svcCh, cancelWatch, err := a.WatchServices(namespace, labelSelector, fieldSelector)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fast-path: if an immediate error is already available, surface it
-	select {
-	case ev, ok := <-svcCh:
-		if ok {
-			if ev.Error != nil {
-				eventCh := make(chan WatchEvent, 1)
-				eventCh <- WatchEvent{Error: ev.Error}
-				close(eventCh)
-				cancelWatch()
-				return eventCh, nil
-			}
-			// Push back non-error event into a new buffered channel to not lose it
-			eventCh := make(chan WatchEvent, 1)
-			// Convert service to ServiceResource and forward
-			if ev.Service != nil {
-				svcResource := ServiceResource{ev.Service}
-				eventCh <- WatchEvent{Resource: svcResource, EventType: ev.EventType}
-			}
-			// Start normal forwarding goroutine for subsequent events
-			go func(firstHandled bool) {
-				defer close(eventCh)
-				defer cancelWatch()
-				if !firstHandled && ev.Error != nil {
-					eventCh <- WatchEvent{Error: ev.Error}
-				}
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case event, ok := <-svcCh:
-						if !ok {
-							return
-						}
-						if event.Error != nil {
-							eventCh <- WatchEvent{Error: event.Error}
-							continue
-						}
-						svcResource := ServiceResource{event.Service}
-						eventCh <- WatchEvent{Resource: svcResource, EventType: event.EventType}
-					}
-				}
-			}(true)
-			return eventCh, nil
-		}
-	default:
-		// No immediate event available; proceed normally
-	}
-
-	// Create a new channel and adapt the events
-	eventCh := make(chan WatchEvent)
-	go func() {
-		defer close(eventCh)
-		defer cancelWatch() // Ensure we clean up the watch when done
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case event, ok := <-svcCh:
-				if !ok {
-					return
-				}
-
-				if event.Error != nil {
-					eventCh <- WatchEvent{
-						Error: event.Error,
-					}
-					continue
-				}
-
-				// Convert service to ServiceResource
-				svcResource := ServiceResource{event.Service}
-
-				eventCh <- WatchEvent{
-					Resource:  svcResource,
-					EventType: event.EventType,
-					Error:     nil,
-				}
-			}
-		}
-	}()
-
-	return eventCh, nil
-}
-
-// DefaultServiceResourceToRows returns a default row renderer for services
-func DefaultServiceResourceToRows(resources []Resource) [][]string {
-	// First create a list of just the services
-	services := make([]*types.Service, 0, len(resources))
-	for _, res := range resources {
-		svcRes, ok := res.(ServiceResource)
-		if !ok {
-			continue
-		}
-		services = append(services, svcRes.Service)
-	}
-
-	// Sort services by name
-	sort.Slice(services, func(i, j int) bool {
-		return services[i].Name < services[j].Name
-	})
-
-	// Build rows
-	var rows [][]string
-
-	// Add header row - but first check if we have any services
-	allNamespaces := false
-	if len(services) > 0 {
-		for _, svc := range services {
-			if svc.Namespace != services[0].Namespace {
-				allNamespaces = true
-				break
-			}
-		}
-	}
-
-	// Add header row
-	if allNamespaces {
-		rows = append(rows, []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "AGE"})
-	} else {
-		rows = append(rows, []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "AGE"})
-	}
-
-	// Add service rows
-	for _, service := range services {
-		// Determine service type
-		serviceType := "container"
-		if service.Runtime == "process" && service.Process != nil {
-			serviceType = "process"
-		}
-
-		// Format status using the same colorizeStatus function from table.go
-		status := format.PTermStatusLabel(string(service.Status))
-
-		// Format instances
-		instances := fmt.Sprintf("%d/%d", countRunningInstances(service), service.Scale)
-
-		// Determine image or command
-		imageOrCommand := service.Image
-		if service.Runtime == "process" && service.Process != nil {
-			imageOrCommand = service.Process.Command
-			if len(service.Process.Args) > 0 {
-				imageOrCommand += " " + strings.Join(service.Process.Args, " ")
-			}
-		}
-
-		// Truncate very long image/command strings
-		if len(imageOrCommand) > 60 {
-			imageOrCommand = truncateString(imageOrCommand, 60)
-		}
-
-		// Calculate age
-		age := formatAge(service.Metadata.CreatedAt)
-
-		// Create the row
-		var row []string
-		if allNamespaces {
-			row = []string{
-				service.Namespace,
-				service.Name,
-				serviceType,
-				status,
-				instances,
-				imageOrCommand,
-				age,
-			}
-		} else {
-			row = []string{
-				service.Name,
-				serviceType,
-				status,
-				instances,
-				imageOrCommand,
-				age,
-			}
-		}
-
-		rows = append(rows, row)
-	}
-
-	return rows
-}
-
-// DefaultServiceEventRenderer returns a default renderer for service events
-func DefaultServiceEventRenderer(events []Event) []string {
-	var lines []string
-	for _, event := range events {
-		var symbol, color string
-		var eventPrefix string
-
-		switch event.EventType {
-		case "ADDED":
-			symbol = "+"
-			color = format.Green
-			eventPrefix = "ADDED"
-		case "MODIFIED":
-			symbol = "~"
-			color = format.Yellow
-			eventPrefix = "MODIFIED"
-		case "DELETED":
-			symbol = "-"
-			color = format.Red
-			eventPrefix = "DELETED"
-		}
-
-		svcRes, ok := event.Resource.(ServiceResource)
-		if !ok {
-			continue
-		}
-
-		eventText := fmt.Sprintf("[%s] %s service \"%s\"",
-			format.Colorize(color, symbol),
-			eventPrefix,
-			format.Colorize(format.Bold, svcRes.Name))
-
-		lines = append(lines, eventText)
-	}
-	return lines
-}
-
-// countRunningInstances counts running instances for a service
-// This is a placeholder that should be replaced with actual instance counting logic
-func countRunningInstances(service *types.Service) int {
-	// This is a placeholder - in a real implementation, we would count
-	// the actual running instances from the service's status
-	if service.Status == types.ServiceStatusRunning {
-		return service.Scale
-	}
-	return 0
-}
-
-// formatAge formats a time.Time as a human-readable age string
-func formatAge(t time.Time) string {
-	if t.IsZero() {
-		return "Unknown"
-	}
-
-	duration := time.Since(t)
-	if duration < time.Minute {
-		return "Just now"
-	} else if duration < time.Hour {
-		minutes := int(duration.Minutes())
-		return fmt.Sprintf("%dm", minutes)
-	} else if duration < 24*time.Hour {
-		hours := int(duration.Hours())
-		return fmt.Sprintf("%dh", hours)
-	} else if duration < 30*24*time.Hour {
-		days := int(duration.Hours() / 24)
-		return fmt.Sprintf("%dd", days)
-	} else if duration < 365*24*time.Hour {
-		months := int(duration.Hours() / 24 / 30)
-		return fmt.Sprintf("%dmo", months)
-	}
-	years := int(duration.Hours() / 24 / 365)
-	return fmt.Sprintf("%dy", years)
-}
-
-// truncateString truncates a string to maxLen and adds "..." if it was truncated
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }

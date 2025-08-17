@@ -1,8 +1,12 @@
 package types
 
 import (
+	"fmt"
 	"time"
 )
+
+// Validate that Instance implements the Resource interface
+var _ Resource = (*Instance)(nil)
 
 // Instance represents a running copy of a service.
 type Instance struct {
@@ -201,4 +205,25 @@ func (i *Instance) Validate() error {
 	}
 
 	return nil
+}
+
+// String returns a unique identifier for the instance
+func (i *Instance) String() string {
+	return fmt.Sprintf("%s/%s", i.Namespace, i.ID)
+}
+
+// Equals checks if two instances are functionally equivalent for watch purposes
+func (i *Instance) Equals(other Resource) bool {
+	otherInstance, ok := other.(*Instance)
+	if !ok {
+		return false
+	}
+
+	// Check key fields that would make an instance visibly different in the table
+	return i.ID == otherInstance.ID &&
+		i.Name == otherInstance.Name &&
+		i.Namespace == otherInstance.Namespace &&
+		i.ServiceID == otherInstance.ServiceID &&
+		i.NodeID == otherInstance.NodeID &&
+		i.Status == otherInstance.Status
 }

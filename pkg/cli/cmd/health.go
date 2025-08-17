@@ -7,7 +7,6 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -58,7 +57,7 @@ func runHealth(cmd *cobra.Command, args []string) error {
 		name = args[1]
 	}
 
-	apiClient, err := createHealthAPIClient()
+	apiClient, err := newAPIClient(healthClientAddr, "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -124,22 +123,3 @@ func normalizeHealthTarget(target string) (string, error) {
 }
 
 // no custom wrapper needed; we use generated types directly
-
-// createHealthAPIClient creates an API client configured for the health command
-func createHealthAPIClient() (*client.Client, error) {
-	options := client.DefaultClientOptions()
-	// Override defaults with command flags if set
-	if healthClientAddr != "" {
-		options.Address = healthClientAddr
-	}
-	// Inject bearer token from config/env
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := lookupEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-	return client.NewClient(options)
-}
-
-// local wrapper to avoid importing os everywhere in tests
-func lookupEnv(key string) (string, bool) { return getEnv(key) }

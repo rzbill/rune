@@ -70,26 +70,13 @@ jobs:
         DOCKER_HOST: unix:///var/run/docker.sock
       run: |
         echo "Running integration tests with ${{ matrix.storage }} storage..."
-        cd test/integration/cmd
-        go test -v -tags=integration -timeout=10m
+        make test-integration-store STORE=${{ matrix.storage }}
         
-    - name: Run full integration test suite
+    - name: Check Coverage
       env:
-        RUNE_TEST_STORE_TYPE: ${{ matrix.storage }}
-        RUNE_INTEGRATION_TESTS: 1
-        DOCKER_HOST: unix:///var/run/docker.sock
-      run: |
-        echo "Running full integration test suite with ${{ matrix.storage }} storage..."
-        bash scripts/run_integration_tests.sh
+        COVERAGE_THRESHOLD: ${{ secrets.COVERAGE_THRESHOLD }}
+      run: make check-coverage-integration
         
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results-${{ matrix.storage }}-go${{ matrix.go-version }}
-        path: |
-          coverage_integration.out
-          test-results/
-        retention-days: 7
+
 
 

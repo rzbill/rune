@@ -5,7 +5,6 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -27,7 +26,7 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	api, err := createStatusAPIClient()
+	api, err := newAPIClient(statusClientAddr, "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -50,17 +49,4 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%-24s %-12s %-8d\n", s.Name, string(s.Status), s.Scale)
 	}
 	return nil
-}
-
-func createStatusAPIClient() (*client.Client, error) {
-	options := client.DefaultClientOptions()
-	if statusClientAddr != "" {
-		options.Address = statusClientAddr
-	}
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-	return client.NewClient(options)
 }

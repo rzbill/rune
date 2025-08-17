@@ -11,7 +11,6 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // deleteOptions holds the options for the delete command
@@ -314,7 +313,7 @@ func runDelete(ctx context.Context, serviceName string, opts *deleteOptions) err
 	}
 
 	// Create API client
-	apiClient, err := createDeleteAPIClient()
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -706,23 +705,10 @@ func convertProtoFinalizersToTypes(protoFinalizers []*generated.Finalizer) []typ
 	return result
 }
 
-// createDeleteAPIClient creates an API client for the delete command
-func createDeleteAPIClient() (*client.Client, error) {
-	// Create a gRPC client using the default connection
-	options := client.DefaultClientOptions()
-	// Inject bearer token from config/env
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-	return client.NewClient(options)
-}
-
 // runDeleteList executes the list subcommand
 func runDeleteList(ctx context.Context, opts *listOptions) error {
 	// Create API client
-	apiClient, err := createDeleteAPIClient()
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -757,7 +743,7 @@ func runDeleteList(ctx context.Context, opts *listOptions) error {
 // runDeleteStatus executes the status subcommand
 func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions) error {
 	// Create API client
-	apiClient, err := createDeleteAPIClient()
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -787,35 +773,6 @@ func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions
 	default:
 		return outputDeleteStatusText(resp.Operation)
 	}
-}
-
-// outputDeleteListText outputs deletion operations in text format
-func outputDeleteListText(operations []*generated.DeletionOperation) error {
-	if len(operations) == 0 {
-		fmt.Println("No deletion operations found.")
-		return nil
-	}
-
-	fmt.Printf("%-40s %-20s %-20s %-15s %-10s\n",
-		"DELETION ID", "NAMESPACE", "SERVICE", "STATUS", "PROGRESS")
-	fmt.Println(strings.Repeat("-", 120))
-
-	for _, op := range operations {
-		progress := fmt.Sprintf("%d/%d", op.DeletedInstances, op.TotalInstances)
-		if op.TotalInstances == 0 {
-			progress = "N/A"
-		}
-
-		fmt.Printf("%-40s %-20s %-20s %-15s %-10s\n",
-			op.Id,
-			op.Namespace,
-			op.ServiceName,
-			op.Status,
-			progress)
-	}
-
-	fmt.Printf("\nTotal: %d deletion operations\n", len(operations))
-	return nil
 }
 
 // outputDeleteStatusText outputs deletion status in text format
@@ -868,7 +825,7 @@ func init() {
 
 // runDeleteSecret deletes a secret by name using the SecretClient
 func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) error {
-	apiClient, err := createDeleteAPIClient()
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return err
 	}
@@ -883,7 +840,7 @@ func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) erro
 
 // runDeleteConfig deletes a config by name using the ConfigClient
 func runDeleteConfig(ctx context.Context, name string, opts *deleteOptions) error {
-	apiClient, err := createDeleteAPIClient()
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return err
 	}

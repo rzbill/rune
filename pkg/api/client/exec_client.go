@@ -370,20 +370,6 @@ func (s *ExecSession) Close() error {
 	return nil
 }
 
-// normalizeSignalName converts os.Signal to canonical POSIX names expected by the server
-func normalizeSignalName(sig os.Signal) string {
-	switch sig {
-	case syscall.SIGINT:
-		return "SIGINT"
-	case syscall.SIGTERM:
-		return "SIGTERM"
-	case syscall.SIGHUP:
-		return "SIGHUP"
-	default:
-		return sig.String()
-	}
-}
-
 // isBenignStreamError detects transport-layer errors that happen on normal closure
 func isBenignStreamError(err error) bool {
 	if err == nil {

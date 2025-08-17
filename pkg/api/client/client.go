@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -34,7 +35,7 @@ type ClientOptions struct {
 // DefaultClientOptions returns the default client options.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
-		Address:     "localhost:8443",
+		Address:     fmt.Sprintf("localhost:%d", config.DefaultGRPCPort),
 		UseTLS:      false,
 		DialTimeout: 30 * time.Second,
 		CallTimeout: 30 * time.Second,

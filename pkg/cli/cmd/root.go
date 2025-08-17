@@ -64,6 +64,8 @@ func init() {
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newWhoAmICmd())
 	rootCmd.AddCommand(newTokenCmd())
+	// Register config management commands
+	rootCmd.AddCommand(newConfigCmd())
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -91,6 +93,9 @@ func initConfig() {
 			fmt.Println("Using config file:", viper.ConfigFileUsed())
 		}
 	}
+
+	// Mirror current context into viper keys for global access
+	loadCurrentContextIntoViper()
 
 	// Configure log level
 	configureLogLevel()
@@ -123,4 +128,27 @@ func configureLogLevel() {
 func getEnv(key string) (string, bool) {
 	v, ok := os.LookupEnv(key)
 	return v, ok
+}
+
+// loadCurrentContextIntoViper reads our YAML contexts and mirrors the current context
+// into viper under contexts.default.* so commands can rely on viper regardless of how
+// the YAML is structured or which context is active.
+func loadCurrentContextIntoViper() {
+	cfg, err := loadContextConfig()
+	if err != nil || cfg == nil {
+		return
+	}
+	ctx, ok := cfg.Contexts[cfg.CurrentContext]
+	if !ok {
+		return
+	}
+	if ctx.Server != "" {
+		viper.Set("contexts.default.server", ctx.Server)
+	}
+	if ctx.Token != "" {
+		viper.Set("contexts.default.token", ctx.Token)
+	}
+	if ctx.Namespace != "" {
+		viper.Set("contexts.default.namespace", ctx.Namespace)
+	}
 }

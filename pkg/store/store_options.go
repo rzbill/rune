@@ -1,8 +1,6 @@
 package store
 
 import (
-	"sync"
-
 	"github.com/rzbill/rune/pkg/crypto"
 )
 
@@ -29,11 +27,4 @@ type StoreOptions struct {
 type Limits struct {
 	MaxObjectBytes   int
 	MaxKeyNameLength int
-}
-
-// internal holder used by BadgerStore
-type secretKEKHolder struct {
-	once sync.Once
-	key  []byte
-	err  error
 }

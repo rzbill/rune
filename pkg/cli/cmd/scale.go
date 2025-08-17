@@ -10,7 +10,6 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -84,7 +83,7 @@ func runScale(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create API client
-	apiClient, err := createScaleAPIClient()
+	apiClient, err := newAPIClient(scaleClientAddr, "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -195,25 +194,4 @@ func waitForScalingComplete(apiClient *client.Client, ctx context.Context, servi
 
 	// If we get here, the stream ended without completion
 	return fmt.Errorf("scaling operation ended without completion notification")
-}
-
-// createScaleAPIClient creates an API client with the configured options
-func createScaleAPIClient() (*client.Client, error) {
-	// Create client options
-	options := client.DefaultClientOptions()
-
-	// Override with command line flags if provided
-	if scaleClientAddr != "" {
-		options.Address = scaleClientAddr
-	}
-
-	// Resolve bearer token from config/env (align with get command)
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-
-	// Create client
-	return client.NewClient(options)
 }

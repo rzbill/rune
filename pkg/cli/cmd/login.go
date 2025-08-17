@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
+	"time"
 
+	internalConfig "github.com/rzbill/rune/internal/config"
+	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
 )
 
@@ -13,69 +17,101 @@ func newLoginCmd() *cobra.Command {
 	var namespace string
 	var token string
 	var tokenFile string
+	var contextName string
+	var noVerify bool
 
 	cmd := &cobra.Command{
-		Use:   "login",
-		Short: "Login by writing ~/.rune/config.yaml (or --config path)",
+		Use:   "login [context-name]",
+		Short: "Login and create/update a context (shortcut to 'rune config set-context')",
+		Long: `Login and create/update a context.
+
+This is a shortcut for 'rune config set-context' that creates or updates a context
+and optionally sets it as the current context.
+
+If context-name is not provided, it will use "default".
+If --set-current is provided, the new context will become the current context.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if token == "" && tokenFile == "" {
 				return fmt.Errorf("must provide --token or --token-file")
 			}
+
+			// Set default context name
+			if len(args) > 0 {
+				contextName = args[0]
+			} else {
+				contextName = "default"
+			}
+
+			// Read token from file if specified
 			if token == "" && tokenFile != "" {
 				b, err := os.ReadFile(tokenFile)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to read token file: %w", err)
 				}
-				token = string(b)
+				token = strings.TrimSpace(string(b))
 			}
-			// Respect global --config flag if provided
-			var cfgPath string
-			if cfgFile != "" {
-				if err := os.MkdirAll(filepath.Dir(cfgFile), 0700); err != nil {
-					return err
+
+			// Load existing config or create new one
+			config, err := loadContextConfig()
+			if err != nil {
+				config = &ContextConfig{
+					CurrentContext: contextName,
+					Contexts:       make(map[string]Context),
 				}
-				cfgPath = cfgFile
-			} else {
-				home, err := os.UserHomeDir()
+			}
+
+			// Verify credentials with server before saving context (unless skipped)
+			if !noVerify {
+				api, err := newAPIClient(server, token)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to connect to server %s: %w", server, err)
 				}
-				cfgDir := filepath.Join(home, ".rune")
-				if err := os.MkdirAll(cfgDir, 0700); err != nil {
-					return err
+				defer api.Close()
+
+				ac := generated.NewAuthServiceClient(api.Conn())
+				whoCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if _, err := ac.WhoAmI(whoCtx, &generated.WhoAmIRequest{}); err != nil {
+					return fmt.Errorf("failed to verify credentials with server %s: %w", server, err)
 				}
-				cfgPath = filepath.Join(cfgDir, "config.yaml")
 			}
-			nsLine := ""
-			if namespace != "" {
-				nsLine = fmt.Sprintf("\n    namespace: %s", namespace)
+
+			// Create or update the context
+			ctx := Context{
+				Server:    server,
+				Token:     token,
+				Namespace: namespace,
 			}
-			content := fmt.Sprintf("current-context: default\ncontexts:\n  default:\n    server: %s\n    token: %s%s\n", server, token, nsLine)
-			if err := os.WriteFile(cfgPath, []byte(content), 0600); err != nil {
-				// If permission denied in default location, fall back to XDG config path
-				if cfgFile == "" && os.IsPermission(err) {
-					xdg := os.Getenv("XDG_CONFIG_HOME")
-					if xdg == "" {
-						home, _ := os.UserHomeDir()
-						xdg = filepath.Join(home, ".config")
-					}
-					altDir := filepath.Join(xdg, "rune")
-					if mkErr := os.MkdirAll(altDir, 0700); mkErr == nil {
-						alt := filepath.Join(altDir, "config.yaml")
-						if wErr := os.WriteFile(alt, []byte(content), 0600); wErr == nil {
-							fmt.Printf("Wrote config to %s (fallback). You can also pass --config to choose a path.\n", alt)
-							return nil
-						}
-					}
+
+			// If server not specified, try to get from current context
+			if server == "" {
+				if currentCtx, exists := config.Contexts[config.CurrentContext]; exists {
+					ctx.Server = currentCtx.Server
+				} else {
+					ctx.Server = fmt.Sprintf("http://localhost:%d", internalConfig.DefaultGRPCPort)
 				}
-				return fmt.Errorf("failed to write config at %s: %w", cfgPath, err)
 			}
+
+			config.Contexts[contextName] = ctx
+
+			// Automatically switch to the new context
+			config.CurrentContext = contextName
+
+			// Save the configuration
+			if err := saveContextConfig(config); err != nil {
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+
+			fmt.Printf("Context '%s' configured successfully and set as current context\n", contextName)
+
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&server, "server", "http://localhost:8081", "Rune API server URL")
+	cmd.Flags().StringVar(&server, "server", fmt.Sprintf("http://localhost:%d", internalConfig.DefaultHTTPPort), "Rune API server URL")
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Optional default namespace")
 	cmd.Flags().StringVar(&token, "token", "", "Bearer token value")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Path to file containing the bearer token")
+	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "Skip server verification and just set the context")
 	return cmd
 }

@@ -25,8 +25,8 @@ import (
 
 var (
 	configFile          = flag.String("config", "", "Configuration file path")
-	grpcAddr            = flag.String("grpc-addr", ":8080", "gRPC server address")
-	httpAddr            = flag.String("http-addr", ":8081", "HTTP server address")
+	grpcAddr            = flag.String("grpc-addr", ":7863", "gRPC server address")
+	httpAddr            = flag.String("http-addr", ":7861", "HTTP server address")
 	dataDir             = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
 	logLevel            = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	debugLogLevel       = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
@@ -80,8 +80,8 @@ func initRuntimeConfig() {
 
 	// 1. Set default values that will be used if nothing else is specified
 	defaultDataDir := getDefaultDataDir()
-	v.SetDefault("server.grpc_address", ":8443")
-	v.SetDefault("server.http_address", ":8081")
+	v.SetDefault("server.grpc_address", fmt.Sprintf(":%d", config.DefaultGRPCPort))
+	v.SetDefault("server.http_address", fmt.Sprintf(":%d", config.DefaultHTTPPort))
 	v.SetDefault("data_dir", defaultDataDir)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "text")
@@ -483,49 +483,6 @@ func bootstrapAndResolveRegistryAuth(cfg *config.Config, st store.Store, logger 
 	// Write back into viper so runner manager can read
 	viper.Set("docker.registries", outRegs)
 	return nil
-}
-
-// parseAPIKeys parses a comma-separated list of API keys.
-func parseAPIKeys(keys string) []string {
-	if keys == "" {
-		return nil
-	}
-
-	return splitCSV(keys)
-}
-
-// splitCSV splits a comma-separated string into a slice of strings.
-func splitCSV(s string) []string {
-	if s == "" {
-		return nil
-	}
-
-	var result []string
-	for _, part := range splitAndTrim(s, ',') {
-		if part != "" {
-			result = append(result, part)
-		}
-	}
-
-	return result
-}
-
-// splitAndTrim splits a string by a separator and trims each part.
-func splitAndTrim(s string, sep rune) []string {
-	var result []string
-	var part string
-	for _, c := range s {
-		if c == sep {
-			result = append(result, part)
-			part = ""
-		} else {
-			part += string(c)
-		}
-	}
-	if part != "" {
-		result = append(result, part)
-	}
-	return result
 }
 
 // ensureBootstrapAdmin creates a default admin user and token on first run if none exist.

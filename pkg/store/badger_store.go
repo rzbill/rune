@@ -25,8 +25,7 @@ type BadgerStore struct {
 	watchConns map[string][]chan WatchEvent // key is resourceType:namespace
 
 	// options
-	opts      StoreOptions
-	kekHolder secretKEKHolder
+	opts StoreOptions
 }
 
 // NewBadgerStore creates a new BadgerDB-backed store.

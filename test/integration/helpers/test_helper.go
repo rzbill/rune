@@ -28,6 +28,8 @@ const (
 )
 
 // TestHelper provides utilities for integration testing
+// Default mode uses the mock CLI (rune-test) for fast, deterministic tests.
+// The helper-configured store (memory or badger) is used for verification and for any in-process server startup.
 type TestHelper struct {
 	t          *testing.T
 	tempDir    string
@@ -37,6 +39,11 @@ type TestHelper struct {
 	fixtureDir string
 	storeType  StoreType
 	memStore   *store.MemoryStore // Keep reference for helper methods
+
+	// Real CLI integration mode (optional)
+	realCLI  bool
+	grpcAddr string
+	httpAddr string
 }
 
 // NewTestHelper creates a new test helper with configurable store type
@@ -68,34 +75,8 @@ func NewTestHelperWithStore(t *testing.T, storeType StoreType) *TestHelper {
 	err = os.MkdirAll(fixtureDir, 0755)
 	require.NoError(t, err)
 
-	// Always use rune-test binary for integration tests
-	// This gives us full control over the test environment
-	runeBinary := os.Getenv("RUNE_BINARY")
-	if runeBinary == "" {
-		// Look for rune-test binary in the project's bin directory first
-		// Get the current working directory to build absolute path
-		cwd, err := os.Getwd()
-		if err == nil {
-			projectBin := filepath.Join(cwd, "bin", "rune-test")
-			if _, err := os.Stat(projectBin); err == nil {
-				runeBinary = projectBin
-			}
-		}
-
-		// If not found in project bin, fall back to PATH lookup
-		if runeBinary == "" {
-			runeBinary, err = exec.LookPath("rune-test")
-			if err != nil {
-				// Build the test binary
-				cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "rune-test"), "github.com/rzbill/rune/cmd/rune-test")
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					t.Fatalf("Failed to build test binary: %s\nOutput: %s", err, output)
-				}
-				runeBinary = filepath.Join(tempDir, "rune-test")
-			}
-		}
-	}
+	// Determine integration mode
+	realCLI := os.Getenv("RUNE_IT_MODE") == "real_cli"
 
 	// Initialize store based on type
 	var storeInstance store.Store
@@ -116,15 +97,75 @@ func NewTestHelperWithStore(t *testing.T, storeType StoreType) *TestHelper {
 		t.Fatalf("Unknown store type: %s", storeType)
 	}
 
-	return &TestHelper{
+	h := &TestHelper{
 		t:          t,
 		tempDir:    tempDir,
-		runeBinary: runeBinary,
 		fixtureDir: fixtureDir,
 		store:      storeInstance,
 		storeType:  storeType,
 		memStore:   memStore,
+		realCLI:    realCLI,
 	}
+
+	// Select binary based on mode
+	if realCLI {
+		// Use real rune CLI
+		binPath := filepath.Join(getProjectRootOrCwd(t), "bin", "rune")
+		if _, statErr := os.Stat(binPath); statErr != nil {
+			cmd := exec.Command("go", "build", "-o", binPath, "github.com/rzbill/rune/cmd/rune")
+			cmd.Dir = getProjectRootOrCwd(t)
+			if out, buildErr := cmd.CombinedOutput(); buildErr != nil {
+				t.Fatalf("Failed to build rune CLI: %v\n%s", buildErr, string(out))
+			}
+		}
+		h.runeBinary = binPath
+
+		// Start a real API server on fixed localhost ports
+		h.grpcAddr = "127.0.0.1:19080"
+		h.httpAddr = "127.0.0.1:19081"
+		h.startAPIServerWithAddrs(h.grpcAddr, h.httpAddr)
+	} else {
+		// Use rune-test mock CLI
+		runeBinary := os.Getenv("RUNE_BINARY")
+		if runeBinary == "" {
+			// Look for rune-test binary in the project's bin directory first
+			cwd, _ := os.Getwd()
+			projectBin := filepath.Join(cwd, "bin", "rune-test")
+			if _, statErr := os.Stat(projectBin); statErr == nil {
+				runeBinary = projectBin
+			} else {
+				// Fall back to PATH lookup or build
+				if p, lookErr := exec.LookPath("rune-test"); lookErr == nil {
+					runeBinary = p
+				} else {
+					cmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "rune-test"), "github.com/rzbill/rune/cmd/rune-test")
+					if out, buildErr := cmd.CombinedOutput(); buildErr != nil {
+						t.Fatalf("Failed to build test binary: %v\n%s", buildErr, string(out))
+					}
+					runeBinary = filepath.Join(tempDir, "rune-test")
+				}
+			}
+		}
+		h.runeBinary = runeBinary
+	}
+
+	return h
+}
+
+func getProjectRootOrCwd(t *testing.T) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	// Walk up to find go.mod
+	d := cwd
+	for i := 0; i < 5; i++ {
+		if _, statErr := os.Stat(filepath.Join(d, "go.mod")); statErr == nil {
+			return d
+		}
+		d = filepath.Dir(d)
+	}
+	return cwd
 }
 
 // Cleanup removes temporary test resources
@@ -138,107 +179,128 @@ func (h *TestHelper) Cleanup() {
 	os.RemoveAll(h.tempDir)
 }
 
-// StartAPIServer starts a test API server
+// StartAPIServer starts a test API server using the helper-configured store.
+// Note: The mock CLI path (rune-test) does not use this server; it is provided
+// for tests that want an in-process server for subsystem validation.
 func (h *TestHelper) StartAPIServer() *server.APIServer {
 	// Set log level to error for tests to suppress repetitive background controller logs
 	log.SetDefaultLogger(log.NewLogger(log.WithLevel(log.ErrorLevel)))
 	logger := log.GetDefaultLogger().WithComponent("test-api-server")
 
-	// Create a memory store for testing
-	memStore := store.NewMemoryStore()
-	h.store = memStore
+	// Ensure we have a store; honor the helper's chosen store type
+	if h.store == nil {
+		if h.storeType == StoreTypeMemory {
+			h.memStore = store.NewMemoryStore()
+			h.store = h.memStore
+		} else {
+			// Default to memory if not initialized; integration tests should normally initialize in constructor
+			h.memStore = store.NewMemoryStore()
+			h.store = h.memStore
+		}
+	}
 
-	// Create API server options
+	// Create API server options with the provided store
 	opts := []server.Option{
-		server.WithStore(memStore),
+		server.WithStore(h.store),
 		server.WithLogger(logger),
 		server.WithGRPCAddr(":0"), // Random port
 		server.WithHTTPAddr(":0"), // Random port
 	}
 
-	apiServer, err := server.New(opts...)
-	require.NoError(h.t, err)
+	apiServer, newErr := server.New(opts...)
+	require.NoError(h.t, newErr)
 
-	err = apiServer.Start()
-	require.NoError(h.t, err)
+	startErr := apiServer.Start()
+	require.NoError(h.t, startErr)
 
 	h.apiServer = apiServer
-
-	// Note: Since we're using rune-test binary, we don't need to set up
-	// environment variables for API server connection
 
 	return apiServer
 }
 
+// startAPIServerWithAddrs starts the API server on specific addresses (used for real CLI mode).
+func (h *TestHelper) startAPIServerWithAddrs(grpcAddr, httpAddr string) {
+	log.SetDefaultLogger(log.NewLogger(log.WithLevel(log.ErrorLevel)))
+	logger := log.GetDefaultLogger().WithComponent("test-api-server")
+	if h.store == nil {
+		h.memStore = store.NewMemoryStore()
+		h.store = h.memStore
+	}
+	opts := []server.Option{
+		server.WithStore(h.store),
+		server.WithLogger(logger),
+		server.WithGRPCAddr(grpcAddr),
+		server.WithHTTPAddr(httpAddr),
+	}
+	apiServer, newErr := server.New(opts...)
+	require.NoError(h.t, newErr)
+	require.NoError(h.t, apiServer.Start())
+	h.apiServer = apiServer
+}
+
 // RunCommand executes a rune CLI command
 func (h *TestHelper) RunCommand(args ...string) (string, error) {
-	// Set environment for the test binary
-	env := append(os.Environ(),
-		fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir),
-		"RUNE_LOG_LEVEL=error", // Set log level to error to suppress repetitive logs
-	)
+	// Environment for the command
+	env := append(os.Environ(), "RUNE_LOG_LEVEL=error")
+	if !h.realCLI {
+		// Only used by rune-test mock CLI
+		env = append(env, fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir))
+	}
 
-	// Check if this is a watch command
-	for _, arg := range args {
-		if arg == "--watch" {
-			env = append(env, "RUNE_TEST_WATCH=true")
-			break
+	// Auto-inject API server address for real CLI when needed
+	if h.realCLI && len(args) > 0 {
+		sub := args[0]
+		if sub == "cast" && !contains(args, "--api-server") {
+			args = append([]string{sub}, append([]string{"--api-server", h.grpcAddr}, args[1:]...)...)
 		}
 	}
 
-	// Run the command
 	cmd := exec.Command(h.runeBinary, args...)
 	cmd.Env = env
+	out, cmdErr := cmd.CombinedOutput()
 
-	// Get output
-	out, err := cmd.CombinedOutput()
-
-	// After running a cast command, load any fixtures that were created
-	if len(args) > 0 && args[0] == "cast" && err == nil {
-		h.loadFixtures(context.Background())
+	// Only load fixtures for mock CLI cast success
+	if !h.realCLI && len(args) > 0 && args[0] == "cast" && cmdErr == nil {
+		_ = h.loadFixtures(context.Background())
 	}
 
-	return string(out), err
+	return string(out), cmdErr
 }
 
 // RunCommandWithTimeout executes a rune CLI command with a timeout
 func (h *TestHelper) RunCommandWithTimeout(timeout time.Duration, args ...string) (string, error) {
+	env := append(os.Environ(), "RUNE_LOG_LEVEL=error")
+	if !h.realCLI {
+		env = append(env, fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir))
+	}
 
-	// Set environment for the test binary
-	env := append(os.Environ(),
-		fmt.Sprintf("RUNE_FIXTURE_DIR=%s", h.fixtureDir),
-		"RUNE_LOG_LEVEL=error", // Set log level to error to suppress repetitive logs
-	)
-
-	// Check if this is a watch command
-	for _, arg := range args {
-		if arg == "--watch" {
-			env = append(env, "RUNE_TEST_WATCH=true")
+	// Auto-inject API server for real CLI
+	if h.realCLI && len(args) > 0 {
+		sub := args[0]
+		if sub == "cast" && !contains(args, "--api-server") {
+			args = append([]string{sub}, append([]string{"--api-server", h.grpcAddr}, args[1:]...)...)
 		}
 	}
 
-	// Create context with timeout
-	fmt.Printf("DEBUG: Creating context with timeout\n")
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-
-	// Run the command with context
-	fmt.Printf("DEBUG: Creating exec.CommandContext\n")
 	cmd := exec.CommandContext(ctx, h.runeBinary, args...)
-	fmt.Printf("DEBUG: Setting environment variables\n")
 	cmd.Env = env
+	out, cmdErr := cmd.CombinedOutput()
 
-	// Get output
-	fmt.Printf("DEBUG: Calling cmd.CombinedOutput()\n")
-	out, err := cmd.CombinedOutput()
-	fmt.Printf("DEBUG: cmd.CombinedOutput() completed\n")
-
-	// After running a cast command, load any fixtures that were created
-	if len(args) > 0 && args[0] == "cast" && err == nil {
-		h.loadFixtures(context.Background())
+	if !h.realCLI && len(args) > 0 && args[0] == "cast" && cmdErr == nil {
+		_ = h.loadFixtures(context.Background())
 	}
+	return string(out), cmdErr
+}
 
-	return string(out), err
+func contains(slice []string, target string) bool {
+	for _, s := range slice {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 // loadFixtures loads any fixture files in the fixture directory into the memory store
@@ -248,9 +310,9 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 	}
 
 	// Read fixture directory
-	files, err := ioutil.ReadDir(h.fixtureDir)
-	if err != nil {
-		return err
+	files, readDirErr := ioutil.ReadDir(h.fixtureDir)
+	if readDirErr != nil {
+		return readDirErr
 	}
 
 	// Make sure service resource type exists in the store
@@ -264,15 +326,15 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		}
 
 		// Read fixture file
-		data, err := ioutil.ReadFile(filepath.Join(h.fixtureDir, file.Name()))
-		if err != nil {
-			return err
+		data, readFileErr := ioutil.ReadFile(filepath.Join(h.fixtureDir, file.Name()))
+		if readFileErr != nil {
+			return readFileErr
 		}
 
 		// Parse service
 		var serviceMap map[string]interface{}
-		if err := json.Unmarshal(data, &serviceMap); err != nil {
-			return err
+		if unmarshalErr := json.Unmarshal(data, &serviceMap); unmarshalErr != nil {
+			return unmarshalErr
 		}
 
 		// Convert to service type
@@ -326,11 +388,11 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		svc.Status = types.ServiceStatusRunning
 
 		// Store the service
-		err = h.store.Create(ctx, types.ResourceTypeService, svc.Namespace, svc.Name, svc)
-		if err != nil {
+		createErr := h.store.Create(ctx, types.ResourceTypeService, svc.Namespace, svc.Name, svc)
+		if createErr != nil {
 			// If it already exists, that's not a fatal error
-			if !strings.Contains(err.Error(), "already exists") {
-				return err
+			if !strings.Contains(createErr.Error(), "already exists") {
+				return createErr
 			}
 		}
 	}
@@ -353,9 +415,9 @@ func (h *TestHelper) GetService(ctx context.Context, namespace, name string) (*t
 	}
 
 	var svc types.Service
-	err := h.store.Get(ctx, types.ResourceTypeService, namespace, name, &svc)
-	if err != nil {
-		return nil, err
+	getErr := h.store.Get(ctx, types.ResourceTypeService, namespace, name, &svc)
+	if getErr != nil {
+		return nil, getErr
 	}
 
 	return &svc, nil

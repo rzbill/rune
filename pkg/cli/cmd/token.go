@@ -6,10 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func newTokenCmd() *cobra.Command {
@@ -31,13 +29,7 @@ func newTokenCreateCmd() *cobra.Command {
 				return fmt.Errorf("--out-file is required")
 			}
 			// Build client
-			opts := client.DefaultClientOptions()
-			if t := viper.GetString("contexts.default.token"); t != "" {
-				opts.Token = t
-			} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-				opts.Token = t
-			}
-			api, err := client.NewClient(opts)
+			api, err := newAPIClient("", "")
 			if err != nil {
 				return err
 			}
@@ -84,13 +76,7 @@ func newTokenRevokeCmd() *cobra.Command {
 		Use:   "revoke",
 		Short: "Revoke a token",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := client.DefaultClientOptions()
-			if t := viper.GetString("contexts.default.token"); t != "" {
-				opts.Token = t
-			} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-				opts.Token = t
-			}
-			api, err := client.NewClient(opts)
+			api, err := newAPIClient("", "")
 			if err != nil {
 				return err
 			}

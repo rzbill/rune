@@ -13,7 +13,6 @@ import (
 type MemoryStore struct {
 	data  map[types.ResourceType]map[string]map[string]interface{}
 	mutex sync.RWMutex
-	kek   []byte
 }
 
 // NewMemoryStore creates a new in-memory store.

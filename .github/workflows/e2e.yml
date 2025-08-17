@@ -1,0 +1,22 @@
+name: E2E Tests (Manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          check-latest: true
+          cache: true
+
+      - name: Run E2E tests
+        run: make test-e2e

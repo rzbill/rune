@@ -202,7 +202,7 @@ func (fo *FakeOrchestrator) ListServices(ctx context.Context, namespace string) 
 }
 
 // GetInstanceStatus implements Orchestrator interface
-func (fo *FakeOrchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error) {
+func (fo *FakeOrchestrator) GetInstanceStatus(ctx context.Context, namespace, instanceID string) (*types.InstanceStatusInfo, error) {
 	fo.mu.RLock()
 	defer fo.mu.RUnlock()
 	instance, exists := fo.instances[instanceID]
@@ -254,7 +254,7 @@ func (flr *fakeLogReader) Close() error {
 }
 
 // ExecInInstance implements Orchestrator interface
-func (fo *FakeOrchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
+func (fo *FakeOrchestrator) ExecInInstance(ctx context.Context, namespace, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
 	fo.mu.RLock()
 	defer fo.mu.RUnlock()
 
@@ -267,7 +267,6 @@ func (fo *FakeOrchestrator) ExecInInstance(ctx context.Context, namespace, servi
 
 	call := ExecInInstanceCall{
 		Namespace:  namespace,
-		ServiceID:  serviceName,
 		InstanceID: instanceID,
 		Options:    options,
 		Stream:     stream,
@@ -318,12 +317,12 @@ func (fo *FakeOrchestrator) StopService(ctx context.Context, namespace, serviceN
 }
 
 // RestartInstance implements Orchestrator interface
-func (fo *FakeOrchestrator) RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+func (fo *FakeOrchestrator) RestartInstance(ctx context.Context, namespace, instanceID string) error {
 	return nil
 }
 
 // StopInstance implements Orchestrator interface
-func (fo *FakeOrchestrator) StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+func (fo *FakeOrchestrator) StopInstance(ctx context.Context, namespace, instanceID string) error {
 	return nil
 }
 

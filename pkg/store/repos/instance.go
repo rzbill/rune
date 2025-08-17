@@ -156,6 +156,7 @@ func (r *InstanceRepo) ListByStatus(ctx context.Context, namespace string, statu
 			filtered = append(filtered, instance)
 		}
 	}
+
 	return filtered, nil
 }
 

@@ -19,10 +19,6 @@ func TestCastCommand(t *testing.T) {
 	helper := helpers.NewTestHelper(t)
 	defer helper.Cleanup()
 
-	// Start API server and wait for it to be ready
-	apiServer := helper.StartAPIServer()
-	defer apiServer.Stop()
-
 	t.Run("cast docker service", func(t *testing.T) {
 		// Create test service definition
 		svcFile := filepath.Join(t.TempDir(), "nginx.yaml")

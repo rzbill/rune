@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var _ Resource = (*Service)(nil)
+
 // Service represents a deployable application or workload.
 type Service struct {
 	NamespacedResource `json:"-" yaml:"-"`
@@ -302,6 +304,27 @@ const (
 	// RestartPolicyNever means never restart automatically, only manual restarts are allowed
 	RestartPolicyNever RestartPolicy = "Never"
 )
+
+// String returns a unique identifier for the service
+func (s *Service) String() string {
+	return fmt.Sprintf("%s/%s", s.Namespace, s.Name)
+}
+
+// Equals checks if two services are functionally equivalent for watch purposes
+func (s *Service) Equals(other Resource) bool {
+	otherService, ok := other.(*Service)
+	if !ok {
+		return false
+	}
+
+	// Check key fields that would make a service visibly different in the table
+	return s.Name == otherService.Name &&
+		s.Namespace == otherService.Namespace &&
+		s.Status == otherService.Status &&
+		s.Scale == otherService.Scale &&
+		s.Image == otherService.Image &&
+		s.Runtime == otherService.Runtime
+}
 
 // Validate validates the service configuration.
 func (s *Service) Validate() error {

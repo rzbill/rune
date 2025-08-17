@@ -15,7 +15,6 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Valid output formats
@@ -133,7 +132,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create API client
-	apiClient, err := createLogsAPIClient()
+	apiClient, err := newAPIClient(logsClientAddr, "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -223,30 +222,6 @@ func parseSinceTime(value string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized time format: %s", value)
 }
 
-// createLogsAPIClient creates an API client with the configured options
-func createLogsAPIClient() (*client.Client, error) {
-	// Create client options
-	options := client.DefaultClientOptions()
-
-	// Override with command line flags if provided
-	if logsClientAddr != "" {
-		options.Address = logsClientAddr
-	}
-
-	if logsClientKey != "" {
-		// token resolved by client via config/env
-	}
-
-	// Inject bearer token from config/env
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		options.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		options.Token = t
-	}
-	// Create client
-	return client.NewClient(options)
-}
-
 // streamLogs streams logs from all instances of a service
 func streamLogs(ctx context.Context, apiClient *client.Client, targetName string, options *LogsOptions) error {
 	// Create a log client directly from the API client
@@ -259,42 +234,6 @@ func streamLogs(ctx context.Context, apiClient *client.Client, targetName string
 	}
 
 	// Create log request for service
-	logRequest := &generated.LogRequest{
-		ResourceTarget: targetName,
-		Namespace:      options.Namespace,
-		Follow:         options.Follow,
-		Tail:           int32(options.Tail),
-		Timestamps:     options.ShowTimestamps,
-	}
-
-	// Add common parameters to request
-	addCommonRequestParams(logRequest, options)
-
-	// Send the initial request
-	if err := stream.Send(logRequest); err != nil {
-		return fmt.Errorf("failed to send log request: %w", err)
-	}
-
-	// Handle logs based on mode (streaming or non-streaming)
-	if !options.Follow {
-		return handleNonStreamingLogs(ctx, stream, options)
-	} else {
-		return handleStreamingLogs(ctx, stream, options)
-	}
-}
-
-// streamInstanceLogs streams logs from a specific instance
-func streamInstanceLogs(ctx context.Context, apiClient *client.Client, targetName string, options *LogsOptions) error {
-	// Create a log client directly from the API client
-	logClient := client.NewLogClient(apiClient)
-
-	// Create stream using the convenience method
-	stream, err := logClient.StreamLogs(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to connect to log service: %w", err)
-	}
-
-	// Create log request for instance
 	logRequest := &generated.LogRequest{
 		ResourceTarget: targetName,
 		Namespace:      options.Namespace,

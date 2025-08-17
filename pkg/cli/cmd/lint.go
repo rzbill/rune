@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/cli/format"
-	"github.com/rzbill/rune/pkg/cli/util"
+	"github.com/rzbill/rune/pkg/cli/utils"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -63,7 +63,7 @@ func runLintCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Expand inputs into a list of YAML file paths
-	filesToLint, err := util.ExpandFilePaths(args, lintRecursive)
+	filesToLint, err := utils.ExpandFilePaths(args, lintRecursive)
 	if err != nil {
 		return err
 	}

@@ -13,8 +13,8 @@ RUNE_GROUP="rune"
 CONFIG_PATH="/etc/rune/rune.yaml"
 DATA_DIR="/var/lib/rune"
 KEK_FILE="/etc/rune/kek.b64"
-GRPC_PORT=8080
-HTTP_PORT=8081
+GRPC_PORT=7863
+HTTP_PORT=7861
 RUNE_VERSION=""
 FROM_SOURCE=false
 BRANCH="master"
@@ -29,8 +29,8 @@ Options:
   --version vX.Y.Z   Install from GitHub release tag (preferred)
   --from-source      Build from source if no release is specified
   --branch NAME      Git branch to clone when building from source (default: master)
-  --grpc-port N      gRPC port (default: 8080)
-  --http-port N      HTTP port (default: 8081)
+  --grpc-port N      gRPC port (default: 7863)
+  --http-port N      HTTP port (default: 7861)
   --config PATH      Config path (default: /etc/rune/rune.yaml)
   -h, --help         Show help
 USAGE

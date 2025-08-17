@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -8,6 +9,13 @@ import (
 	"github.com/rzbill/rune/pkg/crypto"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/spf13/viper"
+)
+
+var (
+	// DefaultGRPCPort is the default gRPC port for Rune (T9 keypad for RUNE -> 7863)
+	DefaultGRPCPort = 7863
+	// DefaultHTTPPort is the default HTTP port for Rune (T9 keypad for RUNE -> 7861)
+	DefaultHTTPPort = 7861
 )
 
 type TLS struct {
@@ -117,7 +125,7 @@ type Config struct {
 
 func Default() *Config {
 	return &Config{
-		Server:    Server{GRPCAddr: ":8443", HTTPAddr: ":8081"},
+		Server:    Server{GRPCAddr: fmt.Sprintf(":%d", DefaultGRPCPort), HTTPAddr: fmt.Sprintf(":%d", DefaultHTTPPort)},
 		DataDir:   defaultDataDir(),
 		Client:    Client{Timeout: 30 * time.Second, Retries: 3},
 		Docker:    Docker{FallbackAPIVersion: "1.43", NegotiationTimeoutSeconds: 3},

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/client"
+	"github.com/rzbill/rune/pkg/cli/utils"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -70,7 +71,7 @@ func TestParseSelector(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := parseSelector(tc.input)
+			result, err := utils.ParseSelector(tc.input)
 			if tc.expectedError {
 				assert.Error(t, err)
 				assert.Nil(t, result)

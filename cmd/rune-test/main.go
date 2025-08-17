@@ -197,7 +197,7 @@ func handleGet(args []string) {
 	case "services", "service", "svc":
 		handleGetServices(resourceName, namespace, allNamespaces, outputFormat, noHeaders, fieldSelector, sortBy, watch)
 	case "instances", "instance", "inst":
-		handleGetInstances(resourceName, namespace, allNamespaces, outputFormat, noHeaders, fieldSelector, sortBy)
+		handleGetInstances(resourceName, namespace, allNamespaces, false, noHeaders, fieldSelector, sortBy)
 	case "namespaces", "namespace", "ns":
 		handleGetNamespaces(outputFormat, noHeaders)
 	default:
@@ -225,44 +225,44 @@ func handleGetServices(serviceName, namespace string, allNamespaces bool, output
 
 func outputServices(serviceName, namespace string, allNamespaces bool, outputFormat string, noHeaders bool, fieldSelector, sortBy string) {
 	// Read fixtures to simulate service data
-	fixtureDir := os.Getenv("RUNE_FIXTURE_DIR")
-	if fixtureDir == "" {
-		fixtureDir = "test/integration/fixtures"
-	}
 
 	// For now, we'll simulate the output based on the test expectations
 	// In a real implementation, this would read from the actual store or fixtures
 
 	if serviceName != "" {
 		// Get specific service
-		if outputFormat == "yaml" {
+		switch outputFormat {
+		case "yaml":
 			fmt.Printf("name: %s\n", serviceName)
 			fmt.Printf("namespace: %s\n", namespace)
-			if serviceName == "web" {
+			switch serviceName {
+			case "web":
 				fmt.Printf("image: nginx:latest\n")
-			} else if serviceName == "logger" {
+			case "logger":
 				fmt.Printf("runtime: process\n")
 				fmt.Printf("command: /usr/bin/logger\n")
 			}
-		} else if outputFormat == "json" {
+		case "json":
 			fmt.Printf("{\n")
 			fmt.Printf("  \"name\": \"%s\",\n", serviceName)
 			fmt.Printf("  \"namespace\": \"%s\"\n", namespace)
-			if serviceName == "web" {
+			switch serviceName {
+			case "web":
 				fmt.Printf("  \"image\": \"nginx:latest\"\n")
-			} else if serviceName == "logger" {
+			case "logger":
 				fmt.Printf("  \"runtime\": \"process\"\n")
 				fmt.Printf("  \"command\": \"/usr/bin/logger\"\n")
 			}
 			fmt.Printf("}\n")
-		} else {
+		default:
 			// Table format
 			if !noHeaders {
 				fmt.Println("NAME    TYPE       STATUS    IMAGE/COMMAND")
 			}
-			if serviceName == "web" {
+			switch serviceName {
+			case "web":
 				fmt.Printf("%-8s %-10s %-9s %s\n", serviceName, "container", "Running", "nginx:latest")
-			} else if serviceName == "logger" {
+			case "logger":
 				fmt.Printf("%-8s %-10s %-9s %s\n", serviceName, "process", "Running", "/usr/bin/logger")
 			}
 		}
@@ -308,13 +308,7 @@ func outputServices(serviceName, namespace string, allNamespaces bool, outputFor
 			services = filtered
 		}
 
-		// Apply sorting
-		if sortBy == "name" {
-			// Already sorted by name
-		} else if sortBy == "status" {
-			// Sort by status: Failed, Pending, Running
-			// For demo purposes, we'll just show the services as-is since they're all Running
-		}
+		// Apply sorting - currently no-op as services are pre-sorted
 
 		for _, svc := range services {
 			fmt.Printf("%-8s %-10s %-9s %s\n", svc.name, svc.runtime, svc.status, svc.detail)
@@ -322,7 +316,7 @@ func outputServices(serviceName, namespace string, allNamespaces bool, outputFor
 	}
 }
 
-func handleGetInstances(instanceName, namespace string, allNamespaces bool, outputFormat string, noHeaders bool, fieldSelector, sortBy string) {
+func handleGetInstances(_, namespace string, allNamespaces bool, _, noHeaders bool, fieldSelector, sortBy string) {
 	// Mock implementation for instances
 	if !noHeaders {
 		fmt.Println("NAME    SERVICE   STATUS    NODE")
@@ -331,7 +325,7 @@ func handleGetInstances(instanceName, namespace string, allNamespaces bool, outp
 	fmt.Printf("%-8s %-9s %-9s %s\n", "web-2", "web", "Running", "node-1")
 }
 
-func handleGetNamespaces(outputFormat string, noHeaders bool) {
+func handleGetNamespaces(_ string, noHeaders bool) {
 	// Mock implementation for namespaces
 	if !noHeaders {
 		fmt.Println("NAME")

@@ -92,7 +92,7 @@ func (s *ExecService) getInstanceByID(ctx context.Context, namespace, instanceID
 	}
 
 	// Get current status from orchestrator to ensure we have the latest status
-	statusInfo, err := s.orchestrator.GetInstanceStatus(ctx, namespace, instance.ServiceID, instanceID)
+	statusInfo, err := s.orchestrator.GetInstanceStatus(ctx, namespace, instanceID)
 	if err != nil {
 		s.logger.Warn("Failed to get instance status from orchestrator, using store status", log.Err(err))
 		// Continue with store status if orchestrator fails
@@ -205,8 +205,7 @@ func (s *ExecService) createExecStream(ctx context.Context, initReq *generated.E
 	}
 
 	// Target is a specific instance
-	serviceName := instance.ServiceName
-	execStream, err := s.orchestrator.ExecInInstance(ctx, namespace, serviceName, instance.ID, execOptions)
+	execStream, err := s.orchestrator.ExecInInstance(ctx, namespace, instance.ID, execOptions)
 	if err != nil {
 		s.logger.Error("Failed to exec in instance", log.Str("instance", instance.ID), log.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to exec in instance: %v", err)

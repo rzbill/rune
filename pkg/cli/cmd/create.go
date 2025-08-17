@@ -38,7 +38,7 @@ func newCreateSecretCmd() *cobra.Command {
 				}
 				data[k] = v
 			}
-			api, err := client.NewClient(client.DefaultClientOptions())
+			api, err := newAPIClient("", "")
 			if err != nil {
 				return err
 			}
@@ -74,7 +74,7 @@ func newCreateConfigCmd() *cobra.Command {
 				}
 				data[k] = v
 			}
-			api, err := client.NewClient(client.DefaultClientOptions())
+			api, err := newAPIClient("", "")
 			if err != nil {
 				return err
 			}

@@ -25,8 +25,7 @@ type TestStore struct {
 	opened     bool
 
 	// KEK handling for tests
-	kekHolder secretKEKHolder
-	opts      StoreOptions
+	opts StoreOptions
 }
 
 // NewTestStore creates a new TestStore instance.

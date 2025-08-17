@@ -28,7 +28,7 @@ type Orchestrator interface {
 
 	// Status and monitoring
 	GetServiceStatus(ctx context.Context, namespace, name string) (*types.ServiceStatusInfo, error)
-	GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error)
+	GetInstanceStatus(ctx context.Context, namespace, instanceID string) (*types.InstanceStatusInfo, error)
 
 	// Logs
 	GetServiceLogs(ctx context.Context, namespace, name string, opts types.LogOptions) (io.ReadCloser, error)
@@ -36,14 +36,14 @@ type Orchestrator interface {
 
 	// Execution
 	ExecInService(ctx context.Context, namespace, serviceName string, options types.ExecOptions) (types.ExecStream, error)
-	ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error)
+	ExecInInstance(ctx context.Context, namespace, instanceID string, options types.ExecOptions) (types.ExecStream, error)
 
 	// Lifecycle operations
 	GetInstanceByID(ctx context.Context, namespace, instanceID string) (*types.Instance, error)
 	RestartService(ctx context.Context, namespace, serviceName string) error
-	RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error
+	RestartInstance(ctx context.Context, namespace, instanceID string) error
 	StopService(ctx context.Context, namespace, serviceName string) error
-	StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error
+	StopInstance(ctx context.Context, namespace, instanceID string) error
 
 	// Deletion operations
 	GetDeletionStatus(ctx context.Context, namespace, name string) (*types.DeletionOperation, error)
@@ -304,7 +304,7 @@ func (o *orchestrator) GetServiceStatus(ctx context.Context, namespace, name str
 	return o.serviceController.GetServiceStatus(ctx, namespace, name)
 }
 
-func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, serviceName, instanceID string) (*types.InstanceStatusInfo, error) {
+func (o *orchestrator) GetInstanceStatus(ctx context.Context, namespace, instanceID string) (*types.InstanceStatusInfo, error) {
 	// Get the instance from store
 	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
 	if err != nil {
@@ -347,7 +347,7 @@ func (o *orchestrator) ExecInService(ctx context.Context, namespace, serviceName
 	return o.serviceController.ExecInService(ctx, namespace, serviceName, options)
 }
 
-func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, serviceName, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
+func (o *orchestrator) ExecInInstance(ctx context.Context, namespace, instanceID string, options types.ExecOptions) (types.ExecStream, error) {
 	// Get the instance from store
 	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
 	if err != nil {
@@ -368,7 +368,7 @@ func (o *orchestrator) RestartService(ctx context.Context, namespace, serviceNam
 	return o.serviceController.RestartService(ctx, namespace, serviceName)
 }
 
-func (o *orchestrator) RestartInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+func (o *orchestrator) RestartInstance(ctx context.Context, namespace, instanceID string) error {
 	// Get the instance from store
 	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
 	if err != nil {
@@ -383,7 +383,7 @@ func (o *orchestrator) StopService(ctx context.Context, namespace, serviceName s
 	return o.serviceController.StopService(ctx, namespace, serviceName)
 }
 
-func (o *orchestrator) StopInstance(ctx context.Context, namespace, serviceName, instanceID string) error {
+func (o *orchestrator) StopInstance(ctx context.Context, namespace, instanceID string) error {
 	// Get the instance from store
 	instance, err := o.store.GetInstanceByID(ctx, namespace, instanceID)
 	if err != nil {
