@@ -24,20 +24,16 @@ import (
 )
 
 var (
-	configFile          = flag.String("config", "", "Configuration file path")
-	grpcAddr            = flag.String("grpc-addr", ":7863", "gRPC server address")
-	httpAddr            = flag.String("http-addr", ":7861", "HTTP server address")
-	dataDir             = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
-	logLevel            = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	debugLogLevel       = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
-	logFormat           = flag.String("log-format", "text", "Log format (text, json)")
-	prettyLogs          = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
-	bootstrapAdmin      = flag.Bool("bootstrap-admin", true, "Bootstrap admin user and token on first run if none exist")
-	bootstrapAdminName  = flag.String("bootstrap-admin-name", "admin", "Initial admin username")
-	bootstrapAdminEmail = flag.String("bootstrap-admin-email", "", "Initial admin email (optional)")
-	bootstrapTokenOut   = flag.String("bootstrap-token-file", "", "Write bootstrap token to this file (0600). Defaults to <data-dir>/bootstrap-admin-token")
-	showHelp            = flag.Bool("help", false, "Show help")
-	showVer             = flag.Bool("version", false, "Show version")
+	configFile    = flag.String("config", "", "Configuration file path")
+	grpcAddr      = flag.String("grpc-addr", ":7863", "gRPC server address")
+	httpAddr      = flag.String("http-addr", ":7861", "HTTP server address")
+	dataDir       = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
+	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	debugLogLevel = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
+	logFormat     = flag.String("log-format", "text", "Log format (text, json)")
+	prettyLogs    = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
+	showHelp      = flag.Bool("help", false, "Show help")
+	showVer       = flag.Bool("version", false, "Show version")
 )
 
 // getDefaultDataDir returns the default data directory based on the OS
@@ -198,6 +194,12 @@ func initRuntimeConfig() {
 }
 
 func main() {
+	// Handle explicit subcommand: bootstrap-admin
+	if len(os.Args) > 1 && os.Args[1] == "bootstrap-admin" {
+		bootstrapAdmin()
+		return
+	}
+
 	// Parse flags
 	flag.Parse()
 
@@ -266,8 +268,8 @@ func main() {
 
 	// Ensure data directory exists
 	storeDir := filepath.Join(*dataDir, "store")
-	if err := os.MkdirAll(storeDir, 0755); err != nil {
-		logger.Error("Failed to create data directory", log.Str("path", storeDir), log.Err(err))
+	if mkdirErr := os.MkdirAll(storeDir, 0755); mkdirErr != nil {
+		logger.Error("Failed to create data directory", log.Str("path", storeDir), log.Err(mkdirErr))
 		os.Exit(1)
 	}
 
@@ -288,34 +290,17 @@ func main() {
 		SecretLimits:            appCfg.Secret.Limits,
 		ConfigLimits:            appCfg.ConfigResource.Limits,
 	})
-	if err := stateStore.Open(storeDir); err != nil {
+	if openErr := stateStore.Open(storeDir); openErr != nil {
 		logger.Error("Failed to open state store", log.Err(err))
 		os.Exit(1)
 	}
 	defer stateStore.Close()
 
 	// Bootstrap and resolve registry secrets into viper before runner init
-	if err := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); err != nil {
-		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(err))
+	if resolveErr := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); resolveErr != nil {
+		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(resolveErr))
 		os.Exit(1)
 	}
-
-	// Bootstrap admin if none exists
-	if *bootstrapAdmin {
-		if err := ensureBootstrapAdmin(stateStore, *dataDir, *bootstrapAdminName, *bootstrapAdminEmail, *bootstrapTokenOut, logger); err != nil {
-			logger.Error("Failed to bootstrap admin", log.Err(err))
-			os.Exit(1)
-		}
-	} else {
-		// Safety: if bootstrap disabled but no users exist, refuse to start to avoid lockout
-		if !anyUserExists(stateStore) {
-			logger.Error("No users found and --bootstrap-admin=false. Seed a user/token or start with --bootstrap-admin=true.")
-			os.Exit(1)
-		}
-	}
-
-	// Token-based auth is always enabled in MVP
-	logger.Info("Authentication enabled (token-based)")
 
 	// Create API server options
 	serverOpts := []server.Option{
@@ -349,6 +334,52 @@ func main() {
 	}
 
 	logger.Info("Rune server stopped")
+}
+
+func bootstrapAdmin() {
+	bsFlags := flag.NewFlagSet("bootstrap-admin", flag.ExitOnError)
+	name := bsFlags.String("name", "admin", "Admin username")
+	email := bsFlags.String("email", "", "Admin email (optional)")
+	out := bsFlags.String("out-file", "", "Write bootstrap token here (0600). Defaults to ./bootstrap-admin-token")
+	bsDataDir := bsFlags.String("data-dir", "", "Data directory (optional; defaults to platform-specific data dir)")
+	bsConfig := bsFlags.String("config", "", "Configuration file (optional)")
+	_ = bsFlags.Parse(os.Args[2:])
+
+	// Minimal logger
+	logger := log.NewLogger(log.WithFormatter(&log.TextFormatter{}), log.WithLevel(log.InfoLevel))
+
+	// Determine data dir
+	useDataDir := *bsDataDir
+	if useDataDir == "" {
+		useDataDir = getDefaultDataDir()
+	}
+	storeDir := filepath.Join(useDataDir, "store")
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		fmt.Println("Failed to create data dir:", err)
+		os.Exit(1)
+	}
+
+	// Optionally load config (best-effort)
+	_, err := config.Load(*bsConfig)
+	if err != nil {
+		fmt.Println("Failed to load config:", err)
+		os.Exit(1)
+	}
+
+	// Open store
+	stateStore := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{})
+	if err := stateStore.Open(storeDir); err != nil {
+		fmt.Println("Failed to open state store:", err)
+		os.Exit(1)
+	}
+	defer stateStore.Close()
+
+	if err := createBootstrapAdmin(stateStore, useDataDir, *name, *email, *out, logger); err != nil {
+		fmt.Println("Failed to bootstrap admin:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Admin bootstrapped successfully.")
+	os.Exit(0)
 }
 
 // bootstrapAndResolveRegistryAuth creates/updates referenced Secrets based on runefile config
@@ -485,8 +516,8 @@ func bootstrapAndResolveRegistryAuth(cfg *config.Config, st store.Store, logger 
 	return nil
 }
 
-// ensureBootstrapAdmin creates a default admin user and token on first run if none exist.
-func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
+// createBootstrapAdmin creates a default admin user and token on first run if none exist.
+func createBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
 	userRepo := repos.NewUserRepo(st)
 	tokenRepo := repos.NewTokenRepo(st)
 
@@ -534,9 +565,13 @@ func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPat
 	}
 	_ = tok // stored in DB
 
-	// Determine output path (default to data dir)
+	// Determine output path (default to current working directory)
 	if outPath == "" {
-		outPath = filepath.Join(dataDir, "bootstrap-admin-token")
+		cwd, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			cwd = "."
+		}
+		outPath = filepath.Join(cwd, "bootstrap-admin-token")
 	}
 
 	// Ensure parent directory exists
