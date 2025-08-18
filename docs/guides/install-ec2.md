@@ -24,6 +24,41 @@ systemctl status runed --no-pager || true
 rune version || true
 ```
 
+### Client access (create a token and configure a client)
+
+After the server is up, create a token on the EC2 instance and configure your local CLI to use it.
+
+On the server (as an admin with a working context):
+```bash
+sudo rune token create \
+  --name initial-client \
+  --subject-id initial-client \
+  --subject-type user \
+  --role readwrite \
+  --ttl 720h \
+  --out-file /tmp/initial-client.token
+```
+
+Securely copy the token to your client machine (replace IP and path):
+```bash
+scp ubuntu@<SERVER_PUBLIC_IP>:/tmp/initial-client.token ./initial-client.token
+```
+
+On the client machine (with the Rune CLI installed):
+```bash
+rune login \
+  --server <SERVER_PUBLIC_IP:7863> \
+  --token-file ./initial-client.token
+
+# Test
+rune status
+```
+
+To revoke or rotate a token later:
+```bash
+rune token revoke --namespace system --name initial-client
+```
+
 Manual installation (alternative)
 
 Artifacts used from this repo if doing manual steps:
@@ -130,3 +165,14 @@ sudo docker ps           # immediate check
 docker ps                # after newgrp docker or re-login
 sudo journalctl -u runed -f
 curl -s http://localhost:8081/health
+
+
+
+# As admin (with working context)
+rune token create \
+  --name oreofe \
+  --subject-id e929ee1b-41c9-4855-aeea-7a0fe8fbe2da.e7ca82e9-a8eb-4863-a920-115096ec6538 \
+  --subject-type user \
+  --role readwrite \
+  --ttl 720h \
+  --out-file /tmp/oreofe.token

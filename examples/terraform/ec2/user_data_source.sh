@@ -157,26 +157,8 @@ EOF
 systemctl daemon-reload
 systemctl enable --now runed
 
-# Configure CLI to find server-written context automatically
-echo "Configuring RUNE_CLI_CONFIG for all users..."
+# Path where runed writes the CLI context
 CLI_CONFIG_PATH="/var/lib/rune/.rune/config.yaml"
-
-# Make it available to interactive shells
-cat >/etc/profile.d/rune.sh <<'EOF'
-export RUNE_CLI_CONFIG=/var/lib/rune/.rune/config.yaml
-EOF
-chmod 0644 /etc/profile.d/rune.sh
-
-# Ensure non-interactive login sessions also receive it
-if ! grep -q '^RUNE_CLI_CONFIG=' /etc/environment; then
-    echo "RUNE_CLI_CONFIG=$CLI_CONFIG_PATH" >> /etc/environment
-fi
-
-# Preserve the variable across sudo
-cat >/etc/sudoers.d/rune <<'EOF'
-Defaults env_keep += "RUNE_CLI_CONFIG"
-EOF
-chmod 0440 /etc/sudoers.d/rune
 
 # Wait for service to start
 echo "Waiting for Rune service to start..."
@@ -197,6 +179,33 @@ if curl -s http://localhost:7861/health > /dev/null; then
     echo "✅ Health endpoint is responding"
 else
     echo "⚠️  Health endpoint not yet responding (may need more time)"
+fi
+
+# Also copy the CLI config to the primary login user's home so `rune status` works immediately
+echo "Propagating CLI config to primary user..."
+
+# Detect a primary non-system user (prefer common cloud users, then first UID >= 1000)
+TARGET_USER=""
+for candidate in admin ubuntu ec2-user debian; do
+    if id -u "$candidate" >/dev/null 2>&1; then
+        TARGET_USER="$candidate"
+        break
+    fi
+done
+if [ -z "$TARGET_USER" ]; then
+    TARGET_USER=$(awk -F: '$3>=1000 && $1!="nobody" {print $1; exit}' /etc/passwd || true)
+fi
+
+if [ -n "$TARGET_USER" ]; then
+    TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+    if [ -f "$CLI_CONFIG_PATH" ]; then
+        mkdir -p "$TARGET_HOME/.rune"
+        cp "$CLI_CONFIG_PATH" "$TARGET_HOME/.rune/config.yaml"
+        chown -R "$TARGET_USER":"$TARGET_USER" "$TARGET_HOME/.rune"
+        echo "Copied CLI config to $TARGET_HOME/.rune/config.yaml for user $TARGET_USER"
+    else
+        echo "Warning: CLI config not found at $CLI_CONFIG_PATH; skipping copy"
+    fi
 fi
 
 # Display version information
