@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -10,15 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/api/server"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/store"
-	"github.com/rzbill/rune/pkg/store/repos"
-	"github.com/rzbill/rune/pkg/types"
 	"github.com/rzbill/rune/pkg/version"
 	"github.com/spf13/viper"
 )
@@ -36,6 +31,7 @@ var (
 	bootstrapAdminName  = flag.String("bootstrap-admin-name", "admin", "Initial admin username")
 	bootstrapAdminEmail = flag.String("bootstrap-admin-email", "", "Initial admin email (optional)")
 	bootstrapTokenOut   = flag.String("bootstrap-token-file", "", "Write bootstrap token to this file (0600). Defaults to <data-dir>/bootstrap-admin-token")
+	cliConfigPath       = flag.String("cli-config", "", "Rune CLI config path to write bootstrap context (default: $RUNE_CLI_CONFIG or ~/.rune/config.yaml)")
 	showHelp            = flag.Bool("help", false, "Show help")
 	showVer             = flag.Bool("version", false, "Show version")
 )
@@ -349,89 +345,4 @@ func buildServerOptions(grpcAddress, httpAddress string, st store.Store, logger 
 	// Token-based auth (MVP)
 	opts = append(opts, server.WithAuth(nil))
 	return opts
-}
-
-// ensureBootstrapAdmin creates a default admin user and token on first run if none exist.
-func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
-	userRepo := repos.NewUserRepo(st)
-	tokenRepo := repos.NewTokenRepo(st)
-
-	// Check if any user exists in system namespace by trying a get on the admin name
-	// MVP: treat absence as needing bootstrap. If admin exists, skip.
-	if _, err := userRepo.Get(context.Background(), "system", adminName); err == nil {
-		return nil
-	}
-
-	// Interactive prompt for admin details if TTY
-	if isInteractive() {
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("No users found. Create initial admin.\n")
-		fmt.Printf("Admin username [%s]: ", adminName)
-		if in, err := reader.ReadString('\n'); err == nil {
-			in = strings.TrimSpace(in)
-			if in != "" {
-				adminName = in
-			}
-		}
-		fmt.Printf("Admin email (optional)%s: ", func() string {
-			if adminEmail != "" {
-				return " [" + adminEmail + "]"
-			}
-			return ""
-		}())
-		if in, err := reader.ReadString('\n'); err == nil {
-			in = strings.TrimSpace(in)
-			if in != "" {
-				adminEmail = in
-			}
-		}
-	}
-
-	// Create admin user
-	u := &types.User{Namespace: "system", Name: adminName, ID: uuid.NewString(), Email: adminEmail, Roles: []types.Role{types.RoleAdmin}, CreatedAt: time.Now()}
-	if err := userRepo.Create(context.Background(), u); err != nil {
-		return err
-	}
-
-	// Issue admin token (no expiry by default for bootstrap)
-	tok, secret, err := tokenRepo.Issue(context.Background(), "system", "bootstrap-admin", u.ID, "user", []types.Role{types.RoleAdmin}, "bootstrap-admin", 0)
-	if err != nil {
-		return err
-	}
-	_ = tok // stored in DB
-
-	// Determine output path (default to data dir)
-	if outPath == "" {
-		outPath = filepath.Join(dataDir, "bootstrap-admin-token")
-	}
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
-		return err
-	}
-
-	// Write token file with 0600
-	if err := os.WriteFile(outPath, []byte(secret), 0600); err != nil {
-		return err
-	}
-	logger.Info("Bootstrap admin token written", log.Str("path", outPath))
-	return nil
-}
-
-// isInteractive returns true if stdin is a terminal
-func isInteractive() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
-}
-
-// anyUserExists returns true if at least one user resource exists in the system namespace (MVP)
-func anyUserExists(st store.Store) bool {
-	var users []types.User
-	if err := st.List(context.Background(), types.ResourceTypeUser, "system", &users); err != nil {
-		return false
-	}
-	return len(users) > 0
 }

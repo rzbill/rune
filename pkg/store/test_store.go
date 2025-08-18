@@ -288,6 +288,20 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 				return nil
 			}
 
+		case *types.Secret:
+			// If the target is a Secret pointer
+			if targetSec, ok := resource.(*types.Secret); ok && storedData != nil {
+				*targetSec = *storedData
+				return nil
+			}
+
+		case types.Secret:
+			// If stored as value but target is pointer
+			if targetSec, ok := resource.(*types.Secret); ok {
+				*targetSec = storedData
+				return nil
+			}
+
 		case types.Instance:
 			// If stored as value but target is pointer
 			if targetInst, ok := resource.(*types.Instance); ok {

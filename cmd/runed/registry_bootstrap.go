@@ -41,100 +41,9 @@ func bootstrapAndResolveRegistryAuth(cfg *config.Config, st store.Store, logger 
 			auth["region"] = r.Auth.Region
 		}
 
-		// Handle fromSecret cases
-		var fromSecretName string
-		var fromSecretNS string
-		switch v := r.Auth.FromSecret.(type) {
-		case string:
-			if v != "" {
-				fromSecretName = v
-			}
-		case map[string]any:
-			if n, ok := v["name"].(string); ok {
-				fromSecretName = n
-			}
-			if ns, ok := v["namespace"].(string); ok {
-				fromSecretNS = ns
-			}
-		}
-		if fromSecretName != "" {
-			if fromSecretNS == "" {
-				fromSecretNS = "system"
-			}
-			// Bootstrap if requested
-			if r.Auth.Bootstrap {
-				// prepare data map from env-expanded values
-				data := map[string]string{}
-				for k, val := range r.Auth.Data {
-					data[k] = os.ExpandEnv(val)
-				}
-				if len(data) > 0 {
-					ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-					existing, err := secRepo.Get(context.Background(), ref)
-					if err != nil {
-						// create
-						s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: "static"}
-						if cerr := secRepo.Create(context.Background(), s); cerr != nil {
-							logger.Error("Failed to create registry secret", log.Str("ref", ref), log.Err(cerr))
-							return cerr
-						}
-						logger.Info("Created registry secret", log.Str("ref", ref))
-					} else if !r.Auth.Immutable {
-						// update if different and manage != ignore
-						if r.Auth.Manage != "ignore" {
-							// naive diff by JSON stringification via types; here just overwrite
-							s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: existing.Type}
-							if uerr := secRepo.Update(context.Background(), ref, s); uerr != nil {
-								logger.Error("Failed to update registry secret", log.Str("ref", ref), log.Err(uerr))
-								return uerr
-							}
-							logger.Info("Updated registry secret", log.Str("ref", ref))
-						}
-					}
-				}
-			}
-			// Resolve secret now
-			ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-			s, err := secRepo.Get(context.Background(), ref)
-			if err != nil {
-				logger.Error("Failed to fetch registry secret", log.Str("ref", ref), log.Err(err))
-				return err
-			}
-			// infer keys: .dockerconfigjson > token > username/password > ecr keys
-			if val, ok := s.Data[".dockerconfigjson"]; ok && val != "" {
-				auth["type"] = "dockerconfigjson"
-				auth["dockerconfigjson"] = val
-			} else if tk, ok := s.Data["token"]; ok && tk != "" {
-				auth["type"] = "token"
-				auth["token"] = tk
-			} else if u, uok := s.Data["username"]; uok {
-				if p, pok := s.Data["password"]; pok {
-					auth["type"] = "basic"
-					auth["username"] = u
-					auth["password"] = p
-				}
-			} else if ak, ok := s.Data["awsAccessKeyId"]; ok {
-				// ECR explicit keys; region is in runefile
-				auth["type"] = "ecr"
-				auth["awsAccessKeyId"] = ak
-				if sk, ok := s.Data["awsSecretAccessKey"]; ok {
-					auth["awsSecretAccessKey"] = sk
-				}
-				if st, ok := s.Data["awsSessionToken"]; ok {
-					auth["awsSessionToken"] = st
-				}
-			}
-		} else {
-			// If direct fields provided in runefile, expand env and set
-			if r.Auth.Username != "" {
-				auth["username"] = os.ExpandEnv(r.Auth.Username)
-			}
-			if r.Auth.Password != "" {
-				auth["password"] = os.ExpandEnv(r.Auth.Password)
-			}
-			if r.Auth.Token != "" {
-				auth["token"] = os.ExpandEnv(r.Auth.Token)
-			}
+		// Process registry authentication
+		if err := processRegistryAuth(r, secRepo, logger, auth); err != nil {
+			return err
 		}
 
 		entry["auth"] = auth
@@ -143,5 +52,147 @@ func bootstrapAndResolveRegistryAuth(cfg *config.Config, st store.Store, logger 
 
 	// Write back into viper so runner manager can read
 	viper.Set("docker.registries", outRegs)
+	return nil
+}
+
+// processRegistryAuth handles the authentication logic for a single registry
+func processRegistryAuth(r config.DockerRegistryConfig, secRepo *repos.SecretRepo, logger log.Logger, auth map[string]any) error {
+	// Handle fromSecret cases
+	var fromSecretName string
+	var fromSecretNS string
+	switch v := r.Auth.FromSecret.(type) {
+	case string:
+		if v != "" {
+			fromSecretName = v
+		}
+	case map[string]any:
+		if n, ok := v["name"].(string); ok {
+			fromSecretName = n
+		}
+		if ns, ok := v["namespace"].(string); ok {
+			fromSecretNS = ns
+		}
+	}
+
+	if fromSecretName != "" {
+		if fromSecretNS == "" {
+			fromSecretNS = "system"
+		}
+		// Bootstrap if requested
+		if r.Auth.Bootstrap {
+			if err := bootstrapRegistrySecret(fromSecretNS, fromSecretName, r.Auth, secRepo, logger); err != nil {
+				return err
+			}
+		}
+		// Resolve secret now
+		if err := resolveRegistrySecret(fromSecretNS, fromSecretName, secRepo, logger, auth); err != nil {
+			return err
+		}
+	} else {
+		// If direct fields provided in runefile, expand env and set
+		if r.Auth.Username != "" {
+			auth["username"] = os.ExpandEnv(r.Auth.Username)
+		}
+		if r.Auth.Password != "" {
+			auth["password"] = os.ExpandEnv(r.Auth.Password)
+		}
+		if r.Auth.Token != "" {
+			auth["token"] = os.ExpandEnv(r.Auth.Token)
+		}
+
+		// Set the type based on what fields are present
+		if r.Auth.Type != "" {
+			auth["type"] = r.Auth.Type
+		} else if r.Auth.Username != "" && r.Auth.Password != "" {
+			auth["type"] = "basic"
+		} else if r.Auth.Token != "" {
+			auth["type"] = "token"
+		}
+
+		// Set region if present
+		if r.Auth.Region != "" {
+			auth["region"] = r.Auth.Region
+		}
+	}
+	return nil
+}
+
+// bootstrapRegistrySecret creates or updates a registry secret when bootstrap is requested
+func bootstrapRegistrySecret(fromSecretNS, fromSecretName string, auth config.DockerRegistryAuth, secRepo *repos.SecretRepo, logger log.Logger) error {
+	// prepare data map from env-expanded values
+	data := map[string]string{}
+	for k, val := range auth.Data {
+		data[k] = os.ExpandEnv(val)
+	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
+	existing, err := secRepo.Get(context.Background(), ref)
+	if err != nil {
+		// create
+		s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: "static"}
+		if cerr := secRepo.Create(context.Background(), s); cerr != nil {
+			logger.Error("Failed to create registry secret", log.Str("ref", ref), log.Err(cerr))
+			return cerr
+		}
+		logger.Info("Created registry secret", log.Str("ref", ref))
+	} else if !auth.Immutable {
+		// update if different and manage != ignore
+		if auth.Manage != "ignore" {
+			// naive diff by JSON stringification via types; here just overwrite
+			s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: existing.Type}
+			if uerr := secRepo.Update(context.Background(), ref, s); uerr != nil {
+				logger.Error("Failed to update registry secret", log.Str("ref", ref), log.Err(uerr))
+				return uerr
+			}
+			logger.Info("Updated registry secret", log.Str("ref", ref))
+		}
+	}
+	return nil
+}
+
+// resolveRegistrySecret fetches a registry secret and populates the auth map with appropriate credentials
+func resolveRegistrySecret(fromSecretNS, fromSecretName string, secRepo *repos.SecretRepo, logger log.Logger, auth map[string]any) error {
+	ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
+	s, err := secRepo.Get(context.Background(), ref)
+	if err != nil {
+		logger.Error("Failed to fetch registry secret", log.Str("ref", ref), log.Err(err))
+		return err
+	}
+	// infer keys: .dockerconfigjson > token > username/password > ecr keys
+	if val, ok := s.Data[".dockerconfigjson"]; ok && val != "" {
+		auth["type"] = "dockerconfigjson"
+		auth["dockerconfigjson"] = val
+	} else if tk, ok := s.Data["token"]; ok && tk != "" {
+		auth["type"] = "token"
+		auth["token"] = tk
+	} else if tk, ok := s.Data["tok"]; ok && tk != "" {
+		auth["type"] = "token"
+		auth["tok"] = tk
+	} else if u, uok := s.Data["username"]; uok {
+		if p, pok := s.Data["password"]; pok {
+			auth["type"] = "basic"
+			auth["username"] = u
+			auth["password"] = p
+		}
+	} else if u, uok := s.Data["user"]; uok {
+		if p, pok := s.Data["pass"]; pok {
+			auth["type"] = "basic"
+			auth["user"] = u
+			auth["pass"] = p
+		}
+	} else if ak, ok := s.Data["awsAccessKeyId"]; ok {
+		// ECR explicit keys; region is in runefile
+		auth["type"] = "ecr"
+		auth["awsAccessKeyId"] = ak
+		if sk, ok := s.Data["awsSecretAccessKey"]; ok {
+			auth["awsSecretAccessKey"] = sk
+		}
+		if st, ok := s.Data["awsSessionToken"]; ok {
+			auth["awsSessionToken"] = st
+		}
+	}
 	return nil
 }
