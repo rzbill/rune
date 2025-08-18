@@ -124,6 +124,7 @@ func getCLIConfigPath() string {
 	}
 	// Fallback to default in home directory
 	home, err := os.UserHomeDir()
+	fmt.Println("===========runed home os.UserHomeDir()===============", home)
 	if err != nil {
 		return "./.rune/config.yaml"
 	}

@@ -157,6 +157,27 @@ EOF
 systemctl daemon-reload
 systemctl enable --now runed
 
+# Configure CLI to find server-written context automatically
+echo "Configuring RUNE_CLI_CONFIG for all users..."
+CLI_CONFIG_PATH="/var/lib/rune/.rune/config.yaml"
+
+# Make it available to interactive shells
+cat >/etc/profile.d/rune.sh <<'EOF'
+export RUNE_CLI_CONFIG=/var/lib/rune/.rune/config.yaml
+EOF
+chmod 0644 /etc/profile.d/rune.sh
+
+# Ensure non-interactive login sessions also receive it
+if ! grep -q '^RUNE_CLI_CONFIG=' /etc/environment; then
+    echo "RUNE_CLI_CONFIG=$CLI_CONFIG_PATH" >> /etc/environment
+fi
+
+# Preserve the variable across sudo
+cat >/etc/sudoers.d/rune <<'EOF'
+Defaults env_keep += "RUNE_CLI_CONFIG"
+EOF
+chmod 0440 /etc/sudoers.d/rune
+
 # Wait for service to start
 echo "Waiting for Rune service to start..."
 sleep 10

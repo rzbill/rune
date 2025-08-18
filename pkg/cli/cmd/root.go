@@ -73,9 +73,13 @@ func initConfig() {
 	if cfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
+	} else if cfgEnv, ok := os.LookupEnv("RUNE_CLI_CONFIG"); ok && cfgEnv != "" {
+		// Allow overriding config file path via environment variable
+		viper.SetConfigFile(cfgEnv)
 	} else {
 		// Find home directory.
 		home, err := os.UserHomeDir()
+		fmt.Println("===========rune home os.UserHomeDir()===============", home)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
