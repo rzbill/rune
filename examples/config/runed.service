@@ -7,6 +7,8 @@ After=network.target
 Type=simple
 User=rune
 Group=rune
+# Ensure non-interactive stdin under systemd
+StandardInput=null
 ExecStart=/usr/local/bin/runed --config=/etc/rune/rune.yaml
 Restart=on-failure
 RestartSec=5

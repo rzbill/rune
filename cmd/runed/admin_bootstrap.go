@@ -14,11 +14,12 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
 // ensureBootstrapAdmin creates a default admin user and token on first run if none exist.
-func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
+func ensureBootstrapAdmin(st store.Store, adminName, adminEmail, outPath string, logger log.Logger) error {
 	userRepo := repos.NewUserRepo(st)
 	tokenRepo := repos.NewTokenRepo(st)
 
@@ -85,13 +86,9 @@ func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPat
 	return nil
 }
 
-// isInteractive returns true if stdin is a terminal
+// isInteractive returns true if stdin is an interactive terminal (TTY)
 func isInteractive() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // anyUserExists returns true if at least one user resource exists in the system namespace (MVP)

@@ -237,7 +237,7 @@ func main() {
 
 	// Bootstrap admin if none exists
 	if *bootstrapAdmin {
-		if err := ensureBootstrapAdmin(stateStore, *dataDir, *bootstrapAdminName, *bootstrapAdminEmail, *bootstrapTokenOut, logger); err != nil {
+		if err := ensureBootstrapAdmin(stateStore, *bootstrapAdminName, *bootstrapAdminEmail, *bootstrapTokenOut, logger); err != nil {
 			logger.Error("Failed to bootstrap admin", log.Err(err))
 			os.Exit(1)
 		}
