@@ -24,16 +24,20 @@ import (
 )
 
 var (
-	configFile    = flag.String("config", "", "Configuration file path")
-	grpcAddr      = flag.String("grpc-addr", ":7863", "gRPC server address")
-	httpAddr      = flag.String("http-addr", ":7861", "HTTP server address")
-	dataDir       = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
-	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	debugLogLevel = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
-	logFormat     = flag.String("log-format", "text", "Log format (text, json)")
-	prettyLogs    = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
-	showHelp      = flag.Bool("help", false, "Show help")
-	showVer       = flag.Bool("version", false, "Show version")
+	configFile          = flag.String("config", "", "Configuration file path")
+	grpcAddr            = flag.String("grpc-addr", ":7863", "gRPC server address")
+	httpAddr            = flag.String("http-addr", ":7861", "HTTP server address")
+	dataDir             = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
+	logLevel            = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	debugLogLevel       = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
+	logFormat           = flag.String("log-format", "text", "Log format (text, json)")
+	prettyLogs          = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
+	bootstrapAdmin      = flag.Bool("bootstrap-admin", true, "Bootstrap admin user and token on first run if none exist")
+	bootstrapAdminName  = flag.String("bootstrap-admin-name", "admin", "Initial admin username")
+	bootstrapAdminEmail = flag.String("bootstrap-admin-email", "", "Initial admin email (optional)")
+	bootstrapTokenOut   = flag.String("bootstrap-token-file", "", "Write bootstrap token to this file (0600). Defaults to <data-dir>/bootstrap-admin-token")
+	showHelp            = flag.Bool("help", false, "Show help")
+	showVer             = flag.Bool("version", false, "Show version")
 )
 
 // getDefaultDataDir returns the default data directory based on the OS
@@ -194,12 +198,6 @@ func initRuntimeConfig() {
 }
 
 func main() {
-	// Handle explicit subcommand: bootstrap-admin
-	if len(os.Args) > 1 && os.Args[1] == "bootstrap-admin" {
-		bootstrapAdmin()
-		return
-	}
-
 	// Parse flags
 	flag.Parse()
 
@@ -218,103 +216,48 @@ func main() {
 	// Initialize runtime configuration
 	initRuntimeConfig()
 
-	// If --pretty flag is set, override log format
-	if *prettyLogs {
-		*logFormat = "text"
-	}
-
-	if *debugLogLevel {
-		*logLevel = "debug"
-	}
-
-	// Create logger with appropriate formatter
-	var loggerOpts []log.LoggerOption
-
-	// Convert string log level to log.Level type
-	level, err := log.ParseLevel(*logLevel)
-	if err != nil {
-		fmt.Printf("Invalid log level: %s, defaulting to 'info'\n", *logLevel)
-		level = log.InfoLevel
-	}
-	loggerOpts = append(loggerOpts, log.WithLevel(level))
-
-	// Configure logger format
-	switch strings.ToLower(*logFormat) {
-	case "json":
-		loggerOpts = append(loggerOpts, log.WithFormatter(&log.JSONFormatter{}))
-	case "text", "pretty":
-		loggerOpts = append(loggerOpts, log.WithFormatter(&log.TextFormatter{}))
-	default:
-		fmt.Printf("Invalid log format: %s, defaulting to 'text'\n", *logFormat)
-		loggerOpts = append(loggerOpts, log.WithFormatter(&log.TextFormatter{}))
-	}
-
-	logger := log.NewLogger(loggerOpts...)
+	// Build logger using helper
+	logger := buildLogger(*logLevel, *logFormat, *prettyLogs, *debugLogLevel)
 
 	logger.Info("Starting Rune Server", log.Str("version", version.Version))
 
-	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
+	// Context with cancellation
+	ctx, cancel := setupSignalContext(logger)
 	defer cancel()
 
-	// Set up signal handler for graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		logger.Info("Received signal", log.Str("signal", sig.String()))
-		cancel()
-	}()
-
-	// Ensure data directory exists
-	storeDir := filepath.Join(*dataDir, "store")
-	if mkdirErr := os.MkdirAll(storeDir, 0755); mkdirErr != nil {
-		logger.Error("Failed to create data directory", log.Str("path", storeDir), log.Err(mkdirErr))
-		os.Exit(1)
-	}
-
-	// Load typed application config
-	appCfg, _ := config.Load(*configFile)
-	// If KEK file path not set, default it under the selected data dir so we
-	// can auto-generate on first run without needing root permissions.
-	if appCfg.Secret.Encryption.KEK.Source == "file" && appCfg.Secret.Encryption.KEK.File == "" {
-		appCfg.Secret.Encryption.KEK.File = filepath.Join(*dataDir, "kek.b64")
-	}
-
-	// Initialize state store with options (KEK from config)
-	logger.Info("Initializing state store", log.Str("path", storeDir))
-	stateStore := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{
-		Path:                    storeDir,
-		SecretEncryptionEnabled: appCfg.Secret.Encryption.Enabled,
-		KEKOptions:              appCfg.KEKOptions(),
-		SecretLimits:            appCfg.Secret.Limits,
-		ConfigLimits:            appCfg.ConfigResource.Limits,
-	})
-	if openErr := stateStore.Open(storeDir); openErr != nil {
+	// Open state store via helper
+	stateStore, appCfg, _, err := openStateStore(logger, *configFile, *dataDir)
+	if err != nil {
 		logger.Error("Failed to open state store", log.Err(err))
 		os.Exit(1)
 	}
 	defer stateStore.Close()
 
 	// Bootstrap and resolve registry secrets into viper before runner init
-	if resolveErr := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); resolveErr != nil {
-		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(resolveErr))
+	if err := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); err != nil {
+		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(err))
 		os.Exit(1)
 	}
 
-	// Create API server options
-	serverOpts := []server.Option{
-		server.WithGRPCAddr(*grpcAddr),
-		server.WithHTTPAddr(*httpAddr),
-		server.WithStore(stateStore),
-		server.WithLogger(logger),
+	// Bootstrap admin if none exists
+	if *bootstrapAdmin {
+		if err := ensureBootstrapAdmin(stateStore, *dataDir, *bootstrapAdminName, *bootstrapAdminEmail, *bootstrapTokenOut, logger); err != nil {
+			logger.Error("Failed to bootstrap admin", log.Err(err))
+			os.Exit(1)
+		}
+	} else {
+		// Safety: if bootstrap disabled but no users exist, refuse to start to avoid lockout
+		if !anyUserExists(stateStore) {
+			logger.Error("No users found and --bootstrap-admin=false. Seed a user/token or start with --bootstrap-admin=true.")
+			os.Exit(1)
+		}
 	}
 
-	// Enable auth unconditionally
-	serverOpts = append(serverOpts, server.WithAuth(nil))
+	// Token-based auth is always enabled in MVP
+	logger.Info("Authentication enabled (token-based)")
 
 	// Create and start API server
-	apiServer, err := server.New(serverOpts...)
+	apiServer, err := server.New(buildServerOptions(*grpcAddr, *httpAddr, stateStore, logger)...)
 	if err != nil {
 		logger.Error("Failed to create API server", log.Err(err))
 		os.Exit(1)
@@ -336,188 +279,80 @@ func main() {
 	logger.Info("Rune server stopped")
 }
 
-func bootstrapAdmin() {
-	bsFlags := flag.NewFlagSet("bootstrap-admin", flag.ExitOnError)
-	name := bsFlags.String("name", "admin", "Admin username")
-	email := bsFlags.String("email", "", "Admin email (optional)")
-	out := bsFlags.String("out-file", "", "Write bootstrap token here (0600). Defaults to ./bootstrap-admin-token")
-	bsDataDir := bsFlags.String("data-dir", "", "Data directory (optional; defaults to platform-specific data dir)")
-	bsConfig := bsFlags.String("config", "", "Configuration file (optional)")
-	_ = bsFlags.Parse(os.Args[2:])
-
-	// Minimal logger
-	logger := log.NewLogger(log.WithFormatter(&log.TextFormatter{}), log.WithLevel(log.InfoLevel))
-
-	// Determine data dir
-	useDataDir := *bsDataDir
-	if useDataDir == "" {
-		useDataDir = getDefaultDataDir()
+func buildLogger(levelStr, formatStr string, pretty, debug bool) log.Logger {
+	if pretty {
+		formatStr = "text"
 	}
-	storeDir := filepath.Join(useDataDir, "store")
-	if err := os.MkdirAll(storeDir, 0755); err != nil {
-		fmt.Println("Failed to create data dir:", err)
-		os.Exit(1)
+	if debug {
+		levelStr = "debug"
 	}
-
-	// Optionally load config (best-effort)
-	_, err := config.Load(*bsConfig)
+	var opts []log.LoggerOption
+	lvl, err := log.ParseLevel(levelStr)
 	if err != nil {
-		fmt.Println("Failed to load config:", err)
-		os.Exit(1)
+		fmt.Printf("Invalid log level: %s, defaulting to 'info'\n", levelStr)
+		lvl = log.InfoLevel
 	}
-
-	// Open store
-	stateStore := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{})
-	if err := stateStore.Open(storeDir); err != nil {
-		fmt.Println("Failed to open state store:", err)
-		os.Exit(1)
+	opts = append(opts, log.WithLevel(lvl))
+	switch strings.ToLower(formatStr) {
+	case "json":
+		opts = append(opts, log.WithFormatter(&log.JSONFormatter{}))
+	case "text", "pretty":
+		opts = append(opts, log.WithFormatter(&log.TextFormatter{}))
+	default:
+		fmt.Printf("Invalid log format: %s, defaulting to 'text'\n", formatStr)
+		opts = append(opts, log.WithFormatter(&log.TextFormatter{}))
 	}
-	defer stateStore.Close()
-
-	if err := createBootstrapAdmin(stateStore, useDataDir, *name, *email, *out, logger); err != nil {
-		fmt.Println("Failed to bootstrap admin:", err)
-		os.Exit(1)
-	}
-	fmt.Println("Admin bootstrapped successfully.")
-	os.Exit(0)
+	return log.NewLogger(opts...)
 }
 
-// bootstrapAndResolveRegistryAuth creates/updates referenced Secrets based on runefile config
-// and materializes credentials into viper's docker.registries for runner consumption.
-func bootstrapAndResolveRegistryAuth(cfg *config.Config, st store.Store, logger log.Logger) error {
-	if cfg == nil {
-		return nil
-	}
-	regs := cfg.Docker.Registries
-	if len(regs) == 0 {
-		return nil
-	}
-	// For bootstrap we need encryption; if store opts don't include KEK, proceed but secrets won't be encrypted in memory store.
-	secRepo := repos.NewSecretRepo(st)
-
-	// Build a new slice of registry maps to set back into viper
-	var outRegs []map[string]any
-	for _, r := range regs {
-		entry := map[string]any{
-			"name":     r.Name,
-			"registry": r.Registry,
-		}
-		auth := map[string]any{}
-		// Copy simple fields
-		if r.Auth.Type != "" {
-			auth["type"] = r.Auth.Type
-		}
-		if r.Auth.Region != "" {
-			auth["region"] = r.Auth.Region
-		}
-
-		// Handle fromSecret cases
-		var fromSecretName string
-		var fromSecretNS string
-		switch v := r.Auth.FromSecret.(type) {
-		case string:
-			if v != "" {
-				fromSecretName = v
-			}
-		case map[string]any:
-			if n, ok := v["name"].(string); ok {
-				fromSecretName = n
-			}
-			if ns, ok := v["namespace"].(string); ok {
-				fromSecretNS = ns
-			}
-		}
-		if fromSecretName != "" {
-			if fromSecretNS == "" {
-				fromSecretNS = "system"
-			}
-			// Bootstrap if requested
-			if r.Auth.Bootstrap {
-				// prepare data map from env-expanded values
-				data := map[string]string{}
-				for k, val := range r.Auth.Data {
-					data[k] = os.ExpandEnv(val)
-				}
-				if len(data) > 0 {
-					ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-					existing, err := secRepo.Get(context.Background(), ref)
-					if err != nil {
-						// create
-						s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: "static"}
-						if cerr := secRepo.Create(context.Background(), s); cerr != nil {
-							logger.Error("Failed to create registry secret", log.Str("ref", ref), log.Err(cerr))
-							return cerr
-						}
-						logger.Info("Created registry secret", log.Str("ref", ref))
-					} else if !r.Auth.Immutable {
-						// update if different and manage != ignore
-						if r.Auth.Manage != "ignore" {
-							// naive diff by JSON stringification via types; here just overwrite
-							s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: existing.Type}
-							if uerr := secRepo.Update(context.Background(), ref, s); uerr != nil {
-								logger.Error("Failed to update registry secret", log.Str("ref", ref), log.Err(uerr))
-								return uerr
-							}
-							logger.Info("Updated registry secret", log.Str("ref", ref))
-						}
-					}
-				}
-			}
-			// Resolve secret now
-			ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-			s, err := secRepo.Get(context.Background(), ref)
-			if err != nil {
-				logger.Error("Failed to fetch registry secret", log.Str("ref", ref), log.Err(err))
-				return err
-			}
-			// infer keys: .dockerconfigjson > token > username/password > ecr keys
-			if val, ok := s.Data[".dockerconfigjson"]; ok && val != "" {
-				auth["type"] = "dockerconfigjson"
-				auth["dockerconfigjson"] = val
-			} else if tk, ok := s.Data["token"]; ok && tk != "" {
-				auth["type"] = "token"
-				auth["token"] = tk
-			} else if u, uok := s.Data["username"]; uok {
-				if p, pok := s.Data["password"]; pok {
-					auth["type"] = "basic"
-					auth["username"] = u
-					auth["password"] = p
-				}
-			} else if ak, ok := s.Data["awsAccessKeyId"]; ok {
-				// ECR explicit keys; region is in runefile
-				auth["type"] = "ecr"
-				auth["awsAccessKeyId"] = ak
-				if sk, ok := s.Data["awsSecretAccessKey"]; ok {
-					auth["awsSecretAccessKey"] = sk
-				}
-				if st, ok := s.Data["awsSessionToken"]; ok {
-					auth["awsSessionToken"] = st
-				}
-			}
-		} else {
-			// If direct fields provided in runefile, expand env and set
-			if r.Auth.Username != "" {
-				auth["username"] = os.ExpandEnv(r.Auth.Username)
-			}
-			if r.Auth.Password != "" {
-				auth["password"] = os.ExpandEnv(r.Auth.Password)
-			}
-			if r.Auth.Token != "" {
-				auth["token"] = os.ExpandEnv(r.Auth.Token)
-			}
-		}
-
-		entry["auth"] = auth
-		outRegs = append(outRegs, entry)
-	}
-
-	// Write back into viper so runner manager can read
-	viper.Set("docker.registries", outRegs)
-	return nil
+func setupSignalContext(logger log.Logger) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		logger.Info("Received signal", log.Str("signal", sig.String()))
+		cancel()
+	}()
+	return ctx, cancel
 }
 
-// createBootstrapAdmin creates a default admin user and token on first run if none exist.
-func createBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
+func openStateStore(logger log.Logger, cfgFile, dataDirPath string) (store.Store, *config.Config, string, error) {
+	storeDir := filepath.Join(dataDirPath, "store")
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return nil, nil, storeDir, fmt.Errorf("create data dir: %w", err)
+	}
+	appCfg, _ := config.Load(cfgFile)
+	if appCfg.Secret.Encryption.KEK.Source == "file" && appCfg.Secret.Encryption.KEK.File == "" {
+		appCfg.Secret.Encryption.KEK.File = filepath.Join(dataDirPath, "kek.b64")
+	}
+	st := store.NewBadgerStoreWithOptions(logger, store.StoreOptions{
+		Path:                    storeDir,
+		SecretEncryptionEnabled: appCfg.Secret.Encryption.Enabled,
+		KEKOptions:              appCfg.KEKOptions(),
+		SecretLimits:            appCfg.Secret.Limits,
+		ConfigLimits:            appCfg.ConfigResource.Limits,
+	})
+	if err := st.Open(storeDir); err != nil {
+		return nil, nil, storeDir, err
+	}
+	return st, appCfg, storeDir, nil
+}
+
+func buildServerOptions(grpcAddress, httpAddress string, st store.Store, logger log.Logger) []server.Option {
+	opts := []server.Option{
+		server.WithGRPCAddr(grpcAddress),
+		server.WithHTTPAddr(httpAddress),
+		server.WithStore(st),
+		server.WithLogger(logger),
+	}
+	// Token-based auth (MVP)
+	opts = append(opts, server.WithAuth(nil))
+	return opts
+}
+
+// ensureBootstrapAdmin creates a default admin user and token on first run if none exist.
+func ensureBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPath string, logger log.Logger) error {
 	userRepo := repos.NewUserRepo(st)
 	tokenRepo := repos.NewTokenRepo(st)
 
@@ -565,13 +400,9 @@ func createBootstrapAdmin(st store.Store, dataDir, adminName, adminEmail, outPat
 	}
 	_ = tok // stored in DB
 
-	// Determine output path (default to current working directory)
+	// Determine output path (default to data dir)
 	if outPath == "" {
-		cwd, cwdErr := os.Getwd()
-		if cwdErr != nil {
-			cwd = "."
-		}
-		outPath = filepath.Join(cwd, "bootstrap-admin-token")
+		outPath = filepath.Join(dataDir, "bootstrap-admin-token")
 	}
 
 	// Ensure parent directory exists

@@ -122,3 +122,11 @@ Optional flags for the installer
 - `--config` to customize config path
 
 
+
+Troubleshotting:
+
+sudo tail -n 200 /var/log/user-data.log
+sudo docker ps           # immediate check
+docker ps                # after newgrp docker or re-login
+sudo journalctl -u runed -f
+curl -s http://localhost:8081/health
