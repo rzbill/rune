@@ -134,7 +134,7 @@ ensure_user() {
     useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$RUNE_USER"
   fi
   
-  mkdir -p "$DATA_DIR" /etc/rune
+  mkdir -p "$DATA_DIR"
   chown -R "$RUNE_USER":"$RUNE_GROUP" "$DATA_DIR" || chown -R "$RUNE_USER":"$RUNE_USER" "$DATA_DIR" || true
   
   # Add rune user to docker group if Docker is installed

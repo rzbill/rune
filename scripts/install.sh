@@ -90,7 +90,7 @@ ensure_user() {
   if ! id -u "$RUNE_USER" >/dev/null 2>&1; then
     useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$RUNE_USER"
   fi
-  mkdir -p "$DATA_DIR" /etc/rune
+  mkdir -p "$DATA_DIR"
   chown -R "$RUNE_USER":"$RUNE_GROUP" "$DATA_DIR" || chown -R "$RUNE_USER":"$RUNE_USER" "$DATA_DIR" || true
 }
 
