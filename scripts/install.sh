@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Rune full server installer for Ubuntu or Amazon Linux
-# - Installs Docker
+# Rune binary-only server installer for Ubuntu or Amazon Linux
+# - Installs Docker (if missing)
 # - Creates rune user and directories
 # - Installs rune/runed (from release or source)
-# - Writes /etc/rune/rune.yaml and KEK
 # - Installs and enables systemd unit
-# - This is the full server stack (API, Agent, CLI)
 
 RUNE_USER="rune"
 RUNE_GROUP="rune"
-CONFIG_PATH="/etc/rune/runefile.yaml"
 DATA_DIR="/var/lib/rune"
-KEK_FILE="/etc/rune/kek.b64"
 GRPC_PORT=7863
 HTTP_PORT=7861
 RUNE_VERSION=""
@@ -25,14 +21,13 @@ die() { echo "[install] ERROR: $*" >&2; exit 1; }
 
 usage() {
   cat <<USAGE
-Usage: $0 [--version vX.Y.Z | --from-source] [--branch NAME] [--grpc-port N] [--http-port N] [--config PATH]
+Usage: $0 [--version vX.Y.Z | --from-source] [--branch NAME] [--grpc-port N] [--http-port N]
 Options:
   --version vX.Y.Z   Install from GitHub release tag (preferred)
   --from-source      Build from source if no release is specified
   --branch NAME      Git branch to clone when building from source (default: master)
   --grpc-port N      gRPC port (default: 7863)
   --http-port N      HTTP port (default: 7861)
-  --config PATH      Config path (default: /etc/rune/runefile.yaml)
   -h, --help         Show help
 
 This installer sets up the full Rune server stack (API, Agent, CLI).
@@ -126,35 +121,6 @@ install_from_source() {
   install -m 0755 "$src/bin/runed" /usr/local/bin/runed
 }
 
-write_config() {
-  if [ -f "$CONFIG_PATH" ]; then
-    log "Config exists: $CONFIG_PATH"
-    return
-  fi
-  log "Writing $CONFIG_PATH"
-  cat >"$CONFIG_PATH" <<YAML
-server:
-  grpc_address: ":${GRPC_PORT}"
-  http_address: ":${HTTP_PORT}"
-data_dir: "${DATA_DIR}"
-secret:
-  encryption:
-    enabled: true
-    kek:
-      source: file
-      file: "${KEK_FILE}"
-YAML
-}
-
-ensure_kek() {
-  if [ -f "$KEK_FILE" ]; then
-    return
-  fi
-  log "Generating KEK at $KEK_FILE"
-  umask 077
-  openssl rand -base64 32 > "$KEK_FILE"
-}
-
 install_systemd() {
   local unit=/etc/systemd/system/runed.service
   if [ -f "$unit" ]; then
@@ -171,7 +137,7 @@ Wants=network-online.target
 Type=simple
 User=${RUNE_USER}
 Group=${RUNE_GROUP}
-ExecStart=/usr/local/bin/runed --config=${CONFIG_PATH}
+ExecStart=/usr/local/bin/runed
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -192,7 +158,6 @@ main() {
       --branch) BRANCH="$2"; shift 2 ;;
       --grpc-port) GRPC_PORT="$2"; shift 2 ;;
       --http-port) HTTP_PORT="$2"; shift 2 ;;
-      --config) CONFIG_PATH="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown argument: $1" ;;
     esac
@@ -211,8 +176,6 @@ main() {
     install_from_source
   fi
 
-  write_config
-  ensure_kek
   install_systemd
 
   log "Done. Check status with: systemctl status runed --no-pager"

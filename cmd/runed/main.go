@@ -69,7 +69,7 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// createDefaultRunefile creates a default runefile.yaml if none exists
+// createDefaultRunefile creates a default runefile.yaml in the data dir if none exists
 func createDefaultRunefile(dataDir string) error {
 	defaultConfig := fmt.Sprintf(`# Default Rune server configuration
 # This file was auto-generated on first run
@@ -97,20 +97,15 @@ secret:
 data_dir: "%s"
 `, dataDir)
 
-	// Try to create in /etc/rune first (system-wide)
-	systemConfigPath := "/etc/rune/runefile.yaml"
-	if err := os.MkdirAll("/etc/rune", 0755); err == nil {
-		if err := os.WriteFile(systemConfigPath, []byte(defaultConfig), 0600); err == nil {
-			return nil
-		}
-	}
-
-	// Fallback to data directory (ensure directory exists)
+	// Ensure data directory exists and write config there
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
 	configPath := filepath.Join(dataDir, "runefile.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil
+	}
 	return os.WriteFile(configPath, []byte(defaultConfig), 0600)
 }
 
