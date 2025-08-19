@@ -35,6 +35,9 @@ type ServiceSpec struct {
 	// Environment variables for the service
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 
+	// Import environment variables from secrets/configmaps with optional prefix
+	EnvFrom EnvFromList `json:"envFrom,omitempty" yaml:"envFrom,omitempty"`
+
 	// Number of instances to run (default: 1)
 	Scale int `json:"scale" yaml:"scale"`
 
@@ -85,6 +88,142 @@ type ServiceSpec struct {
 
 	// rawNode holds the original YAML mapping node for structural validation
 	rawNode *yaml.Node `json:"-" yaml:"-"`
+}
+
+// EnvFromSourceSpec defines an import source for environment variables
+type EnvFromSourceSpec struct {
+	// One of these must be set
+	Secret    string `json:"secret,omitempty" yaml:"secret,omitempty"`
+	ConfigMap string `json:"configMap,omitempty" yaml:"configMap,omitempty"`
+
+	// Optional namespace; defaults to the service namespace
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+
+	// Optional prefix to apply to each imported key
+	Prefix string `json:"prefix,omitempty" yaml:"prefix,omitempty"`
+
+	// Raw holds the original scalar form (possibly a template placeholder) used during restoration
+	Raw string `json:"-" yaml:"-"`
+}
+
+// EnvFromList allows envFrom to be either a single item (mapping or scalar) or a list in YAML
+type EnvFromList []EnvFromSourceSpec
+
+// UnmarshalYAML supports sequence, mapping, or scalar forms for envFrom
+func (l *EnvFromList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var items []EnvFromSourceSpec
+		if err := value.Decode(&items); err != nil {
+			return err
+		}
+		*l = EnvFromList(items)
+		return nil
+	case yaml.MappingNode, yaml.ScalarNode:
+		var single EnvFromSourceSpec
+		if err := value.Decode(&single); err != nil {
+			return err
+		}
+		*l = EnvFromList{single}
+		return nil
+	default:
+		return fmt.Errorf("invalid envFrom: expected sequence, mapping, or scalar")
+	}
+}
+
+// UnmarshalYAML allows envFrom entries to be specified as either a mapping
+// (secret/configMap/namespace/prefix) or a shorthand scalar like
+// "{{secret:name}}", "secret:name", "config:app-settings" or FQDN forms.
+func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.MappingNode:
+		// Manually parse mapping keys to support flow-mapping and odd shapes
+		var secret, config, ns, prefix string
+		var walk func(n *yaml.Node)
+		walk = func(n *yaml.Node) {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				keyNode := n.Content[i]
+				valNode := n.Content[i+1]
+				var k string
+				if keyNode.Kind == yaml.ScalarNode {
+					k = strings.ToLower(strings.TrimSpace(keyNode.Value))
+				}
+				var sval string
+				switch valNode.Kind {
+				case yaml.ScalarNode:
+					sval = strings.TrimSpace(valNode.Value)
+				case yaml.MappingNode:
+					// Flatten single-pair mapping values like {value: x}
+					if len(valNode.Content) >= 2 && valNode.Content[0].Kind == yaml.ScalarNode && valNode.Content[1].Kind == yaml.ScalarNode {
+						sval = strings.TrimSpace(valNode.Content[1].Value)
+					}
+				}
+				switch k {
+				case "secret":
+					secret = sval
+				case "configmap":
+					config = sval
+				case "namespace":
+					ns = sval
+				case "prefix":
+					prefix = sval
+				default:
+					if valNode.Kind == yaml.MappingNode {
+						walk(valNode)
+					}
+				}
+			}
+		}
+		walk(value)
+		e.Secret = secret
+		e.ConfigMap = config
+		e.Namespace = ns
+		e.Prefix = prefix
+		return nil
+	case yaml.ScalarNode:
+		s := strings.TrimSpace(value.Value)
+		e.Raw = s
+		// Placeholder from preprocessTemplates: defer resolution
+		if strings.HasPrefix(s, "__TEMPLATE_PLACEHOLDER_") {
+			return nil
+		}
+		// Direct template braces form (when not preprocessed): parse now
+		if strings.HasPrefix(s, "{{") && strings.HasSuffix(s, "}}") {
+			inner := strings.TrimSpace(s[2 : len(s)-2])
+			rr, err := ParseResourceRef(inner)
+			if err != nil {
+				return err
+			}
+			switch rr.Type {
+			case ResourceTypeSecret:
+				e.Secret = rr.Name
+			case ResourceTypeConfigMap:
+				e.ConfigMap = rr.Name
+			default:
+				return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
+			}
+			e.Namespace = rr.Namespace
+			return nil
+		}
+		// Plain shorthand form (secret:name or config:name)
+		rr, err := ParseResourceRef(s)
+		if err != nil {
+			// Keep raw; may be restored later in castfile flow
+			return nil
+		}
+		switch rr.Type {
+		case ResourceTypeSecret:
+			e.Secret = rr.Name
+		case ResourceTypeConfigMap:
+			e.ConfigMap = rr.Name
+		default:
+			return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
+		}
+		e.Namespace = rr.Namespace
+		return nil
+	default:
+		return fmt.Errorf("invalid envFrom entry: expected mapping or string")
+	}
 }
 
 // ServiceRegistryOverride allows per-service registry selection or inline auth
@@ -177,6 +316,20 @@ func (s *ServiceSpec) Validate() error {
 		if err := s.Health.Validate(); err != nil {
 			return WrapValidationError(err, "invalid health check")
 		}
+	}
+
+	// Validate envFrom sources
+	for i, src := range s.EnvFrom {
+		if (src.Secret == "" && src.ConfigMap == "") || (src.Secret != "" && src.ConfigMap != "") {
+			return NewValidationError("envFrom item at index " + strconv.Itoa(i) + " must specify exactly one of 'secret' or 'configMap'")
+		}
+		if src.Secret != "" && strings.TrimSpace(src.Secret) == "" {
+			return NewValidationError("envFrom.secret cannot be empty at index " + strconv.Itoa(i))
+		}
+		if src.ConfigMap != "" && strings.TrimSpace(src.ConfigMap) == "" {
+			return NewValidationError("envFrom.configMap cannot be empty at index " + strconv.Itoa(i))
+		}
+		// Prefix can be any non-empty string; stricter validation enforced when materializing env vars
 	}
 
 	// Validate network policy if present
@@ -325,6 +478,7 @@ func (s *ServiceSpec) validateStructureFromNode() error {
 		"command":       true,
 		"args":          true,
 		"env":           true,
+		"envFrom":       true,
 		"scale":         true,
 		"ports":         true,
 		"resources":     true,
@@ -440,6 +594,7 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		Command:         s.Command,
 		Args:            s.Args,
 		Env:             s.Env,
+		EnvFrom:         normalizeEnvFrom(namespace, s.EnvFrom),
 		Scale:           s.Scale,
 		Ports:           s.Ports,
 		Resources:       resources,
@@ -455,6 +610,28 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		Status:          ServiceStatusPending,
 		Metadata:        &ServiceMetadata{CreatedAt: now, UpdatedAt: now},
 	}, nil
+}
+
+func normalizeEnvFrom(defaultNS string, sources EnvFromList) []EnvFromSource {
+	if len(sources) == 0 {
+		return nil
+	}
+	out := make([]EnvFromSource, 0, len(sources))
+	for _, src := range sources {
+		ns := src.Namespace
+		if ns == "" {
+			ns = defaultNS
+		}
+		n := EnvFromSource{Namespace: ns, Prefix: src.Prefix}
+		if src.Secret != "" {
+			n.SecretName = src.Secret
+		}
+		if src.ConfigMap != "" {
+			n.ConfigMapName = src.ConfigMap
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // ServiceDependency is the spec-facing dependency format.
@@ -540,6 +717,46 @@ func (s *ServiceSpec) GetEnvWithTemplates(templateMap map[string]string) map[str
 		result[key] = restoredValue
 	}
 	return result
+}
+
+// RestoreEnvFrom resolves any template placeholders captured in EnvFrom.Raw
+// using the provided templateMap, and populates Secret/ConfigMap/Namespace accordingly.
+func (s *ServiceSpec) RestoreEnvFrom(templateMap map[string]string) {
+	if len(s.EnvFrom) == 0 {
+		return
+	}
+	for i := range s.EnvFrom {
+		src := &s.EnvFrom[i]
+		if (src.Secret != "" || src.ConfigMap != "") || src.Raw == "" {
+			continue
+		}
+		raw := strings.TrimSpace(src.Raw)
+		// If this is a placeholder, map it back to template content
+		if strings.HasPrefix(raw, "__TEMPLATE_PLACEHOLDER_") {
+			if ref, ok := templateMap[raw]; ok {
+				raw = ref
+			}
+		}
+		// Strip braces if present
+		if strings.HasPrefix(raw, "{{") && strings.HasSuffix(raw, "}}") {
+			raw = strings.TrimSpace(raw[2 : len(raw)-2])
+		}
+		rr, err := ParseResourceRef(raw)
+		if err != nil {
+			continue
+		}
+		switch rr.Type {
+		case ResourceTypeSecret:
+			src.Secret = rr.Name
+		case ResourceTypeConfigMap:
+			src.ConfigMap = rr.Name
+		default:
+			// ignore unsupported
+		}
+		if rr.Namespace != "" {
+			src.Namespace = rr.Namespace
+		}
+	}
 }
 
 // collectValidationErrors recursively collects validation errors for YAML structure

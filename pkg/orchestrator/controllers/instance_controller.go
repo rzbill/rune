@@ -895,7 +895,38 @@ func (c *instanceController) isInstanceCompatibleWithService(ctx context.Context
 func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.Service, instance *types.Instance) (map[string]string, error) {
 	envVars := make(map[string]string)
 
-	// Add service-defined environment variables with interpolation
+	// 1) Import from envFrom sources in order
+	for _, src := range service.EnvFrom {
+		var data map[string]string
+		if src.SecretName != "" {
+			sec, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, src.Namespace, src.SecretName))
+			if err != nil {
+				return nil, fmt.Errorf("envFrom secret %s.%s: %w", src.Namespace, src.SecretName, err)
+			}
+			data = sec.Data
+		} else if src.ConfigMapName != "" {
+			cfg, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, src.Namespace, src.ConfigMapName))
+			if err != nil {
+				return nil, fmt.Errorf("envFrom configMap %s.%s: %w", src.Namespace, src.ConfigMapName, err)
+			}
+			data = cfg.Data
+		}
+		if data == nil {
+			continue
+		}
+		for k, v := range data {
+			key := k
+			if src.Prefix != "" {
+				key = src.Prefix + key
+			}
+			if !isValidEnvKey(key) {
+				return nil, fmt.Errorf("invalid environment variable name from envFrom: %s", key)
+			}
+			envVars[key] = v
+		}
+	}
+
+	// 2) Add service-defined environment variables with interpolation (override imported)
 	for key, value := range service.Env {
 		resolved, err := c.interpolateEnv(ctx, value, service.Namespace)
 		if err != nil {
@@ -929,6 +960,25 @@ func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.
 	}
 
 	return envVars, nil
+}
+
+// isValidEnvKey checks if key matches ^[A-Z_][A-Z0-9_]*$
+func isValidEnvKey(key string) bool {
+	if len(key) == 0 {
+		return false
+	}
+	// First char: A-Z or _
+	c0 := key[0]
+	if !((c0 >= 'A' && c0 <= 'Z') || c0 == '_') {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		c := key[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // interpolateEnv resolves template variables in the format {{type:reference}} using the controller's repos

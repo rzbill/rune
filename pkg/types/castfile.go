@@ -134,6 +134,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 					// Restore template references in environment variables
 					if cf.templateMap != nil {
 						spec.RestoreTemplateReferences(cf.templateMap)
+						spec.RestoreEnvFrom(cf.templateMap)
 					}
 					if !spec.Skip {
 						cf.Services = append(cf.Services, spec)
@@ -188,6 +189,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 							// Restore template references in environment variables
 							if cf.templateMap != nil {
 								spec.RestoreTemplateReferences(cf.templateMap)
+								spec.RestoreEnvFrom(cf.templateMap)
 							}
 							if !spec.Skip {
 								cf.Services = append(cf.Services, spec)
@@ -335,9 +337,7 @@ func (cf *CastFile) Lint() []error {
 				adj[sk] = append(adj[sk], string(v))
 			}
 		}
-		for _, e := range DetectDependencyCycles(adj) {
-			errs = append(errs, e)
-		}
+		errs = append(errs, DetectDependencyCycles(adj)...)
 	}
 
 	// Secrets

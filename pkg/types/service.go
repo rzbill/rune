@@ -44,6 +44,9 @@ type Service struct {
 	// Environment variables for the service
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 
+	// Imported environment variables sources (normalized from spec)
+	EnvFrom []EnvFromSource `json:"envFrom,omitempty" yaml:"envFrom,omitempty"`
+
 	// Number of instances to run
 	Scale int `json:"scale" yaml:"scale"`
 
@@ -97,6 +100,16 @@ type Service struct {
 
 	// Metadata for the service
 	Metadata *ServiceMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+// EnvFromSource is the internal normalized representation of envFrom
+type EnvFromSource struct {
+	// Exactly one of these will be set
+	SecretName    string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
+	ConfigMapName string `json:"configMapName,omitempty" yaml:"configMapName,omitempty"`
+
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Prefix    string `json:"prefix,omitempty" yaml:"prefix,omitempty"`
 }
 
 func (s *Service) GetResourceType() ResourceType {

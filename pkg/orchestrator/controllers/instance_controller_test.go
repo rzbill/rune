@@ -1010,3 +1010,63 @@ func TestPrepareEnvVars_WithTemplateInterpolation(t *testing.T) {
 	assert.Equal(t, "default", envVars["RUNE_SERVICE_NAMESPACE"])
 	assert.Equal(t, "test-instance-templates", envVars["RUNE_INSTANCE_ID"])
 }
+
+// TestPrepareEnvVars_EnvFrom covers import, prefix and precedence rules
+func TestPrepareEnvVars_EnvFrom(t *testing.T) {
+	ctx, testStore, _, controller := setupTestController(t)
+	instanceCtrl := controller.(*instanceController)
+
+	// Prepare secret and configmap
+	secret := &types.Secret{ID: "env-secrets", Name: "env-secrets", Namespace: "default", Data: map[string]string{
+		"USER":     "admin",
+		"PASSWORD": "s3cr3t",
+	}}
+	secretRepo := repos.NewSecretRepo(testStore)
+	err := secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "env-secrets"), secret)
+	require.NoError(t, err)
+
+	cfg := &types.ConfigMap{ID: "app-settings", Name: "app-settings", Namespace: "default", Data: map[string]string{
+		"LOG_LEVEL": "debug",
+	}}
+	err = testStore.Create(ctx, types.ResourceTypeConfigMap, "default", "app-settings", cfg)
+	require.NoError(t, err)
+
+	service := &types.Service{
+		ID:        "svc",
+		Name:      "svc",
+		Namespace: "default",
+		EnvFrom: []types.EnvFromSource{
+			{SecretName: "env-secrets", Namespace: "default", Prefix: "APP_"},
+			{ConfigMapName: "app-settings", Namespace: "default"},
+		},
+		// Explicit env overrides imported
+		Env: map[string]string{
+			"APP_USER": "override",
+		},
+	}
+
+	instance := &types.Instance{ID: "i1", Name: "i1", Namespace: "default", ServiceID: "svc"}
+
+	env, err := instanceCtrl.prepareEnvVars(ctx, service, instance)
+	require.NoError(t, err)
+
+	// Imported with prefix
+	assert.Equal(t, "s3cr3t", env["APP_PASSWORD"])
+	// ConfigMap imported without prefix
+	assert.Equal(t, "debug", env["LOG_LEVEL"])
+	// Explicit env overrides imported key
+	assert.Equal(t, "override", env["APP_USER"])
+
+	// Invalid key detection: create a bad secret and expect failure
+	badSecret := &types.Secret{ID: "bad", Name: "bad", Namespace: "default", Data: map[string]string{
+		"bad-key": "x",
+	}}
+	err = secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "bad"), badSecret)
+	require.NoError(t, err)
+
+	badService := &types.Service{ID: "svc2", Name: "svc2", Namespace: "default", EnvFrom: []types.EnvFromSource{
+		{SecretName: "bad", Namespace: "default"},
+	}}
+	_, err = instanceCtrl.prepareEnvVars(ctx, badService, instance)
+	require.Error(t, err)
+}
