@@ -177,6 +177,15 @@ install_from_source() {
     echo 'export PATH=/usr/local/go/bin:$PATH' >> /etc/bash.bashrc
   fi
   
+  # Ensure module cache env in non-interactive root shells
+  if [ -z "${HOME:-}" ]; then
+    export HOME=/root
+  fi
+  export GOPATH="${GOPATH:-$HOME/go}"
+  export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
+  go env -w GOPATH="$GOPATH" >/dev/null 2>&1 || true
+  go env -w GOMODCACHE="$GOMODCACHE" >/dev/null 2>&1 || true
+  
   log "Building Rune from source (branch: $BRANCH)"
   local src=/opt/rune
   rm -rf "$src" && git clone --branch "$BRANCH" --single-branch https://github.com/rzbill/rune.git "$src"
