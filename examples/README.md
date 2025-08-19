@@ -35,6 +35,22 @@ rune status
 rune seal --all
 ```
 
+## GitHub Actions CI/CD
+
+The [github-actions](github-actions) directory contains examples for using Rune CLI in GitHub Actions workflows.
+
+```bash
+# Copy the workflow to your repository
+mkdir -p .github/workflows
+cp examples/github-actions/rune-deploy.yml .github/workflows/
+
+# Add your service definitions
+mkdir services
+cp examples/github-actions/services/example-app.yaml services/
+```
+
+See [github-actions/README.md](github-actions/README.md) for complete setup instructions.
+
 ## Contributing Examples
 
 ## Cloudflare Tunnel (Expose services over HTTPS without ALB)

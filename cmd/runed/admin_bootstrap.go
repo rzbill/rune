@@ -103,9 +103,9 @@ func anyUserExists(st store.Store) bool {
 // --- Local helpers to update Rune CLI config (mirrors pkg/cli/cmd/config.go minimal logic) ---
 
 type cliContext struct {
-	Server    string `yaml:"server"`
-	Token     string `yaml:"token"`
-	Namespace string `yaml:"namespace,omitempty"`
+	Server           string `yaml:"server"`
+	Token            string `yaml:"token"`
+	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
 }
 
 type cliContextConfig struct {
@@ -187,7 +187,7 @@ func upsertCLIContextWithToken(token, grpcAddress string, logger log.Logger) err
 
 	server := normalizeGRPCAddressForClient(grpcAddress)
 	ctxName := "server-admin"
-	cfg.Contexts[ctxName] = cliContext{Server: server, Token: token, Namespace: "system"}
+	cfg.Contexts[ctxName] = cliContext{Server: server, Token: token, DefaultNamespace: "system"}
 	cfg.CurrentContext = ctxName
 
 	path, err := saveCLIContextConfig(cfg)

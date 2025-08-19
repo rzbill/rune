@@ -174,11 +174,10 @@ func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 	if path == "" {
-		v.SetConfigName("rune")
+		v.SetConfigName("runefile")
 		v.SetConfigType("yaml")
-		v.AddConfigPath("/etc/rune/")
-		v.AddConfigPath("$HOME/.rune")
-		v.AddConfigPath(".")
+		v.AddConfigPath(".")          // Local development override
+		v.AddConfigPath("/etc/rune/") // System-wide production config
 	}
 	cfg := Default()
 	if err := v.ReadInConfig(); err == nil {

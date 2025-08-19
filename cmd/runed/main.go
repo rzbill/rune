@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	configFile          = flag.String("config", "", "Configuration file path")
+	configFile          = flag.String("config", "", "Path to runefile.yaml (server configuration)")
 	grpcAddr            = flag.String("grpc-addr", ":7863", "gRPC server address")
 	httpAddr            = flag.String("http-addr", ":7861", "HTTP server address")
 	dataDir             = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
@@ -69,6 +69,51 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// createDefaultRunefile creates a default runefile.yaml if none exists
+func createDefaultRunefile(dataDir string) error {
+	defaultConfig := fmt.Sprintf(`# Default Rune server configuration
+# This file was auto-generated on first run
+
+docker:
+  registries: []
+  fallback_api_version: "1.43"
+  negotiation_timeout_seconds: 3
+
+server:
+  grpc_address: ":7863"
+  http_address: ":7861"
+
+log:
+  level: "info"
+  format: "text"
+
+secret:
+  encryption:
+    enabled: true
+    kek:
+      source: "file"
+      file: "kek.b64"
+
+data_dir: "%s"
+`, dataDir)
+
+	// Try to create in /etc/rune first (system-wide)
+	systemConfigPath := "/etc/rune/runefile.yaml"
+	if err := os.MkdirAll("/etc/rune", 0755); err == nil {
+		if err := os.WriteFile(systemConfigPath, []byte(defaultConfig), 0600); err == nil {
+			return nil
+		}
+	}
+
+	// Fallback to data directory (ensure directory exists)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	configPath := filepath.Join(dataDir, "runefile.yaml")
+	return os.WriteFile(configPath, []byte(defaultConfig), 0600)
+}
+
 // initRuntimeConfig initializes runtime settings (viper defaults + config file + env + flags)
 func initRuntimeConfig() {
 	// Initialize viper
@@ -92,11 +137,10 @@ func initRuntimeConfig() {
 	if configFileSpecified {
 		v.SetConfigFile(*configFile)
 	} else {
-		v.SetConfigName("rune")
+		v.SetConfigName("runefile")
 		v.SetConfigType("yaml")
-		v.AddConfigPath("/etc/rune/")
-		v.AddConfigPath("$HOME/.rune")
-		v.AddConfigPath(".")
+		v.AddConfigPath(".")          // Local development override
+		v.AddConfigPath("/etc/rune/") // System-wide production config
 	}
 
 	// Read config file if available
@@ -220,6 +264,12 @@ func main() {
 	// Context with cancellation
 	ctx, cancel := setupSignalContext(logger)
 	defer cancel()
+
+	// Create default runefile if none exists
+	if err := createDefaultRunefile(*dataDir); err != nil {
+		logger.Warn("Failed to create default runefile", log.Err(err))
+		// Don't fail startup, just warn
+	}
 
 	// Open state store via helper
 	stateStore, appCfg, _, err := openStateStore(logger, *configFile, *dataDir)

@@ -32,9 +32,9 @@ func TestContextConfigManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		config.Contexts["production"] = Context{
-			Server:    "https://prod-server.com:7863",
-			Token:     "prod-token-123",
-			Namespace: "prod",
+			Server:           "https://prod-server.com:7863",
+			Token:            "prod-token-123",
+			DefaultNamespace: "prod",
 		}
 
 		err = saveContextConfig(config)
@@ -45,7 +45,7 @@ func TestContextConfigManagement(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "https://prod-server.com:7863", loaded.Contexts["production"].Server)
 		assert.Equal(t, "prod-token-123", loaded.Contexts["production"].Token)
-		assert.Equal(t, "prod", loaded.Contexts["production"].Namespace)
+		assert.Equal(t, "prod", loaded.Contexts["production"].DefaultNamespace)
 	})
 
 	t.Run("Update existing context", func(t *testing.T) {
@@ -54,9 +54,9 @@ func TestContextConfigManagement(t *testing.T) {
 
 		// Update the production context
 		config.Contexts["production"] = Context{
-			Server:    "https://new-prod-server.com:7863",
-			Token:     "new-prod-token-456",
-			Namespace: "new-prod",
+			Server:           "https://new-prod-server.com:7863",
+			Token:            "new-prod-token-456",
+			DefaultNamespace: "new-prod",
 		}
 
 		err = saveContextConfig(config)
@@ -67,7 +67,7 @@ func TestContextConfigManagement(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "https://new-prod-server.com:7863", loaded.Contexts["production"].Server)
 		assert.Equal(t, "new-prod-token-456", loaded.Contexts["production"].Token)
-		assert.Equal(t, "new-prod", loaded.Contexts["production"].Namespace)
+		assert.Equal(t, "new-prod", loaded.Contexts["production"].DefaultNamespace)
 	})
 
 	t.Run("Switch current context", func(t *testing.T) {

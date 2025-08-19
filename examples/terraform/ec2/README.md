@@ -1,22 +1,97 @@
-# Terraform: EC2 + Rune
+# Terraform EC2 Examples
 
-Provisions an EC2 instance and installs Rune Server (`runed`) as a systemd service via cloud-init.
+This directory contains Terraform examples for provisioning EC2 instances with Rune.
 
-Usage
+## User Data Script
+
+### `user_data.sh`
+- **Uses**: Official `install-server.sh` installer
+- **Pros**: 
+  - Clean, maintainable code
+  - Uses tested installer script
+  - Automatic Docker installation
+  - Better error handling and verification
+  - Easier to debug and maintain
+  - Automatic CLI access setup for primary users
+- **Best for**: All production deployments, cloud-init, CI/CD
+
+## Usage
+
+### Quick Start with Official Installer
 ```bash
-terraform init
-terraform apply -auto-approve \
-  -var "region=us-east-1" \
-  -var "key_name=your_ssh_key_name" \
-  -var "allowed_cidr=0.0.0.0/0"
+# Use the recommended user_data.sh
+terraform apply -var="user_data_file=user_data.sh"
 ```
 
-Outputs
-- `instance_public_ip`
-- `grpc_endpoint` (port 8080)
-- `http_endpoint` (port 8081)
+### Custom Version/Branch
+```bash
+# Install specific version
+terraform apply \
+  -var="user_data_file=user_data.sh" \
+  -var="rune_version=v0.1.0"
 
-Variables
-- `region`, `instance_type`, `key_name`, `allowed_cidr`, `ami_id`, `use_amazon_linux`, `rune_version`
+# Install from source branch
+terraform apply \
+  -var="user_data_file=user_data.sh" \
+  -var="git_branch=feature/new-feature"
+```
+
+
+
+## Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `rune_version` | `""` | Rune version to install (e.g., "v0.1.0") |
+| `git_branch` | `"master"` | Git branch to use when building from source |
+
+## What Gets Installed
+
+Both scripts install:
+- Docker engine
+- Rune server (`runed`) and CLI (`rune`)
+- Systemd service
+- Configuration files
+- CLI access for primary user
+
+## Post-Installation
+
+After successful installation:
+1. **Service**: `runed` runs as systemd service
+2. **Endpoints**: 
+   - gRPC: `localhost:7863`
+   - HTTP: `localhost:7861`
+   - Dashboard: `localhost:7862`
+3. **CLI Access**: Primary user can run `rune status` immediately
+4. **Logs**: `journalctl -u runed -f`
+
+## Troubleshooting
+
+### Check Installation Logs
+```bash
+# On the EC2 instance
+sudo tail -f /var/log/user-data.log
+```
+
+### Service Status
+```bash
+sudo systemctl status runed --no-pager
+```
+
+### Manual CLI Setup
+If CLI config wasn't copied automatically:
+```bash
+# Copy config manually
+sudo mkdir -p ~/.rune
+sudo cp /var/lib/rune/.rune/config.yaml ~/.rune/config.yaml
+sudo chown -R $USER:$USER ~/.rune
+chmod 700 ~/.rune
+chmod 600 ~/.rune/config.yaml
+
+# Test
+rune status
+```
+
+
 
 

@@ -1,0 +1,84 @@
+# Sample Rune server configuration (runefile.yaml)
+# This file contains server-side configuration like registry auth, Docker settings, etc.
+# Place this file in /etc/rune/ for system-wide config or ./ for local development
+
+# Server configuration
+server:
+  grpc_address: ":7863"    # gRPC API server address
+  http_address: ":7861"    # HTTP server address (for health checks, etc.)
+
+# Data directory for server storage
+data_dir: "/var/lib/rune"
+
+# Logging configuration
+log:
+  level: "info"            # debug, info, warn, error
+  format: "text"           # text, json
+
+# Docker configuration
+docker:
+  api_version: "1.43"      # Docker API version to use
+  fallback_api_version: "1.43"
+  negotiation_timeout_seconds: 3
+  
+  # Registry authentication
+  registries:
+    # AWS ECR example
+    - name: "ecr-prod"
+      registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+      auth:
+        type: "ecr"
+        region: "us-west-2"
+        bootstrap: true     # Auto-create secret if missing
+    
+    # GitHub Container Registry example
+    - name: "ghcr"
+      registry: "ghcr.io"
+      auth:
+        type: "basic"
+        username: "${GHCR_USERNAME}"
+        password: "${GHCR_PASSWORD}"
+    
+    # Docker Hub example
+    - name: "dockerhub"
+      registry: "index.docker.io"
+      auth:
+        type: "basic"
+        username: "${DOCKER_USERNAME}"
+        password: "${DOCKER_PASSWORD}"
+    
+    # Local registry example
+    - name: "local"
+      registry: "localhost:5000"
+      auth:
+        type: "basic"
+        username: ""
+        password: ""
+        insecure: true      # HTTP registry
+
+# Secret encryption configuration
+secret:
+  encryption:
+    enabled: true
+    kek:
+      source: "file"        # file, generated, or env
+      file: "kek.b64"       # Path to encryption key (relative to data_dir)
+
+# Resource limits
+resources:
+  cpu:
+    default_request: "100m"
+    default_limit: "1"
+  memory:
+    default_request: "128Mi"
+    default_limit: "512Mi"
+
+# Authentication configuration
+auth:
+  provider: "token"         # token, api_key, oauth
+  api_keys: ""              # Comma-separated API keys
+
+# Plugin configuration
+plugins:
+  dir: "/var/lib/rune/plugins"
+  enabled: ["docker", "process"]

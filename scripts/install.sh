@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Rune single-node installer for Ubuntu or Amazon Linux
+# Rune full server installer for Ubuntu or Amazon Linux
 # - Installs Docker
 # - Creates rune user and directories
 # - Installs rune/runed (from release or source)
 # - Writes /etc/rune/rune.yaml and KEK
 # - Installs and enables systemd unit
+# - This is the full server stack (API, Agent, CLI)
 
 RUNE_USER="rune"
 RUNE_GROUP="rune"
-CONFIG_PATH="/etc/rune/rune.yaml"
+CONFIG_PATH="/etc/rune/runefile.yaml"
 DATA_DIR="/var/lib/rune"
 KEK_FILE="/etc/rune/kek.b64"
 GRPC_PORT=7863
@@ -19,8 +20,8 @@ RUNE_VERSION=""
 FROM_SOURCE=false
 BRANCH="master"
 
-log() { echo "[install-rune] $*"; }
-die() { echo "[install-rune] ERROR: $*" >&2; exit 1; }
+log() { echo "[install] $*"; }
+die() { echo "[install] ERROR: $*" >&2; exit 1; }
 
 usage() {
   cat <<USAGE
@@ -31,8 +32,11 @@ Options:
   --branch NAME      Git branch to clone when building from source (default: master)
   --grpc-port N      gRPC port (default: 7863)
   --http-port N      HTTP port (default: 7861)
-  --config PATH      Config path (default: /etc/rune/rune.yaml)
+  --config PATH      Config path (default: /etc/rune/runefile.yaml)
   -h, --help         Show help
+
+This installer sets up the full Rune server stack (API, Agent, CLI).
+For CLI-only installation, use: curl -fsSL https://rune.sh/install-cli.sh | bash
 USAGE
 }
 

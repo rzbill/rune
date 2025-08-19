@@ -9,7 +9,7 @@ Prerequisites:
 
 Quick install (recommended):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install-rune.sh | sudo bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install.sh | sudo bash -s -- --version v0.1.0
 ```
 
 Notes:

@@ -25,10 +25,24 @@ jobs:
         run: |
           GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o dist/linux_arm64/rune ./cmd/rune
           GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o dist/linux_arm64/runed ./cmd/runed
+      - name: Build macOS amd64
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o dist/darwin_amd64/rune ./cmd/rune
+      - name: Build macOS arm64
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o dist/darwin_arm64/rune ./cmd/rune
       - name: Archive artifacts
         run: |
+          # Full server packages (rune + runed)
           cd dist/linux_amd64 && tar -czf ../rune_linux_amd64.tar.gz rune runed && cd -
           cd dist/linux_arm64 && tar -czf ../rune_linux_arm64.tar.gz rune runed && cd -
+          
+          # CLI-only packages (just rune binary)
+          cd dist/linux_amd64 && tar -czf ../rune-cli_linux_amd64.tar.gz rune && cd -
+          cd dist/linux_arm64 && tar -czf ../rune-cli_linux_arm64.tar.gz rune && cd -
+          cd dist/darwin_amd64 && tar -czf ../rune-cli_darwin_amd64.tar.gz rune && cd -
+          cd dist/darwin_arm64 && tar -czf ../rune-cli_darwin_arm64.tar.gz rune && cd -
+          
           sha256sum dist/*.tar.gz > dist/checksums.txt
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -36,6 +50,10 @@ jobs:
           files: |
             dist/rune_linux_amd64.tar.gz
             dist/rune_linux_arm64.tar.gz
+            dist/rune-cli_linux_amd64.tar.gz
+            dist/rune-cli_linux_arm64.tar.gz
+            dist/rune-cli_darwin_amd64.tar.gz
+            dist/rune-cli_darwin_arm64.tar.gz
             dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

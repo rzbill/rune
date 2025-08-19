@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rune CLI-only installer
+# - Installs only the rune CLI binary (no server components)
+# - Works on Linux, macOS, and Windows
+# - Downloads from GitHub releases or builds from source
+
+RUNE_VERSION=""
+FROM_SOURCE=false
+BRANCH="master"
+INSTALL_DIR="/usr/local/bin"
+FORCE=false
+
+log() { echo "[install-cli] $*"; }
+die() { echo "[install-cli] ERROR: $*" >&2; exit 1; }
+
+usage() {
+  cat <<USAGE
+Usage: $0 [--version vX.Y.Z | --from-source] [--branch NAME] [--install-dir PATH] [--force]
+Options:
+  --version vX.Y.Z   Install from GitHub release tag (preferred)
+  --from-source      Build from source if no release is specified
+  --branch NAME      Git branch to clone when building from source (default: master)
+  --install-dir PATH Install directory (default: /usr/local/bin)
+  --force            Force overwrite if binary exists
+  -h, --help         Show help
+USAGE
+}
+
+arch_normalize() {
+  local m; m=$(uname -m)
+  case "$m" in
+    x86_64) echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    *) die "Unsupported architecture: $m" ;;
+  esac
+}
+
+os_normalize() {
+  local os; os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  case "$os" in
+    linux) echo linux ;;
+    darwin) echo darwin ;;
+    *) die "Unsupported OS: $os" ;;
+  esac
+}
+
+ensure_install_dir() {
+  if [ ! -d "$INSTALL_DIR" ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+      mkdir -p "$INSTALL_DIR"
+    else
+      die "Install directory $INSTALL_DIR does not exist and you don't have permission to create it"
+    fi
+  fi
+  
+  if [ ! -w "$INSTALL_DIR" ]; then
+    die "No write permission to $INSTALL_DIR. Try running with sudo or use --install-dir to specify a writable location"
+  fi
+}
+
+install_from_release() {
+  local arch os url tmp
+  arch=$(arch_normalize)
+  os=$(os_normalize)
+  tmp=$(mktemp -d)
+  
+  url="https://github.com/rzbill/rune/releases/download/${RUNE_VERSION}/rune-cli_${os}_${arch}.tar.gz"
+  log "Downloading CLI-only release from $url"
+  
+  if ! curl -fsSL -o "$tmp/rune-cli.tgz" "$url"; then
+    die "Failed to download CLI-only release from ${RUNE_VERSION}. CLI-only releases are required for this installer."
+  fi
+  
+  if [ -f "$INSTALL_DIR/rune" ] && [ "$FORCE" != "true" ]; then
+    log "Binary already exists at $INSTALL_DIR/rune. Use --force to overwrite"
+    return 1
+  fi
+  
+  # Extract the rune binary from CLI-only release
+  tar -C "$tmp" -xzf "$tmp/rune-cli.tgz" rune
+  if [ "$(id -u)" -eq 0 ]; then
+    install -m 0755 "$tmp/rune" "$INSTALL_DIR/rune"
+  else
+    cp "$tmp/rune" "$INSTALL_DIR/rune"
+    chmod +x "$INSTALL_DIR/rune"
+  fi
+  
+  rm -rf "$tmp"
+  log "Installed rune CLI to $INSTALL_DIR/rune"
+}
+
+install_from_source() {
+  local goversion=1.22.5
+  
+  if ! command -v go >/dev/null 2>&1; then
+    die "Go is required to build from source. Please install Go ${goversion}+ first"
+  fi
+  
+  if ! command -v git >/dev/null 2>&1; then
+    die "Git is required to build from source. Please install git first"
+  fi
+  
+  log "Building Rune CLI from source"
+  local src=/tmp/rune-cli-build
+  rm -rf "$src"
+  
+  git clone --branch "$BRANCH" --single-branch https://github.com/rzbill/rune.git "$src"
+  (cd "$src" && make build)
+  
+  if [ -f "$INSTALL_DIR/rune" ] && [ "$FORCE" != "true" ]; then
+    log "Binary already exists at $INSTALL_DIR/rune. Use --force to overwrite"
+    return 1
+  fi
+  
+  if [ "$(id -u)" -eq 0 ]; then
+    install -m 0755 "$src/bin/rune" "$INSTALL_DIR/rune"
+  else
+    cp "$src/bin/rune" "$INSTALL_DIR/rune"
+    chmod +x "$INSTALL_DIR/rune"
+  fi
+  
+  rm -rf "$src"
+  log "Built and installed rune CLI to $INSTALL_DIR/rune"
+}
+
+verify_installation() {
+  if command -v rune >/dev/null 2>&1; then
+    log "Installation verified successfully"
+    rune version
+  else
+    die "Installation verification failed - 'rune' command not found in PATH"
+  fi
+}
+
+main() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --version) RUNE_VERSION="$2"; shift 2 ;;
+      --from-source) FROM_SOURCE=true; shift ;;
+      --branch) BRANCH="$2"; shift 2 ;;
+      --install-dir) INSTALL_DIR="$2"; shift 2 ;;
+      --force) FORCE=true; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  ensure_install_dir
+
+  if [ -n "$RUNE_VERSION" ]; then
+    install_from_release || { log "Release install failed; falling back to source"; install_from_source; }
+  elif [ "$FROM_SOURCE" = true ]; then
+    install_from_source
+  else
+    log "No version specified; installing from source"
+    install_from_source
+  fi
+
+  verify_installation
+  
+  log "Rune CLI installation complete!"
+  log "You can now use: rune --help"
+}
+
+main "$@"

@@ -18,9 +18,9 @@ type ContextConfig struct {
 
 // Context represents a single context configuration
 type Context struct {
-	Server    string `yaml:"server"`
-	Token     string `yaml:"token"`
-	Namespace string `yaml:"namespace,omitempty"`
+	Server           string `yaml:"server"`
+	Token            string `yaml:"token"`
+	DefaultNamespace string `yaml:"defaultNamespace,omitempty"`
 }
 
 func newConfigCmd() *cobra.Command {
@@ -61,8 +61,8 @@ func newConfigViewCmd() *cobra.Command {
 			if currentCtx, exists := config.Contexts[config.CurrentContext]; exists {
 				fmt.Printf("Server: %s\n", currentCtx.Server)
 				fmt.Printf("Token: %s...\n", maskToken(currentCtx.Token))
-				if currentCtx.Namespace != "" {
-					fmt.Printf("Namespace: %s\n", currentCtx.Namespace)
+				if currentCtx.DefaultNamespace != "" {
+					fmt.Printf("Default Namespace: %s\n", currentCtx.DefaultNamespace)
 				}
 			} else {
 				fmt.Println("Current context not found in configuration")
@@ -125,9 +125,9 @@ You must provide --server and --token (or --token-file) to configure the context
 
 			// Create or update the context
 			ctx := Context{
-				Server:    normalizedServer,
-				Token:     token,
-				Namespace: namespace,
+				Server:           normalizedServer,
+				Token:            token,
+				DefaultNamespace: namespace,
 			}
 
 			config.Contexts[contextName] = ctx
@@ -213,8 +213,8 @@ func newConfigListContextsCmd() *cobra.Command {
 				fmt.Printf("%s %s\n", marker, name)
 				fmt.Printf("    Server: %s\n", ctx.Server)
 				fmt.Printf("    Token: %s...\n", maskToken(ctx.Token))
-				if ctx.Namespace != "" {
-					fmt.Printf("    Namespace: %s\n", ctx.Namespace)
+				if ctx.DefaultNamespace != "" {
+					fmt.Printf("    Default Namespace: %s\n", ctx.DefaultNamespace)
 				}
 				fmt.Println()
 			}
@@ -313,7 +313,9 @@ func getConfigPath() string {
 	if cfgFile != "" {
 		return cfgFile
 	}
-
+	if envPath, ok := os.LookupEnv("RUNE_CLI_CONFIG"); ok && envPath != "" {
+		return envPath
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "./.rune/config.yaml"

@@ -7,7 +7,7 @@ Repo path: `examples/terraform/ec2/`
 What it creates:
 - Security group allowing 22, 8080, 8081 (configurable)
 - Ubuntu 22.04 t3.small (configurable)
-- Cloud-init that: installs Docker, installs Rune, writes `/etc/rune` and enables `runed`
+- Cloud-init that: installs Docker, installs Rune, writes `/etc/rune`, enables `runed`, and sets up CLI access
 
 Quick start
 ```bash

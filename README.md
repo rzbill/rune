@@ -21,6 +21,24 @@ Rune is a lightweight, powerful orchestration platform designed to simplify the 
 
 ### Installation
 
+#### Quick Install (Recommended)
+
+```bash
+# Install CLI only (for developers)
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install-cli.sh | bash
+
+# Install complete server environment (recommended for most users)
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install-server.sh | sudo bash -s -- --version v0.1.0
+
+# Install binary-only (assumes Docker already configured)
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install.sh | sudo bash -s -- --version v0.1.0
+
+# For automated deployment (cloud-init, CI/CD) - runs as root automatically
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install-server.sh | bash -s -- --version v0.1.0
+```
+
+#### From Source
+
 ```bash
 # Install from source
 go install github.com/rzbill/rune/cmd/rune@latest
@@ -31,45 +49,71 @@ rune version
 
 ### Configuration
 
-Rune has sensible defaults built into the application, so configuration files are completely optional. You can run the server without any additional setup:
+Rune uses a clean separation between server and client configuration:
+
+#### Server Configuration (`runefile.yaml`)
+
+The server configuration file contains registry authentication, Docker settings, and server options:
 
 ```bash
-# Run with built-in defaults
+# Run with built-in defaults (auto-creates runefile.yaml)
 runed
+
+# Use custom server configuration
+runed --config=/path/to/runefile.yaml
 ```
 
-To customize settings, you can:
+**Configuration locations (in order of precedence):**
+1. **`--config` flag** - Explicitly specified file
+2. **`./runefile.yaml`** - Local development override
+3. **`/etc/rune/runefile.yaml`** - System-wide production config
 
-1. Use command-line flags (for simple overrides):
+**Example server configuration:**
+```yaml
+# runefile.yaml
+server:
+  grpc_address: ":7863"
+  http_address: ":7861"
 
-```bash
-# Override the gRPC port and data directory
-runed --grpc-addr=":9090" --data-dir="/path/to/data"
+docker:
+  registries:
+    - name: "ecr-prod"
+      registry: "123456789012.dkr.ecr.us-west-2.amazonaws.com"
+      auth:
+        type: "ecr"
+        region: "us-west-2"
+
+log:
+  level: "info"
+  format: "text"
 ```
 
-2. Use a configuration file (for more complex setups):
+#### Client Configuration (`$HOME/.rune/config.yaml`)
+
+Client configuration manages connections to Rune servers:
 
 ```yaml
-# rune.yaml
-server:
-  grpc_address: ":9090"
-  http_address: ":9091"
-  
-data_dir: "/path/to/data"
-
-# Additional settings...
+# $HOME/.rune/config.yaml
+current-context: production
+contexts:
+  production:
+    server: "https://rune.company.com:7863"
+    token: "your-auth-token"
+    defaultNamespace: "production"
 ```
 
-Then run with:
+**Client config locations:**
+- **`$HOME/.rune/config.yaml`** - User's home directory
+- **`$RUNE_CLI_CONFIG`** - Environment variable override
 
-```bash
-# Point to your config file
-runed --config=/path/to/rune.yaml
-```
+#### First Run
 
-The server looks for a `rune.yaml` file in the current directory, `~/.rune/`, or `/etc/rune/`, but you can always specify a custom location with the `--config` flag.
+On first startup, Rune will:
+1. **Auto-create** a default `runefile.yaml` if none exists
+2. **Bootstrap** an admin user if no users exist
+3. **Create** a CLI config file for the admin user
 
-See the `examples/config/rune.yaml` file for a complete example configuration.
+See the `examples/runefile.yaml` file for a complete server configuration example.
 
 ### Quick Start
 
@@ -94,6 +138,22 @@ rune cast service.yaml
 ```bash
 rune trace hello-world
 ```
+
+## CI/CD with GitHub Actions
+
+Deploy services automatically using the Rune CLI in GitHub Actions:
+
+```bash
+# Copy the workflow to your repository
+mkdir -p .github/workflows
+cp examples/github-actions/rune-deploy.yml .github/workflows/
+
+# Add your service definitions
+mkdir services
+cp examples/github-actions/services/example-app.yaml services/
+```
+
+See [CI/CD Guide](docs/guides/ci-cd-github-actions.md) for complete setup instructions.
 
 ## Documentation
 

@@ -1,0 +1,20 @@
+name: example-app
+image: nginx:alpine
+ports:
+  - 8080:80
+environment:
+  - NGINX_HOST=example.com
+  - NGINX_PORT=80
+volumes:
+  - /tmp/nginx-logs:/var/log/nginx
+health_check:
+  type: http
+  path: /health
+  port: 80
+  interval: 30s
+  timeout: 10s
+  retries: 3
+labels:
+  app: example-app
+  environment: production
+  managed-by: github-actions

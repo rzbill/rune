@@ -79,9 +79,9 @@ If --set-current is provided, the new context will become the current context.`,
 
 			// Create or update the context
 			ctx := Context{
-				Server:    server,
-				Token:     token,
-				Namespace: namespace,
+				Server:           server,
+				Token:            token,
+				DefaultNamespace: namespace,
 			}
 
 			// If server not specified, try to get from current context
