@@ -75,9 +75,10 @@ type DockerConfig struct {
 
 // AuthConfig represents authentication configuration
 type AuthConfig struct {
-	APIKeys  string `yaml:"api_keys,omitempty"`
-	Provider string `yaml:"provider,omitempty"`
-	Token    string `yaml:"token,omitempty"`
+	APIKeys          string `yaml:"api_keys,omitempty"`
+	Provider         string `yaml:"provider,omitempty"`
+	Token            string `yaml:"token,omitempty"`
+	AllowRemoteAdmin bool   `yaml:"allow_remote_admin,omitempty"`
 }
 
 // ResourceConfig represents resource limits and requests

@@ -1,0 +1,112 @@
+syntax = "proto3";
+package rune.api;
+option go_package = "github.com/rzbill/rune/pkg/api/generated";
+
+// Subjects represent principals (user or service account)
+message Subject {
+  string id = 1;
+  string kind = 2; // user|service
+  string name = 3;
+  string email = 4; // optional for users
+  repeated string policies = 5; // names or ids
+}
+
+message AdminBootstrapRequest {}
+message AdminBootstrapResponse {
+  string token_id = 1;
+  string token_secret = 2; // returned once
+  string subject_id = 3;   // root/admin subject id
+}
+
+message PolicyRule {
+  string resource = 1;              // services|instances|logs|exec|secrets|configmaps|users|policies|namespaces|tokens|health|orchestrator|*
+  repeated string verbs = 2;        // get|list|create|update|delete|exec|logs|scale|*
+  string namespace = 3;             // optional; * means all
+}
+
+message Policy {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated PolicyRule rules = 4;
+  bool builtin = 5;
+}
+
+message PolicyCreateRequest { Policy policy = 1; }
+message PolicyCreateResponse { Policy policy = 1; }
+
+message PolicyUpdateRequest { Policy policy = 1; }
+message PolicyUpdateResponse { Policy policy = 1; }
+
+message PolicyDeleteRequest { string id = 1; string name = 2; }
+message PolicyDeleteResponse { bool deleted = 1; }
+
+message PolicyGetRequest { string id = 1; string name = 2; }
+message PolicyGetResponse { Policy policy = 1; }
+
+message PolicyListRequest {}
+message PolicyListResponse { repeated Policy policies = 1; }
+
+message PolicyAttachToSubjectRequest {
+  string policy_id = 1;
+  string policy_name = 2;
+  string subject_id = 3;
+  string subject_name = 4;
+  string subject_kind = 5; // user|service
+}
+message PolicyAttachToSubjectResponse { bool attached = 1; }
+
+message PolicyDetachFromSubjectRequest {
+  string policy_id = 1;
+  string policy_name = 2;
+  string subject_id = 3;
+  string subject_name = 4;
+  string subject_kind = 5; // user|service
+}
+message PolicyDetachFromSubjectResponse { bool detached = 1; }
+
+message UserCreateRequest {
+  string name = 1;
+  string email = 2;
+  repeated string policies = 3; // names or ids
+}
+message UserCreateResponse { Subject user = 1; }
+
+message UserListRequest {}
+message UserListResponse { repeated Subject users = 1; }
+
+// Token listing (admin-only)
+message TokenInfo {
+  string id = 1;
+  string name = 2;
+  string namespace = 3;
+  string subject_id = 4;
+  string subject_type = 5; // user|service
+  string description = 6;
+  int64 issued_at = 7;   // unix seconds
+  int64 expires_at = 8;  // unix seconds (0 means none)
+  bool revoked = 9;
+}
+
+message TokenListRequest {}
+message TokenListResponse { repeated TokenInfo tokens = 1; }
+
+service AdminService {
+  rpc AdminBootstrap(AdminBootstrapRequest) returns (AdminBootstrapResponse);
+
+  rpc PolicyCreate(PolicyCreateRequest) returns (PolicyCreateResponse);
+  rpc PolicyUpdate(PolicyUpdateRequest) returns (PolicyUpdateResponse);
+  rpc PolicyDelete(PolicyDeleteRequest) returns (PolicyDeleteResponse);
+  rpc PolicyGet(PolicyGetRequest) returns (PolicyGetResponse);
+  rpc PolicyList(PolicyListRequest) returns (PolicyListResponse);
+  rpc PolicyAttachToSubject(PolicyAttachToSubjectRequest) returns (PolicyAttachToSubjectResponse);
+  rpc PolicyDetachFromSubject(PolicyDetachFromSubjectRequest) returns (PolicyDetachFromSubjectResponse);
+
+  rpc UserCreate(UserCreateRequest) returns (UserCreateResponse);
+  rpc UserList(UserListRequest) returns (UserListResponse);
+
+  // List tokens (no secrets)
+  rpc TokenList(TokenListRequest) returns (TokenListResponse);
+}
+
+

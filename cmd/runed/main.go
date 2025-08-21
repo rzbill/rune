@@ -19,21 +19,16 @@ import (
 )
 
 var (
-	configFile          = flag.String("config", "", "Path to runefile.yaml (server configuration)")
-	grpcAddr            = flag.String("grpc-addr", ":7863", "gRPC server address")
-	httpAddr            = flag.String("http-addr", ":7861", "HTTP server address")
-	dataDir             = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
-	logLevel            = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	debugLogLevel       = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
-	logFormat           = flag.String("log-format", "text", "Log format (text, json)")
-	prettyLogs          = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
-	bootstrapAdmin      = flag.Bool("bootstrap-admin", true, "Bootstrap admin user and token on first run if none exist")
-	bootstrapAdminName  = flag.String("bootstrap-admin-name", "admin", "Initial admin username")
-	bootstrapAdminEmail = flag.String("bootstrap-admin-email", "", "Initial admin email (optional)")
-	bootstrapTokenOut   = flag.String("bootstrap-token-file", "", "Write bootstrap token to this file (0600). Defaults to <data-dir>/bootstrap-admin-token")
-	cliConfigPath       = flag.String("cli-config", "", "Rune CLI config path to write bootstrap context (default: $RUNE_CLI_CONFIG or ~/.rune/config.yaml)")
-	showHelp            = flag.Bool("help", false, "Show help")
-	showVer             = flag.Bool("version", false, "Show version")
+	configFile    = flag.String("config", "", "Path to runefile.yaml (server configuration)")
+	grpcAddr      = flag.String("grpc-addr", ":7863", "gRPC server address")
+	httpAddr      = flag.String("http-addr", ":7861", "HTTP server address")
+	dataDir       = flag.String("data-dir", "", "Data directory (if not specified, uses OS-specific application data directory)")
+	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	debugLogLevel = flag.Bool("debug", false, "Enable debug mode (shorthand for --log-level=debug)")
+	logFormat     = flag.String("log-format", "text", "Log format (text, json)")
+	prettyLogs    = flag.Bool("pretty", false, "Enable pretty text log format (shorthand for --log-format=text)")
+	showHelp      = flag.Bool("help", false, "Show help")
+	showVer       = flag.Bool("version", false, "Show version")
 )
 
 // getDefaultDataDir returns the default data directory based on the OS
@@ -174,7 +169,8 @@ func initRuntimeConfig() {
 		"RUNE_LOG_FORMAT": "log.format",
 
 		// Auth config
-		"RUNE_AUTH_API_KEYS": "auth.api_keys",
+		"RUNE_AUTH_API_KEYS":           "auth.api_keys",
+		"RUNE_AUTH_ALLOW_REMOTE_ADMIN": "auth.allow_remote_admin",
 	}
 
 	// Explicitly bind environment variables to configuration keys
@@ -278,20 +274,6 @@ func main() {
 	if err := bootstrapAndResolveRegistryAuth(appCfg, stateStore, logger); err != nil {
 		logger.Error("Failed to bootstrap/resolve registry auth", log.Err(err))
 		os.Exit(1)
-	}
-
-	// Bootstrap admin if none exists
-	if *bootstrapAdmin {
-		if err := ensureBootstrapAdmin(stateStore, *bootstrapAdminName, *bootstrapAdminEmail, *bootstrapTokenOut, logger); err != nil {
-			logger.Error("Failed to bootstrap admin", log.Err(err))
-			os.Exit(1)
-		}
-	} else {
-		// Safety: if bootstrap disabled but no users exist, refuse to start to avoid lockout
-		if !anyUserExists(stateStore) {
-			logger.Error("No users found and --bootstrap-admin=false. Seed a user/token or start with --bootstrap-admin=true.")
-			os.Exit(1)
-		}
 	}
 
 	// Token-based auth is always enabled in MVP

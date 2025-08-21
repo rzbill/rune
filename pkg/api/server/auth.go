@@ -5,8 +5,6 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/rzbill/rune/pkg/store/repos"
-	"github.com/rzbill/rune/pkg/types"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,7 +25,6 @@ var authCtxKey authCtxKeyType = "rune-auth"
 // AuthInfo holds minimal identity used by handlers for RBAC checks
 type AuthInfo struct {
 	SubjectID string
-	Roles     []types.Role
 }
 
 // authFunc is the authentication function for gRPC requests.
@@ -52,18 +49,8 @@ func (s *APIServer) authFunc(ctx context.Context) (context.Context, error) {
 		return nil, status.Errorf(codes.Unauthenticated, "invalid bearer token")
 	}
 
-	// Enrich context with auth info
-	info := &AuthInfo{SubjectID: tok.SubjectID, Roles: tok.RoleBindings}
+	// Enrich context with subject only; permissions resolved via policy engine
+	info := &AuthInfo{SubjectID: tok.SubjectID}
 	ctx = context.WithValue(ctx, authCtxKey, info)
 	return ctx, nil
-}
-
-// authInterceptor returns a unary interceptor for authentication.
-func (s *APIServer) authInterceptor() grpc.UnaryServerInterceptor {
-	return auth.UnaryServerInterceptor(s.authFunc)
-}
-
-// authStreamInterceptor returns a stream interceptor for authentication.
-func (s *APIServer) authStreamInterceptor() grpc.StreamServerInterceptor {
-	return auth.StreamServerInterceptor(s.authFunc)
 }

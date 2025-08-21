@@ -63,7 +63,8 @@ func init() {
 	// Register auth-related commands
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newWhoAmICmd())
-	rootCmd.AddCommand(newTokenCmd())
+	// Admin command group (bootstrap, token, user, policy)
+	rootCmd.AddCommand(newAdminCmd())
 	// Register config management commands
 	rootCmd.AddCommand(newConfigCmd())
 }

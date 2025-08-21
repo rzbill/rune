@@ -38,6 +38,9 @@ const (
 
 	// ResourceTypeToken represents authentication tokens
 	ResourceTypeToken ResourceType = "token"
+
+	// ResourceTypePolicy represents authorization policies
+	ResourceTypePolicy ResourceType = "policy"
 )
 
 // RunnerType is the type of runner for an instance.

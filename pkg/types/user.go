@@ -2,22 +2,13 @@ package types
 
 import "time"
 
-// Role defines built-in RBAC roles for MVP
-type Role string
-
-const (
-	RoleAdmin     Role = "admin"
-	RoleReadWrite Role = "readwrite"
-	RoleReadOnly  Role = "readonly"
-)
-
 // User represents an identity
 type User struct {
 	Namespace string    `json:"namespace" yaml:"namespace"`
 	Name      string    `json:"name" yaml:"name"`
 	ID        string    `json:"id" yaml:"id"`
 	Email     string    `json:"email,omitempty" yaml:"email,omitempty"`
-	Roles     []Role    `json:"roles" yaml:"roles"`
+	Policies  []string  `json:"policies,omitempty" yaml:"policies,omitempty"`
 	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
 }
 

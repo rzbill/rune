@@ -23,7 +23,7 @@ func hashSecret(secret string) string {
 }
 
 // Issue creates a new token with a freshly generated secret. Returns the plaintext secret once.
-func (r *TokenRepo) Issue(ctx context.Context, ns, name, subjectID, subjectType string, roles []types.Role, desc string, ttl time.Duration) (*types.Token, string, error) {
+func (r *TokenRepo) Issue(ctx context.Context, ns, name, subjectID, subjectType string, desc string, ttl time.Duration) (*types.Token, string, error) {
 	if ns == "" {
 		ns = "system"
 	}
@@ -38,17 +38,16 @@ func (r *TokenRepo) Issue(ctx context.Context, ns, name, subjectID, subjectType 
 		exp = &t
 	}
 	tok := &types.Token{
-		Namespace:    ns,
-		Name:         name,
-		ID:           uuid.NewString(),
-		SubjectID:    subjectID,
-		SubjectType:  subjectType,
-		RoleBindings: roles,
-		Description:  desc,
-		IssuedAt:     now,
-		ExpiresAt:    exp,
-		Revoked:      false,
-		SecretHash:   hashSecret(secret),
+		Namespace:   ns,
+		Name:        name,
+		ID:          uuid.NewString(),
+		SubjectID:   subjectID,
+		SubjectType: subjectType,
+		Description: desc,
+		IssuedAt:    now,
+		ExpiresAt:   exp,
+		Revoked:     false,
+		SecretHash:  hashSecret(secret),
 	}
 	if err := r.st.Create(ctx, types.ResourceTypeToken, ns, name, tok); err != nil {
 		return nil, "", err

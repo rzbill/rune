@@ -54,6 +54,7 @@ auth:
   api_keys: ""
   provider: "token"  # Options: token, oidc, none
   token: ""  # Static token for simple auth
+  allow_remote_admin: false
 
 # Resources
 resources:

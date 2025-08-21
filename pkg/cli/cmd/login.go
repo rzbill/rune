@@ -84,12 +84,12 @@ If --set-current is provided, the new context will become the current context.`,
 				DefaultNamespace: namespace,
 			}
 
-			// If server not specified, try to get from current context
+			// If server not specified, try to get from current context, else default to gRPC host:port
 			if server == "" {
 				if currentCtx, exists := config.Contexts[config.CurrentContext]; exists {
 					ctx.Server = currentCtx.Server
 				} else {
-					ctx.Server = fmt.Sprintf("http://localhost:%d", internalConfig.DefaultGRPCPort)
+					ctx.Server = fmt.Sprintf("localhost:%d", internalConfig.DefaultGRPCPort)
 				}
 			}
 
@@ -108,7 +108,7 @@ If --set-current is provided, the new context will become the current context.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&server, "server", fmt.Sprintf("http://localhost:%d", internalConfig.DefaultHTTPPort), "Rune API server URL")
+	cmd.Flags().StringVar(&server, "server", fmt.Sprintf("localhost:%d", internalConfig.DefaultGRPCPort), "Rune gRPC server address (host:port)")
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Optional default namespace")
 	cmd.Flags().StringVar(&token, "token", "", "Bearer token value")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Path to file containing the bearer token")

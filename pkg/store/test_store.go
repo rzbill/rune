@@ -132,6 +132,9 @@ func (s *TestStore) deepCopy(resource interface{}) interface{} {
 		// Create a copy to store
 		copied := *v
 		copy = &copied
+	case *types.Policy:
+		copied := *v
+		copy = &copied
 	default:
 		// For other types, just use as-is (not ideal but works for basic types)
 		copy = resource
@@ -271,6 +274,18 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 		case types.ConfigMap:
 			if targetCfg, ok := resource.(*types.ConfigMap); ok {
 				*targetCfg = storedData
+				return nil
+			}
+
+		case *types.Policy:
+			if targetPol, ok := resource.(*types.Policy); ok && storedData != nil {
+				*targetPol = *storedData
+				return nil
+			}
+
+		case types.Policy:
+			if targetPol, ok := resource.(*types.Policy); ok {
+				*targetPol = storedData
 				return nil
 			}
 

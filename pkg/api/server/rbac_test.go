@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -19,31 +18,25 @@ func TestRBACUnaryInterceptor(t *testing.T) {
 	}
 
 	// helper
-	call := func(roles []types.Role, method string) error {
+	call := func(hasSubject bool, method string) error {
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, authCtxKey, &AuthInfo{SubjectID: "sub", Roles: roles})
+		if hasSubject {
+			ctx = context.WithValue(ctx, authCtxKey, &AuthInfo{SubjectID: "sub"})
+		}
 		info := &grpc.UnaryServerInfo{FullMethod: method}
 		h := func(ctx context.Context, req interface{}) (interface{}, error) { return nil, nil }
 		_, err := s.rbacUnaryInterceptor()(ctx, nil, info, h)
 		return err
 	}
 
-	// readonly can read
-	if err := call([]types.Role{types.RoleReadOnly}, "/rune.api.ServiceService/GetService"); err != nil {
-		t.Fatalf("readonly should read: %v", err)
-	}
-	// readonly cannot write
-	err = call([]types.Role{types.RoleReadOnly}, "/rune.api.ServiceService/CreateService")
+	// without subject should be denied
+	err = call(false, "/rune.api.ServiceService/GetService")
 	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("readonly should be denied write, got %v", err)
+		t.Fatalf("expected permission denied without subject, got %v", err)
 	}
-	// readwrite can write
-	if err := call([]types.Role{types.RoleReadWrite}, "/rune.api.ServiceService/CreateService"); err != nil {
-		t.Fatalf("readwrite should write: %v", err)
-	}
-	// admin can all
-	if err := call([]types.Role{types.RoleAdmin}, "/rune.api.ServiceService/DeleteService"); err != nil {
-		t.Fatalf("admin should write: %v", err)
+	// with subject allowed (placeholder until policy engine wired)
+	if err := call(true, "/rune.api.ServiceService/CreateService"); err != nil {
+		t.Fatalf("expected allow with subject: %v", err)
 	}
 }
 
@@ -54,23 +47,25 @@ func TestRBACStreamInterceptor(t *testing.T) {
 		t.Fatalf("new server: %v", err)
 	}
 
-	call := func(roles []types.Role, method string) error {
+	call := func(hasSubject bool, method string) error {
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, authCtxKey, &AuthInfo{SubjectID: "sub", Roles: roles})
+		if hasSubject {
+			ctx = context.WithValue(ctx, authCtxKey, &AuthInfo{SubjectID: "sub"})
+		}
 		ss := &fakeServerStream{ctx: ctx}
 		info := &grpc.StreamServerInfo{FullMethod: method}
 		h := func(srv interface{}, stream grpc.ServerStream) error { return nil }
 		return s.rbacStreamInterceptor()(nil, ss, info, h)
 	}
 
-	// readonly can stream logs
-	if err := call([]types.Role{types.RoleReadOnly}, "/rune.api.LogService/StreamLogs"); err != nil {
-		t.Fatalf("readonly should stream logs: %v", err)
-	}
-	// readonly cannot exec (treated as write)
-	err = call([]types.Role{types.RoleReadOnly}, "/rune.api.ExecService/StreamExec")
+	// without subject should be denied
+	err = call(false, "/rune.api.LogService/StreamLogs")
 	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("readonly should be denied exec, got %v", err)
+		t.Fatalf("expected permission denied without subject, got %v", err)
+	}
+	// with subject allowed (placeholder)
+	if err := call(true, "/rune.api.ExecService/StreamExec"); err != nil {
+		t.Fatalf("expected allow with subject: %v", err)
 	}
 }
 

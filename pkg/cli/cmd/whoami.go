@@ -16,12 +16,12 @@ func newWhoAmICmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			server := viper.GetString("contexts.default.server")
 			token := viper.GetString("contexts.default.token")
-			ns := viper.GetString("contexts.default.namespace")
+			ns := viper.GetString("contexts.default.defaultNamespace")
 
 			api, err := newAPIClient("", "")
 			if err != nil {
 				// Fallback to local display only
-				fmt.Printf("Server: %s\nNamespace: %s\nToken: %s\n", server, ns, maskToken(token))
+				fmt.Printf("Server: %s\nDefault Namespace: %s\nToken: %s\n", server, ns, maskToken(token))
 				return nil
 			}
 			defer api.Close()
@@ -30,11 +30,11 @@ func newWhoAmICmd() *cobra.Command {
 			resp, err := ac.WhoAmI(context.Background(), &generated.WhoAmIRequest{})
 			if err != nil || resp == nil || resp.SubjectId == "" {
 				// Fallback to local
-				fmt.Printf("Server: %s\nNamespace: %s\nToken: %s\n", server, ns, maskToken(token))
+				fmt.Printf("Server: %s\nDefault Namespace: %s\nToken: %s\n", server, ns, maskToken(token))
 				return nil
 			}
 
-			fmt.Printf("Server: %s\nNamespace: %s\nSubject: %s\nRoles: %v\nToken: %s\n", server, ns, resp.SubjectId, resp.Roles, maskToken(token))
+			fmt.Printf("Server: %s\nDefault Namespace: %s\nSubject: %s\nToken: %s\n", server, ns, resp.SubjectId, maskToken(token))
 			return nil
 		},
 	}

@@ -80,9 +80,10 @@ type Log struct {
 }
 
 type Auth struct {
-	APIKeys  string `yaml:"api_keys"`
-	Provider string `yaml:"provider"`
-	Token    string `yaml:"token"`
+	APIKeys          string `yaml:"api_keys"`
+	Provider         string `yaml:"provider"`
+	Token            string `yaml:"token"`
+	AllowRemoteAdmin bool   `yaml:"allow_remote_admin"`
 }
 
 type SecretEncryption struct {
