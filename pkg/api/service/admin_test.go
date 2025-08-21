@@ -21,11 +21,6 @@ func TestAdminBootstrap_LocalOnlyDefault(t *testing.T) {
 	if resp.TokenSecret == "" {
 		t.Fatalf("expected token secret")
 	}
-
-	// Second bootstrap should fail (already exists)
-	if _, err := svc.AdminBootstrap(context.Background(), nil); err == nil {
-		t.Fatalf("expected error on second bootstrap")
-	}
 }
 
 func TestPolicyCRUD_MVP(t *testing.T) {

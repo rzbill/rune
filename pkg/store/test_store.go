@@ -344,6 +344,19 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 				*targetOp = storedData
 				return nil
 			}
+
+		case *types.User:
+			if targetUser, ok := resource.(*types.User); ok && storedData != nil {
+				*targetUser = *storedData
+				return nil
+			}
+
+		case types.User:
+			if targetUser, ok := resource.(*types.User); ok {
+				*targetUser = storedData
+				return nil
+			}
+
 		}
 
 		// Store the data - for testing we assume this will work
