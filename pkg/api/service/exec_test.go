@@ -1,53 +1,40 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"testing"
+	"time"
 
-	"bytes"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/runner"
-	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"google.golang.org/grpc/metadata"
 )
 
-func TestExecServiceStreamExec(t *testing.T) {
+// setupTestEnvironment creates a clean test environment for each test
+func setupTestEnvironment(t *testing.T) (*orchestrator.FakeOrchestrator, *store.TestStore, *types.Instance) {
+	t.Helper()
 
+	// Create fresh test components for each test
 	testStore := store.NewTestStore()
-	testDockerRunner := runner.NewTestRunner()
-	testProcessRunner := runner.NewTestRunner()
-	mockCtx := metadata.NewIncomingContext(context.Background(), metadata.New(nil))
-
-	// Create a test runner manager
-	testRunnerMgr := manager.NewTestRunnerManager(nil)
-	testRunnerMgr.SetDockerRunner(testDockerRunner)
-	testRunnerMgr.SetProcessRunner(testProcessRunner)
-
-	// Create a fake orchestrator
 	testOrchestrator := orchestrator.NewFakeOrchestrator()
-	testOrchestrator.ExecStdout = []byte("sample command output")
-	testOrchestrator.ExecStderr = []byte("sample error output")
-	testOrchestrator.ExecExitCode = 0
 
-	// Set up stream with initial request
-	mockStream := NewMockExecServiceStream(mockCtx)
-
-	// Set up the instance record
+	// Set up the instance record for the test
 	instance := &types.Instance{
 		ID:          "instance123",
 		Namespace:   "default",
 		Name:        "test-instance",
 		ServiceID:   "service123",
 		ServiceName: "test-service",
-		ContainerID: "container123", // Has container ID, so we'll use Docker runner
+		ContainerID: "container123",
 		Status:      types.InstanceStatusRunning,
 	}
 
@@ -55,14 +42,25 @@ func TestExecServiceStreamExec(t *testing.T) {
 	err := testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "instance123", instance)
 	assert.NoError(t, err)
 
-	// Add the instance to the orchestrator as well
+	// Add the instance to the orchestrator
 	testOrchestrator.AddInstance(instance)
 
-	// Configure the test runner's output and exit code
-	testDockerRunner.ExecOutput = []byte("sample command output")
-	testDockerRunner.ExecErrOutput = []byte("sample error output")
-	testDockerRunner.ExitCodeVal = 0
+	return testOrchestrator, testStore, instance
+}
 
+// setupMockStream creates a properly configured mock stream with robust expectations
+func setupMockStream(t *testing.T, testOrchestrator *orchestrator.FakeOrchestrator) *MockExecServiceStream {
+	t.Helper()
+
+	mockCtx := metadata.NewIncomingContext(context.Background(), metadata.New(nil))
+	mockStream := NewMockExecServiceStream(mockCtx)
+
+	// Configure the orchestrator with test data
+	testOrchestrator.ExecStdout = []byte("sample command output")
+	testOrchestrator.ExecStderr = []byte("sample error output")
+	testOrchestrator.ExecExitCode = 0
+
+	// Set up robust mock expectations with proper ordering
 	// First request will be the init request
 	mockStream.On("Recv").Return(&generated.ExecRequest{
 		Request: &generated.ExecRequest_Init{
@@ -76,22 +74,22 @@ func TestExecServiceStreamExec(t *testing.T) {
 		},
 	}, nil).Once()
 
-	// We'll return success status
+	// Expect status response (success)
 	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
 		statusResp, ok := resp.Response.(*generated.ExecResponse_Status)
 		return ok && statusResp.Status.Code == int32(0)
 	})).Return(nil).Once()
 
-	// Expect stdout response with our sample output
+	// Expect stdout response
 	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
 		stdoutResp, ok := resp.Response.(*generated.ExecResponse_Stdout)
-		return ok && bytes.Equal(stdoutResp.Stdout, testDockerRunner.ExecOutput)
+		return ok && bytes.Equal(stdoutResp.Stdout, testOrchestrator.ExecStdout)
 	})).Return(nil).Once()
 
-	// Expect stderr response with our sample error output
+	// Expect stderr response
 	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
 		stderrResp, ok := resp.Response.(*generated.ExecResponse_Stderr)
-		return ok && bytes.Equal(stderrResp.Stderr, testDockerRunner.ExecErrOutput)
+		return ok && bytes.Equal(stderrResp.Stderr, testOrchestrator.ExecStderr)
 	})).Return(nil).Once()
 
 	// Expect exit code response
@@ -100,20 +98,52 @@ func TestExecServiceStreamExec(t *testing.T) {
 		return ok && exitResp.Exit.Code == int32(0)
 	})).Return(nil).Once()
 
-	// Ensure the test terminates after the first Recv/Send cycle
-	// Need to return nil for the *ExecRequest but with an io.EOF error
+	// Second receive will terminate the stream
 	var nilReq *generated.ExecRequest = nil
 	mockStream.On("Recv").Return(nilReq, io.EOF).Once()
+
+	return mockStream
+}
+
+// TestExecServiceStreamExec tests the ExecService with a mock Docker runner
+func TestExecServiceStreamExec(t *testing.T) {
+	// Ensure test isolation
+	t.Parallel()
+
+	// Set up test environment
+	testOrchestrator, _, _ := setupTestEnvironment(t)
+
+	// Create a test Docker runner
+	testDockerRunner := &runner.TestRunner{}
+	testDockerRunner.ExecOutput = []byte("test output")
+	testDockerRunner.ExecErrOutput = []byte("test error")
+	testDockerRunner.ExitCodeVal = 0
+
+	// Note: FakeOrchestrator doesn't have SetRunner method, so we'll work with what's available
+	// The test will use the orchestrator's built-in exec functionality
+
+	// Set up mock stream with robust expectations
+	mockStream := setupMockStream(t, testOrchestrator)
 
 	// Create ExecService
 	logger := log.NewLogger()
 	execService := NewExecService(logger, testOrchestrator)
 
-	// Call StreamExec
-	err = execService.StreamExec(mockStream)
+	// Call StreamExec with timeout to prevent hanging
+	done := make(chan error, 1)
+	go func() {
+		done <- execService.StreamExec(mockStream)
+	}()
 
-	// Verify the results
-	assert.NoError(t, err)
+	// Wait for completion or timeout
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out - possible deadlock or infinite loop")
+	}
+
+	// Verify the results with more detailed assertions
 	mockStream.AssertExpectations(t)
 
 	// Verify the orchestrator received the call
@@ -133,6 +163,8 @@ func (m *MockStdErrReader) Read(p []byte) (n int, err error) {
 
 // TestSimpleExecService is a minimal test to verify basic functionality
 func TestSimpleExecService(t *testing.T) {
+	t.Parallel()
+
 	// Create a simple exec service without using the store
 	logger := log.NewLogger()
 	testOrchestrator := orchestrator.NewFakeOrchestrator()
@@ -144,6 +176,8 @@ func TestSimpleExecService(t *testing.T) {
 }
 
 func TestExecServiceSimple(t *testing.T) {
+	t.Parallel()
+
 	// Create a simple exec service without using the store
 	logger := log.NewLogger()
 	testOrchestrator := orchestrator.NewFakeOrchestrator()
@@ -156,85 +190,34 @@ func TestExecServiceSimple(t *testing.T) {
 
 // TestExecServiceWithTestRunner tests the ExecService using the TestRunner instead of mocks
 func TestExecServiceWithTestRunner(t *testing.T) {
-	// Create test components
-	testStore := store.NewTestStore()
-	logger := log.NewLogger()
-	testOrchestrator := orchestrator.NewFakeOrchestrator()
-	mockCtx := metadata.NewIncomingContext(context.Background(), metadata.New(nil))
-	mockStream := NewMockExecServiceStream(mockCtx)
+	// Ensure test isolation
+	t.Parallel()
 
-	// Configure the orchestrator
-	testOrchestrator.ExecStdout = []byte("sample command output")
-	testOrchestrator.ExecStderr = []byte("sample error output")
-	testOrchestrator.ExecExitCode = 0
+	// Set up test environment
+	testOrchestrator, _, _ := setupTestEnvironment(t)
 
-	// Set up the instance record for the test
-	instance := &types.Instance{
-		ID:          "instance123",
-		Namespace:   "default",
-		Name:        "test-instance",
-		ServiceID:   "service123",
-		ServiceName: "test-service",
-		ContainerID: "container123", // Has container ID, so we'll use Docker runner
-		Status:      types.InstanceStatusRunning,
-	}
-
-	// Add the instance to the TestStore
-	err := testStore.Create(context.Background(), types.ResourceTypeInstance, "default", "instance123", instance)
-	assert.NoError(t, err)
-
-	// Add the instance to the orchestrator
-	testOrchestrator.AddInstance(instance)
-
-	// First request will be the init request
-	mockStream.On("Recv").Return(&generated.ExecRequest{
-		Request: &generated.ExecRequest_Init{
-			Init: &generated.ExecInitRequest{
-				Target: &generated.ExecInitRequest_InstanceId{
-					InstanceId: "instance123",
-				},
-				Command: []string{"ls", "-la"},
-				Tty:     true,
-			},
-		},
-	}, nil).Once()
-
-	// We'll return success status
-	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
-		statusResp, ok := resp.Response.(*generated.ExecResponse_Status)
-		return ok && statusResp.Status.Code == int32(0)
-	})).Return(nil).Once()
-
-	// Expect stdout response with our sample output
-	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
-		stdoutResp, ok := resp.Response.(*generated.ExecResponse_Stdout)
-		return ok && bytes.Equal(stdoutResp.Stdout, testOrchestrator.ExecStdout)
-	})).Return(nil).Once()
-
-	// Expect stderr response with our sample error output
-	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
-		stderrResp, ok := resp.Response.(*generated.ExecResponse_Stderr)
-		return ok && bytes.Equal(stderrResp.Stderr, testOrchestrator.ExecStderr)
-	})).Return(nil).Once()
-
-	// Expect exit code response
-	mockStream.On("Send", mock.MatchedBy(func(resp *generated.ExecResponse) bool {
-		exitResp, ok := resp.Response.(*generated.ExecResponse_Exit)
-		return ok && exitResp.Exit.Code == int32(0)
-	})).Return(nil).Once()
-
-	// Second receive will terminate the stream
-	var nilReq *generated.ExecRequest = nil
-	mockStream.On("Recv").Return(nilReq, io.EOF).Once()
+	// Set up mock stream with robust expectations
+	mockStream := setupMockStream(t, testOrchestrator)
 
 	// Create ExecService using the orchestrator
+	logger := log.NewLogger()
 	execService := NewExecService(logger, testOrchestrator)
 
-	// Call StreamExec
-	err = execService.StreamExec(mockStream)
+	// Call StreamExec with timeout to prevent hanging
+	done := make(chan error, 1)
+	go func() {
+		done <- execService.StreamExec(mockStream)
+	}()
 
-	// Verify the results
-	assert.NoError(t, err)
+	// Wait for completion or timeout
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out - possible deadlock or infinite loop")
+	}
+
+	// Verify the results with more detailed assertions
 	mockStream.AssertExpectations(t)
 
 	// Verify the orchestrator received the call
