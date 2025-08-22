@@ -515,11 +515,6 @@ func (r *reconciler) fetchDependencyResource(ctx context.Context, dep *types.Dep
 	depResourceType := dep.GetDependencyResourceType()
 	depResourceName := dep.GetDependencyResourceName()
 
-	r.logger.Info("fetching dependency resource",
-		log.Str("resourceType", string(depResourceType)),
-		log.Str("namespace", depNS),
-		log.Str("name", depResourceName))
-
 	// For dependencies, fetch into concrete types so the store can unmarshal correctly
 	switch depResourceType {
 	case types.ResourceTypeService:
