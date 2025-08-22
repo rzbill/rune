@@ -1,0 +1,11 @@
+configMap:
+  name: app-settings
+  namespace: demo
+  data:
+    logLevel: {{ values: app.env.LOG_LEVEL }}
+    featureFlags: {{ values: app.env.FEATURE_FLAGS }}
+
+configMap:
+  name: {{ context: releaseName }}-configmap
+  namespace: demo
+  data: {{ values: app.env }}

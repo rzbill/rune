@@ -134,12 +134,16 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 		}
 
 		// Calculate age
-		age := formatAgeTable(service.Metadata.CreatedAt)
+		var age, generation string
+		if service.Metadata != nil {
+			age = formatAgeTable(service.Metadata.CreatedAt)
 
-		// Format generation
-		generation := "0"
-		if service.Metadata != nil && service.Metadata.Generation > 0 {
-			generation = fmt.Sprintf("%d", service.Metadata.Generation)
+			// Format generation
+			generation = "0"
+			if service.Metadata != nil && service.Metadata.Generation > 0 {
+				generation = fmt.Sprintf("%d", service.Metadata.Generation)
+			}
+
 		}
 
 		// Create the row

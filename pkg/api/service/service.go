@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
@@ -50,7 +51,7 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	}
 
 	// Convert protobuf message to domain model
-	service, err := s.protoToServiceModel(req.Service)
+	service, err := client.ProtoToService(req.Service)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid service: %v", err)
 	}
@@ -115,13 +116,8 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 	}
 
 	// Convert back to protobuf message
-	protoService, err := s.serviceModelToProto(service)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
-	}
-
 	return &generated.ServiceResponse{
-		Service: protoService,
+		Service: client.ServiceToProto(service),
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
 			Message: "Service created successfully",
@@ -154,13 +150,8 @@ func (s *ServiceService) GetService(ctx context.Context, req *generated.GetServi
 	}
 
 	// Convert to protobuf message
-	protoService, err := s.serviceModelToProto(service)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
-	}
-
 	return &generated.ServiceResponse{
-		Service: protoService,
+		Service: client.ServiceToProto(service),
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
 			Message: "Service retrieved successfully",
@@ -199,7 +190,7 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 			continue
 		}
 
-		protoService, err := s.serviceModelToProto(service)
+		protoService := client.ServiceToProto(service)
 		if err != nil {
 			s.logger.Error("Failed to convert service to proto", log.Err(err))
 			continue
@@ -294,7 +285,7 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 	}
 
 	// Convert protobuf message to domain model
-	updatedService, err := s.protoToServiceModel(req.Service)
+	updatedService, err := client.ProtoToService(req.Service)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid service: %v", err)
 	}
@@ -369,13 +360,8 @@ func (s *ServiceService) UpdateService(ctx context.Context, req *generated.Updat
 	}
 
 	// Convert back to protobuf message
-	protoService, err := s.serviceModelToProto(updatedService)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
-	}
-
 	return &generated.ServiceResponse{
-		Service: protoService,
+		Service: client.ServiceToProto(updatedService),
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
 			Message: "Service updated successfully",
@@ -771,13 +757,8 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	// Check if we're already at the target scale
 	if currentScale == targetScale {
 		// Convert service to proto and return it
-		protoService, err := s.serviceModelToProto(service)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
-		}
-
 		return &generated.ServiceResponse{
-			Service: protoService,
+			Service: client.ServiceToProto(service),
 			Status: &generated.Status{
 				Code:    int32(codes.OK),
 				Message: fmt.Sprintf("Service already at scale %d", targetScale),
@@ -811,406 +792,13 @@ func (s *ServiceService) ScaleService(ctx context.Context, req *generated.ScaleS
 	}
 
 	// Convert current service to proto and return it
-	protoService, err := s.serviceModelToProto(service)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert service to proto: %v", err)
-	}
-
 	return &generated.ServiceResponse{
-		Service: protoService,
+		Service: client.ServiceToProto(service),
 		Status: &generated.Status{
 			Code:    int32(codes.OK),
 			Message: fmt.Sprintf("Scaling operation initiated to %d", targetScale),
 		},
 	}, nil
-}
-
-// serviceModelToProto converts a domain model service to a protobuf message.
-func (s *ServiceService) serviceModelToProto(service *types.Service) (*generated.Service, error) {
-	if service == nil {
-		return nil, fmt.Errorf("service is nil")
-	}
-
-	protoService := &generated.Service{
-		Id:        service.ID,
-		Name:      service.Name,
-		Namespace: service.Namespace,
-		Image:     service.Image,
-		Command:   service.Command,
-		Scale:     int32(service.Scale),
-		Resources: &generated.Resources{
-			Cpu: &generated.ResourceLimit{
-				Request: service.Resources.CPU.Request,
-				Limit:   service.Resources.CPU.Limit,
-			},
-			Memory: &generated.ResourceLimit{
-				Request: service.Resources.Memory.Request,
-				Limit:   service.Resources.Memory.Limit,
-			},
-		},
-		Metadata: &generated.ServiceMetadata{
-			Generation:       int32(service.Metadata.Generation),
-			CreatedAt:        service.Metadata.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:        service.Metadata.UpdatedAt.Format(time.RFC3339),
-			LastNonZeroScale: int32(service.Metadata.LastNonZeroScale),
-		},
-		Runtime: string(service.Runtime),
-	}
-
-	// Convert labels
-	if len(service.Labels) > 0 {
-		protoService.Labels = make(map[string]string)
-		for k, v := range service.Labels {
-			protoService.Labels[k] = v
-		}
-	}
-
-	// Convert args
-	if len(service.Args) > 0 {
-		protoService.Args = make([]string, len(service.Args))
-		copy(protoService.Args, service.Args)
-	}
-
-	// Convert environment variables
-	if len(service.Env) > 0 {
-		protoService.Env = make(map[string]string)
-		for k, v := range service.Env {
-			protoService.Env[k] = v
-		}
-	}
-
-	// Convert ports
-	if len(service.Ports) > 0 {
-		protoService.Ports = make([]*generated.ServicePort, len(service.Ports))
-		for i, port := range service.Ports {
-			protoService.Ports[i] = &generated.ServicePort{
-				Name:       port.Name,
-				Port:       int32(port.Port),
-				TargetPort: int32(port.TargetPort),
-				Protocol:   port.Protocol,
-			}
-		}
-	}
-
-	// Convert expose (MVP)
-	if service.Expose != nil {
-		protoService.Expose = &generated.ServiceExpose{
-			Port:     service.Expose.Port,
-			Host:     service.Expose.Host,
-			HostPort: uint32(service.Expose.HostPort),
-			Path:     service.Expose.Path,
-		}
-	}
-
-	// Convert secret mounts
-	if len(service.SecretMounts) > 0 {
-		protoService.SecretMounts = make([]*generated.SecretMount, len(service.SecretMounts))
-		for i, m := range service.SecretMounts {
-			protoItems := make([]*generated.KeyToPath, 0, len(m.Items))
-			for _, it := range m.Items {
-				protoItems = append(protoItems, &generated.KeyToPath{Key: it.Key, Path: it.Path})
-			}
-			protoService.SecretMounts[i] = &generated.SecretMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				SecretName: m.SecretName,
-				Items:      protoItems,
-			}
-		}
-	}
-
-	// Convert configmap mounts
-	if len(service.ConfigmapMounts) > 0 {
-		protoService.ConfigmapMounts = make([]*generated.ConfigmapMount, len(service.ConfigmapMounts))
-		for i, m := range service.ConfigmapMounts {
-			protoItems := make([]*generated.KeyToPath, 0, len(m.Items))
-			for _, it := range m.Items {
-				protoItems = append(protoItems, &generated.KeyToPath{Key: it.Key, Path: it.Path})
-			}
-			protoService.ConfigmapMounts[i] = &generated.ConfigmapMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				ConfigName: m.ConfigName,
-				Items:      protoItems,
-			}
-		}
-	}
-
-	// Convert resources
-	if service.Resources != (types.Resources{}) {
-		protoService.Resources = &generated.Resources{
-			Cpu: &generated.ResourceLimit{
-				Request: service.Resources.CPU.Request,
-				Limit:   service.Resources.CPU.Limit,
-			},
-			Memory: &generated.ResourceLimit{
-				Request: service.Resources.Memory.Request,
-				Limit:   service.Resources.Memory.Limit,
-			},
-		}
-	}
-
-	// Convert status
-	switch service.Status {
-	case types.ServiceStatusPending:
-		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_PENDING
-	case types.ServiceStatusRunning:
-		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_RUNNING
-	case types.ServiceStatusDeploying:
-		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UPDATING
-	case types.ServiceStatusFailed:
-		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_FAILED
-	default:
-		protoService.Status = generated.ServiceStatus_SERVICE_STATUS_UNSPECIFIED
-	}
-
-	// Convert health checks
-	if service.Health != nil {
-		protoService.Health = &generated.HealthCheck{}
-
-		if service.Health.Liveness != nil {
-			protoService.Health.Liveness = &generated.Probe{
-				InitialDelaySeconds: int32(service.Health.Liveness.InitialDelaySeconds),
-				PeriodSeconds:       int32(service.Health.Liveness.IntervalSeconds),
-				TimeoutSeconds:      int32(service.Health.Liveness.TimeoutSeconds),
-			}
-
-			switch service.Health.Liveness.Type {
-			case "http":
-				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_HTTP
-				protoService.Health.Liveness.Path = service.Health.Liveness.Path
-				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
-			case "tcp":
-				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_TCP
-				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
-			case "command":
-				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
-				protoService.Health.Liveness.Command = service.Health.Liveness.Command
-			}
-		}
-
-		if service.Health.Readiness != nil {
-			protoService.Health.Readiness = &generated.Probe{
-				InitialDelaySeconds: int32(service.Health.Readiness.InitialDelaySeconds),
-				PeriodSeconds:       int32(service.Health.Readiness.IntervalSeconds),
-				TimeoutSeconds:      int32(service.Health.Readiness.TimeoutSeconds),
-			}
-
-			switch service.Health.Readiness.Type {
-			case "http":
-				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_HTTP
-				protoService.Health.Readiness.Path = service.Health.Readiness.Path
-				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
-			case "tcp":
-				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_TCP
-				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
-			case "command":
-				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
-				protoService.Health.Readiness.Command = service.Health.Readiness.Command
-			}
-		}
-	}
-
-	// Dependencies
-	if len(service.Dependencies) > 0 {
-		protoService.Dependencies = make([]*generated.DependencyRef, 0, len(service.Dependencies))
-		for _, d := range service.Dependencies {
-			protoService.Dependencies = append(protoService.Dependencies, &generated.DependencyRef{Service: d.Service, Namespace: d.Namespace})
-		}
-	}
-
-	return protoService, nil
-}
-
-// protoToServiceModel converts a protobuf message to a domain model service.
-func (s *ServiceService) protoToServiceModel(proto *generated.Service) (*types.Service, error) {
-	if proto == nil {
-		return nil, fmt.Errorf("proto service is nil")
-	}
-
-	service := &types.Service{
-		ID:        proto.Id,
-		Name:      proto.Name,
-		Namespace: proto.Namespace,
-		Image:     proto.Image,
-		Command:   proto.Command,
-		Scale:     int(proto.Scale),
-		Runtime:   types.RuntimeType(proto.Runtime),
-	}
-
-	// Convert labels
-	if len(proto.Labels) > 0 {
-		service.Labels = make(map[string]string)
-		for k, v := range proto.Labels {
-			service.Labels[k] = v
-		}
-	}
-
-	// Convert args
-	if len(proto.Args) > 0 {
-		service.Args = make([]string, len(proto.Args))
-		copy(service.Args, proto.Args)
-	}
-
-	// Convert environment variables
-	if len(proto.Env) > 0 {
-		service.Env = make(map[string]string)
-		for k, v := range proto.Env {
-			service.Env[k] = v
-		}
-	}
-
-	// Convert ports
-	if len(proto.Ports) > 0 {
-		service.Ports = make([]types.ServicePort, len(proto.Ports))
-		for i, port := range proto.Ports {
-			service.Ports[i] = types.ServicePort{
-				Name:       port.Name,
-				Port:       int(port.Port),
-				TargetPort: int(port.TargetPort),
-				Protocol:   port.Protocol,
-			}
-		}
-	}
-
-	// Convert expose (MVP)
-	if proto.Expose != nil {
-		service.Expose = &types.ServiceExpose{
-			Port:     proto.Expose.Port,
-			Host:     proto.Expose.Host,
-			HostPort: int(proto.Expose.HostPort),
-			Path:     proto.Expose.Path,
-		}
-	}
-
-	// Convert secret mounts
-	if len(proto.SecretMounts) > 0 {
-		service.SecretMounts = make([]types.SecretMount, len(proto.SecretMounts))
-		for i, m := range proto.SecretMounts {
-			items := make([]types.KeyToPath, 0, len(m.Items))
-			for _, it := range m.Items {
-				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
-			}
-			service.SecretMounts[i] = types.SecretMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				SecretName: m.SecretName,
-				Items:      items,
-			}
-		}
-	}
-
-	// Convert configmap mounts
-	if len(proto.ConfigmapMounts) > 0 {
-		service.ConfigmapMounts = make([]types.ConfigmapMount, len(proto.ConfigmapMounts))
-		for i, m := range proto.ConfigmapMounts {
-			items := make([]types.KeyToPath, 0, len(m.Items))
-			for _, it := range m.Items {
-				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
-			}
-			service.ConfigmapMounts[i] = types.ConfigmapMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				ConfigName: m.ConfigName,
-				Items:      items,
-			}
-		}
-	}
-
-	// Convert resources
-	if proto.Resources != nil {
-		if proto.Resources.Cpu != nil {
-			service.Resources.CPU = types.ResourceLimit{
-				Request: proto.Resources.Cpu.Request,
-				Limit:   proto.Resources.Cpu.Limit,
-			}
-		}
-		if proto.Resources.Memory != nil {
-			service.Resources.Memory = types.ResourceLimit{
-				Request: proto.Resources.Memory.Request,
-				Limit:   proto.Resources.Memory.Limit,
-			}
-		}
-	}
-
-	// Convert status
-	switch proto.Status {
-	case generated.ServiceStatus_SERVICE_STATUS_PENDING:
-		service.Status = types.ServiceStatusPending
-	case generated.ServiceStatus_SERVICE_STATUS_RUNNING:
-		service.Status = types.ServiceStatusRunning
-	case generated.ServiceStatus_SERVICE_STATUS_UPDATING:
-		service.Status = types.ServiceStatusDeploying
-	case generated.ServiceStatus_SERVICE_STATUS_FAILED:
-		service.Status = types.ServiceStatusFailed
-	default:
-		service.Status = types.ServiceStatusPending
-	}
-
-	// Convert metadata extras
-	if proto.Metadata != nil {
-		if service.Metadata == nil {
-			service.Metadata = &types.ServiceMetadata{}
-		}
-		service.Metadata.LastNonZeroScale = int(proto.Metadata.LastNonZeroScale)
-	}
-
-	// Convert health check
-	if proto.Health != nil {
-		service.Health = &types.HealthCheck{}
-
-		if proto.Health.Liveness != nil {
-			service.Health.Liveness = &types.Probe{
-				InitialDelaySeconds: int(proto.Health.Liveness.InitialDelaySeconds),
-				IntervalSeconds:     int(proto.Health.Liveness.PeriodSeconds),
-				TimeoutSeconds:      int(proto.Health.Liveness.TimeoutSeconds),
-			}
-
-			switch proto.Health.Liveness.Type {
-			case generated.ProbeType_PROBE_TYPE_HTTP:
-				service.Health.Liveness.Type = "http"
-				service.Health.Liveness.Path = proto.Health.Liveness.Path
-				service.Health.Liveness.Port = int(proto.Health.Liveness.Port)
-			case generated.ProbeType_PROBE_TYPE_TCP:
-				service.Health.Liveness.Type = "tcp"
-				service.Health.Liveness.Port = int(proto.Health.Liveness.Port)
-			case generated.ProbeType_PROBE_TYPE_COMMAND:
-				service.Health.Liveness.Type = "command"
-				service.Health.Liveness.Command = proto.Health.Liveness.Command
-			}
-		}
-
-		if proto.Health.Readiness != nil {
-			service.Health.Readiness = &types.Probe{
-				InitialDelaySeconds: int(proto.Health.Readiness.InitialDelaySeconds),
-				IntervalSeconds:     int(proto.Health.Readiness.PeriodSeconds),
-				TimeoutSeconds:      int(proto.Health.Readiness.TimeoutSeconds),
-			}
-
-			switch proto.Health.Readiness.Type {
-			case generated.ProbeType_PROBE_TYPE_HTTP:
-				service.Health.Readiness.Type = "http"
-				service.Health.Readiness.Path = proto.Health.Readiness.Path
-				service.Health.Readiness.Port = int(proto.Health.Readiness.Port)
-			case generated.ProbeType_PROBE_TYPE_TCP:
-				service.Health.Readiness.Type = "tcp"
-				service.Health.Readiness.Port = int(proto.Health.Readiness.Port)
-			case generated.ProbeType_PROBE_TYPE_COMMAND:
-				service.Health.Readiness.Type = "command"
-				service.Health.Readiness.Command = proto.Health.Readiness.Command
-			}
-		}
-	}
-
-	// Dependencies
-	if len(proto.Dependencies) > 0 {
-		service.Dependencies = make([]types.DependencyRef, 0, len(proto.Dependencies))
-		for _, d := range proto.Dependencies {
-			service.Dependencies = append(service.Dependencies, types.DependencyRef{Service: d.Service, Namespace: d.Namespace})
-		}
-	}
-
-	return service, nil
 }
 
 // IsNotFound returns true if the error is a "not found" error.
@@ -1259,16 +847,9 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 			continue
 		}
 
-		// Convert to proto and send to client
-		protoService, err := s.serviceModelToProto(service)
-		if err != nil {
-			s.logger.Error("Failed to convert service to proto", log.Err(err))
-			continue
-		}
-
 		// Send to client
 		err = stream.Send(&generated.WatchServicesResponse{
-			Service:   protoService,
+			Service:   client.ServiceToProto(service),
 			EventType: generated.EventType_EVENT_TYPE_ADDED,
 			Status:    &generated.Status{Code: int32(codes.OK)},
 		})
@@ -1319,13 +900,6 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 				continue
 			}
 
-			// Convert to proto
-			protoService, err := s.serviceModelToProto(&service)
-			if err != nil {
-				s.logger.Error("Failed to convert service to proto", log.Err(err))
-				continue
-			}
-
 			// Map store event type to proto event type
 			var eventType generated.EventType
 			switch event.Type {
@@ -1341,7 +915,7 @@ func (s *ServiceService) WatchServices(req *generated.WatchServicesRequest, stre
 
 			// Send to client
 			err = stream.Send(&generated.WatchServicesResponse{
-				Service:   protoService,
+				Service:   client.ServiceToProto(&service),
 				EventType: eventType,
 				Status:    &generated.Status{Code: int32(codes.OK)},
 			})

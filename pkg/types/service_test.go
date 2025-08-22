@@ -97,16 +97,16 @@ func TestServiceHash_ConfigmapMountsOrderInsensitive(t *testing.T) {
 	s1 := makeBaseService()
 	s1.ConfigmapMounts = []ConfigmapMount{
 		{
-			Name:       "cm2",
-			MountPath:  "/config/2",
-			ConfigName: "cfg-2",
-			Items:      []KeyToPath{{Key: "k2", Path: "p2"}, {Key: "k1", Path: "p1"}},
+			Name:          "cm2",
+			MountPath:     "/config/2",
+			ConfigmapName: "cfg-2",
+			Items:         []KeyToPath{{Key: "k2", Path: "p2"}, {Key: "k1", Path: "p1"}},
 		},
 		{
-			Name:       "cm1",
-			MountPath:  "/config/1",
-			ConfigName: "cfg-1",
-			Items:      []KeyToPath{{Key: "a", Path: "pa"}, {Key: "b", Path: "pb"}},
+			Name:          "cm1",
+			MountPath:     "/config/1",
+			ConfigmapName: "cfg-1",
+			Items:         []KeyToPath{{Key: "a", Path: "pa"}, {Key: "b", Path: "pb"}},
 		},
 	}
 	h1 := s1.CalculateHash()
@@ -114,16 +114,16 @@ func TestServiceHash_ConfigmapMountsOrderInsensitive(t *testing.T) {
 	s2 := makeBaseService()
 	s2.ConfigmapMounts = []ConfigmapMount{
 		{
-			Name:       "cm1",
-			MountPath:  "/config/1",
-			ConfigName: "cfg-1",
-			Items:      []KeyToPath{{Key: "b", Path: "pb"}, {Key: "a", Path: "pa"}},
+			Name:          "cm1",
+			MountPath:     "/config/1",
+			ConfigmapName: "cfg-1",
+			Items:         []KeyToPath{{Key: "b", Path: "pb"}, {Key: "a", Path: "pa"}},
 		},
 		{
-			Name:       "cm2",
-			MountPath:  "/config/2",
-			ConfigName: "cfg-2",
-			Items:      []KeyToPath{{Key: "k1", Path: "p1"}, {Key: "k2", Path: "p2"}},
+			Name:          "cm2",
+			MountPath:     "/config/2",
+			ConfigmapName: "cfg-2",
+			Items:         []KeyToPath{{Key: "k1", Path: "p1"}, {Key: "k2", Path: "p2"}},
 		},
 	}
 	h2 := s2.CalculateHash()

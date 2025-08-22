@@ -1,0 +1,6 @@
+name: example-app
+version: 0.1.0
+description: Example runeset demonstrating values, secret, configmap, and file references
+namespace: demo
+defaults:
+  foo: bar

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rzbill/rune/pkg/crypto"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
@@ -69,6 +70,11 @@ func (r *SecretRepo) Create(ctx context.Context, s *types.Secret) error {
 	if err := r.validateSecretData(s.Data); err != nil {
 		return err
 	}
+
+	if s.ID == "" {
+		s.ID = uuid.NewString()
+	}
+
 	now := time.Now()
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = now

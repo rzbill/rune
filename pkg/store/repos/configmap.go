@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 )
@@ -46,6 +47,16 @@ func (r *ConfigRepo) Create(ctx context.Context, ref string, c *types.ConfigMap)
 	if err := r.validateConfigData(c.Data); err != nil {
 		return err
 	}
+
+	if c.ID == "" {
+		c.ID = uuid.NewString()
+	}
+	now := time.Now()
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = now
+	}
+	c.UpdatedAt = now
+
 	name := c.Name
 	if name == "" {
 		name = pr.Name

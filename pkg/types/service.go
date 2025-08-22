@@ -106,7 +106,7 @@ type Service struct {
 type EnvFromSource struct {
 	// Exactly one of these will be set
 	SecretName    string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
-	ConfigMapName string `json:"configMapName,omitempty" yaml:"configMapName,omitempty"`
+	ConfigmapName string `json:"configmapName,omitempty" yaml:"configmapName,omitempty"`
 
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Prefix    string `json:"prefix,omitempty" yaml:"prefix,omitempty"`
@@ -180,9 +180,33 @@ type ServiceDiscovery struct {
 }
 
 // DependencyRef is the normalized internal representation of a dependency
+// It can represent Service, Secret, or ConfigMap dependencies.
+// Exactly one of Service/Secret/ConfigMap should be set.
 type DependencyRef struct {
-	Service   string `json:"service" yaml:"service"`
-	Namespace string `json:"namespace" yaml:"namespace"`
+	Service   string `json:"service,omitempty" yaml:"service,omitempty"`
+	Secret    string `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Configmap string `json:"configmap,omitempty" yaml:"configmap,omitempty"`
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+}
+
+func (d *DependencyRef) GetDependencyResourceType() ResourceType {
+	if d.Secret != "" {
+		return ResourceTypeSecret
+	}
+	if d.Configmap != "" {
+		return ResourceTypeConfigMap
+	}
+	return ResourceTypeService
+}
+
+func (d *DependencyRef) GetDependencyResourceName() string {
+	if d.Secret != "" {
+		return d.Secret
+	}
+	if d.Configmap != "" {
+		return d.Configmap
+	}
+	return d.Service
 }
 
 // ServiceAffinity defines placement rules for a service.
@@ -584,7 +608,7 @@ func (s *Service) CalculateHash() string {
 			if cfgMounts[i].MountPath != cfgMounts[j].MountPath {
 				return cfgMounts[i].MountPath < cfgMounts[j].MountPath
 			}
-			return cfgMounts[i].ConfigName < cfgMounts[j].ConfigName
+			return cfgMounts[i].ConfigmapName < cfgMounts[j].ConfigmapName
 		})
 		fmt.Fprintf(h, "configmap_mounts:[")
 		for i, m := range cfgMounts {
@@ -599,7 +623,7 @@ func (s *Service) CalculateHash() string {
 				}
 				return items[a].Path < items[b].Path
 			})
-			fmt.Fprintf(h, "%s:%s:%s:{", m.Name, m.MountPath, m.ConfigName)
+			fmt.Fprintf(h, "%s:%s:%s:{", m.Name, m.MountPath, m.ConfigmapName)
 			for k, it := range items {
 				if k > 0 {
 					fmt.Fprintf(h, ",")
@@ -623,6 +647,52 @@ func (s *Service) CalculateHash() string {
 		} else {
 			fmt.Fprintf(h, "expose.tls:%s:%t\n", s.Expose.TLS.SecretName, s.Expose.TLS.Auto)
 		}
+	}
+
+	// Dependencies (deterministic ordering)
+	if len(s.Dependencies) == 0 {
+		fmt.Fprintf(h, "dependencies:[]\n")
+	} else {
+		deps := make([]DependencyRef, len(s.Dependencies))
+		copy(deps, s.Dependencies)
+		sort.Slice(deps, func(i, j int) bool {
+			// order by namespace, then by type priority (service<configmap<secret), then name
+			if deps[i].Namespace != deps[j].Namespace {
+				return deps[i].Namespace < deps[j].Namespace
+			}
+			// type ordering
+			ti := deps[i].GetDependencyResourceType()
+			tj := deps[j].GetDependencyResourceType()
+			if ti != tj {
+				prio := func(rt ResourceType) int {
+					switch rt {
+					case ResourceTypeService:
+						return 0
+					case ResourceTypeConfigMap:
+						return 1
+					case ResourceTypeSecret:
+						return 2
+					default:
+						return 3
+					}
+				}
+				return prio(ti) < prio(tj)
+			}
+			// by name
+			return deps[i].GetDependencyResourceName() < deps[j].GetDependencyResourceName()
+		})
+		fmt.Fprintf(h, "dependencies:[")
+		for i, d := range deps {
+			if i > 0 {
+				fmt.Fprintf(h, ",")
+			}
+			fmt.Fprintf(h, "%s:%s:%s",
+				string(d.GetDependencyResourceType()),
+				d.Namespace,
+				d.GetDependencyResourceName(),
+			)
+		}
+		fmt.Fprintf(h, "]\n")
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))

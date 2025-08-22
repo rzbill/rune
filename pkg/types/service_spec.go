@@ -82,7 +82,8 @@ type ServiceSpec struct {
 
 	// Dependencies in user-facing form. Accepts either:
 	// - FQDN strings (e.g., "db.prod.rune") as YAML sequence entries
-	// - Structured objects (service/name with optional namespace)
+	// - ResourceRef strings (e.g., "secret:db-creds" or "configmap:app-settings")
+	// - Structured objects (service/secret/configMap with optional namespace)
 	// These will be normalized to []DependencyRef in internal Service
 	Dependencies []ServiceDependency `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 
@@ -94,7 +95,7 @@ type ServiceSpec struct {
 type EnvFromSourceSpec struct {
 	// One of these must be set
 	Secret    string `json:"secret,omitempty" yaml:"secret,omitempty"`
-	ConfigMap string `json:"configMap,omitempty" yaml:"configMap,omitempty"`
+	Configmap string `json:"configmap,omitempty" yaml:"configmap,omitempty"`
 
 	// Optional namespace; defaults to the service namespace
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
@@ -176,7 +177,7 @@ func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 		}
 		walk(value)
 		e.Secret = secret
-		e.ConfigMap = config
+		e.Configmap = config
 		e.Namespace = ns
 		e.Prefix = prefix
 		return nil
@@ -198,7 +199,7 @@ func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 			case ResourceTypeSecret:
 				e.Secret = rr.Name
 			case ResourceTypeConfigMap:
-				e.ConfigMap = rr.Name
+				e.Configmap = rr.Name
 			default:
 				return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
 			}
@@ -215,7 +216,7 @@ func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 		case ResourceTypeSecret:
 			e.Secret = rr.Name
 		case ResourceTypeConfigMap:
-			e.ConfigMap = rr.Name
+			e.Configmap = rr.Name
 		default:
 			return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
 		}
@@ -320,13 +321,13 @@ func (s *ServiceSpec) Validate() error {
 
 	// Validate envFrom sources
 	for i, src := range s.EnvFrom {
-		if (src.Secret == "" && src.ConfigMap == "") || (src.Secret != "" && src.ConfigMap != "") {
+		if (src.Secret == "" && src.Configmap == "") || (src.Secret != "" && src.Configmap != "") {
 			return NewValidationError("envFrom item at index " + strconv.Itoa(i) + " must specify exactly one of 'secret' or 'configMap'")
 		}
 		if src.Secret != "" && strings.TrimSpace(src.Secret) == "" {
 			return NewValidationError("envFrom.secret cannot be empty at index " + strconv.Itoa(i))
 		}
-		if src.ConfigMap != "" && strings.TrimSpace(src.ConfigMap) == "" {
+		if src.Configmap != "" && strings.TrimSpace(src.Configmap) == "" {
 			return NewValidationError("envFrom.configMap cannot be empty at index " + strconv.Itoa(i))
 		}
 		// Prefix can be any non-empty string; stricter validation enforced when materializing env vars
@@ -357,8 +358,8 @@ func (s *ServiceSpec) Validate() error {
 
 	// Basic dependency validation (independent of autoscale)
 	for i, dep := range s.Dependencies {
-		if dep.Service == "" && dep.FQDN == "" {
-			return NewValidationError("dependency at index " + strconv.Itoa(i) + " must specify service or FQDN")
+		if dep.Service == "" && dep.FQDN == "" && dep.Secret == "" && dep.Configmap == "" {
+			return NewValidationError("dependency at index " + strconv.Itoa(i) + " must specify service, secret, or configMap (or FQDN string)")
 		}
 	}
 
@@ -425,7 +426,6 @@ func (s *ServiceSpec) Validate() error {
 		if s.Expose.Port == "" {
 			return NewValidationError("expose port is required")
 		}
-
 		// Resolve expose.port by name or number and ensure the port exists and is TCP
 		var resolved *ServicePort
 		for i := range s.Ports {
@@ -566,6 +566,7 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 	// Normalize dependencies
 	deps := make([]DependencyRef, 0, len(s.Dependencies))
 	for _, d := range s.Dependencies {
+		// FQDN string form: treat as service
 		if d.FQDN != "" {
 			parts := strings.Split(d.FQDN, ".")
 			switch len(parts) {
@@ -580,7 +581,18 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 		if ns == "" {
 			ns = namespace
 		}
-		deps = append(deps, DependencyRef{Service: d.Service, Namespace: ns})
+		if d.Service != "" {
+			deps = append(deps, DependencyRef{Service: d.Service, Namespace: ns})
+			continue
+		}
+		if d.Secret != "" {
+			deps = append(deps, DependencyRef{Secret: d.Secret, Namespace: ns})
+			continue
+		}
+		if d.Configmap != "" {
+			deps = append(deps, DependencyRef{Configmap: d.Configmap, Namespace: ns})
+			continue
+		}
 	}
 
 	return &Service{
@@ -612,28 +624,6 @@ func (s *ServiceSpec) ToService() (*Service, error) {
 	}, nil
 }
 
-func normalizeEnvFrom(defaultNS string, sources EnvFromList) []EnvFromSource {
-	if len(sources) == 0 {
-		return nil
-	}
-	out := make([]EnvFromSource, 0, len(sources))
-	for _, src := range sources {
-		ns := src.Namespace
-		if ns == "" {
-			ns = defaultNS
-		}
-		n := EnvFromSource{Namespace: ns, Prefix: src.Prefix}
-		if src.Secret != "" {
-			n.SecretName = src.Secret
-		}
-		if src.ConfigMap != "" {
-			n.ConfigMapName = src.ConfigMap
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
 // ServiceDependency is the spec-facing dependency format.
 // YAML supports either string FQDN or this structured form per entry.
 type ServiceDependency struct {
@@ -641,16 +631,38 @@ type ServiceDependency struct {
 	FQDN string `json:"-" yaml:"-"`
 
 	Service   string `json:"service,omitempty" yaml:"service,omitempty"`
+	Secret    string `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Configmap string `json:"configmap,omitempty" yaml:"configmap,omitempty"`
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 }
 
 // UnmarshalYAML allows ServiceDependency entries to be specified as either
-// a plain string (FQDN) or a structured object.
+// a plain string (FQDN or resource ref) or a structured object.
 func (d *ServiceDependency) UnmarshalYAML(value *yaml.Node) error {
 	switch value.Kind {
 	case yaml.ScalarNode:
-		// String form (e.g., "db" or "cache.shared.rune")
-		d.FQDN = strings.TrimSpace(value.Value)
+		// String form: could be FQDN service or resource ref
+		s := strings.TrimSpace(value.Value)
+		// Try resource ref first
+		rr, err := ParseResourceRef(s)
+		if err == nil {
+			// Fill from resource ref
+			switch rr.Type {
+			case ResourceTypeService:
+				d.Service = rr.Name
+			case ResourceTypeSecret:
+				d.Secret = rr.Name
+			case ResourceTypeConfigMap:
+				d.Configmap = rr.Name
+			default:
+				// unknown - treat as raw FQDN service
+				d.FQDN = s
+			}
+			d.Namespace = rr.Namespace
+			return nil
+		}
+		// Not a resource ref; treat as FQDN service string
+		d.FQDN = s
 		d.Service = ""
 		d.Namespace = ""
 		return nil
@@ -658,6 +670,8 @@ func (d *ServiceDependency) UnmarshalYAML(value *yaml.Node) error {
 		// Structured form
 		type depAlias struct {
 			Service   string `yaml:"service"`
+			Secret    string `yaml:"secret"`
+			Configmap string `yaml:"configmap"`
 			Namespace string `yaml:"namespace"`
 		}
 		var a depAlias
@@ -666,6 +680,8 @@ func (d *ServiceDependency) UnmarshalYAML(value *yaml.Node) error {
 		}
 		d.FQDN = ""
 		d.Service = a.Service
+		d.Secret = a.Secret
+		d.Configmap = a.Configmap
 		d.Namespace = a.Namespace
 		return nil
 	default:
@@ -727,7 +743,7 @@ func (s *ServiceSpec) RestoreEnvFrom(templateMap map[string]string) {
 	}
 	for i := range s.EnvFrom {
 		src := &s.EnvFrom[i]
-		if (src.Secret != "" || src.ConfigMap != "") || src.Raw == "" {
+		if (src.Secret != "" || src.Configmap != "") || src.Raw == "" {
 			continue
 		}
 		raw := strings.TrimSpace(src.Raw)
@@ -749,7 +765,7 @@ func (s *ServiceSpec) RestoreEnvFrom(templateMap map[string]string) {
 		case ResourceTypeSecret:
 			src.Secret = rr.Name
 		case ResourceTypeConfigMap:
-			src.ConfigMap = rr.Name
+			src.Configmap = rr.Name
 		default:
 			// ignore unsupported
 		}
@@ -796,4 +812,27 @@ func collectServicePortsErrors(portsNode *yaml.Node, validPortFields map[string]
 			}
 		}
 	}
+}
+
+// normalizeEnvFrom converts EnvFromList to []EnvFromSource with default namespace applied.
+func normalizeEnvFrom(defaultNS string, sources EnvFromList) []EnvFromSource {
+	if len(sources) == 0 {
+		return nil
+	}
+	out := make([]EnvFromSource, 0, len(sources))
+	for _, src := range sources {
+		ns := src.Namespace
+		if ns == "" {
+			ns = defaultNS
+		}
+		n := EnvFromSource{Namespace: ns, Prefix: src.Prefix}
+		if src.Secret != "" {
+			n.SecretName = src.Secret
+		}
+		if src.Configmap != "" {
+			n.ConfigmapName = src.Configmap
+		}
+		out = append(out, n)
+	}
+	return out
 }

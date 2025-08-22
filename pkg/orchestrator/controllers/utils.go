@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
@@ -55,18 +56,15 @@ func generateInstanceName(service *types.Service, index int) string {
 	return fmt.Sprintf("%s-%d", service.Name, index)
 }
 
-// determineRequiredFinalizers determines which finalizers are needed for a service
-func determineRequiredFinalizers(service *types.Service) []types.FinalizerType {
-	var finalizers []types.FinalizerType
-
-	// Always cleanup instances first
-	finalizers = append(finalizers, types.FinalizerTypeInstanceCleanup)
-
-	// Then deregister the service
-	finalizers = append(finalizers, types.FinalizerTypeServiceDeregister)
-
-	// Add other finalizers based on service configuration
-	// TODO: Add volume cleanup, network cleanup, etc. when those features are implemented
-
-	return finalizers
+// trimWhitespaces trims all whitespace from a string
+func trimWhitespaces(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, value)
 }

@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
-	"github.com/rzbill/rune/pkg/api/utils"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

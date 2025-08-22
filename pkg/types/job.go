@@ -151,7 +151,7 @@ type ConfigmapMount struct {
 	MountPath string `json:"mountPath" yaml:"mountPath"`
 
 	// Name of the config to mount
-	ConfigName string `json:"configName" yaml:"configName"`
+	ConfigmapName string `json:"configmapName" yaml:"configmapName"`
 
 	// Optional: specific keys to project from the config
 	Items []KeyToPath `json:"items,omitempty" yaml:"items,omitempty"`

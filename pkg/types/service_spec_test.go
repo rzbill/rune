@@ -91,7 +91,7 @@ envFrom:
 	if svc.EnvFrom[0].SecretName != "app-secrets" || svc.EnvFrom[0].Namespace != "default" || svc.EnvFrom[0].Prefix != "APP_" {
 		t.Errorf("unexpected first envFrom: %+v", svc.EnvFrom[0])
 	}
-	if svc.EnvFrom[1].ConfigMapName != "app-config" || svc.EnvFrom[1].Namespace != "default" {
+	if svc.EnvFrom[1].ConfigmapName != "app-config" || svc.EnvFrom[1].Namespace != "default" {
 		t.Errorf("unexpected second envFrom: %+v", svc.EnvFrom[1])
 	}
 }
@@ -171,7 +171,7 @@ service:
 	if svc.EnvFrom[0].SecretName != "env-secret" {
 		t.Errorf("expected envFrom secret=env-secret, got %+v", svc.EnvFrom[0])
 	}
-	if svc.EnvFrom[1].ConfigMapName != "env-config" {
+	if svc.EnvFrom[1].ConfigmapName != "env-config" {
 		t.Errorf("expected envFrom configmap=env-config, got %+v", svc.EnvFrom[1])
 	}
 	if svc.EnvFrom[1].Prefix != "APP_" {

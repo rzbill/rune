@@ -1,0 +1,18 @@
+service:
+  name: "{{ values: app.name }}-api"
+  namespace: demo
+  image: "{{ values: app.image }}:{{ values: app.tag }}"
+  scale: {{ values:app.replicas | default: 2 }}
+  ports:
+    - name: http
+      port: 8080
+  dependencies:
+   - secret:db-credentials
+   - configmap:app-settings
+  env:
+    LOG_LEVEL: {{ configmap: app-settings/logLevel }}
+    FEATURE_FLAGS: {{ configmap: app-settings/featureFlags }}
+    DB_USERNAME: {{ secret: db-credentials/username }}
+    DB_PASSWORD: {{ secret: db-credentials/password }}
+  {{ template: templates/partials/service-expose.yaml.tmpl }}
+

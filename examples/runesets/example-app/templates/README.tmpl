@@ -1,0 +1,10 @@
+Welcome to {{ context:runeset.name }}!
+
+This service runs image {{ values:app.image }}:{{ values:app.tag }} with {{ values:app.replicas | default: 1 }} replicas.
+
+Configuration:
+- LOG_LEVEL: {{ configmap:app-settings/logLevel }}
+- FEATURE_FLAGS: {{ configmap:app-settings/featureFlags }}
+
+Database credentials are sourced from secret: db-credentials.
+

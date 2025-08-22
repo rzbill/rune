@@ -1,0 +1,13 @@
+app:
+  name: webapp
+  image: rune-hello-world
+  tag: latest
+  env:
+    LOG_LEVEL: info
+    FEATURE_FLAGS: beta-search,new-dashboard
+svc:
+  expose:
+    portName: http
+    host: api.example.local
+    hostPort: 8080
+

@@ -1,0 +1,16 @@
+service:
+  name: "{{ values:app.name }}-frontend"
+  namespace: demo
+  image: nginx:1.25
+  scale: 1
+  ports:
+    - name: http
+      port: 80
+  dependencies:
+   - secret:db-credentials
+   - configmap:{{context:releaseName}}-configmap
+  env:
+    BACKEND_URL: "http://{{ values:app.name }}-api.demo.rune:8080"
+    README_BANNER: {{ file: templates/README.tmpl }}
+    APP_ENV: {{ file: templates/app.env }}
+  envFrom: configmap:{{context:releaseName}}-configmap

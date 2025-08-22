@@ -904,10 +904,10 @@ func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.
 				return nil, fmt.Errorf("envFrom secret %s.%s: %w", src.Namespace, src.SecretName, err)
 			}
 			data = sec.Data
-		} else if src.ConfigMapName != "" {
-			cfg, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, src.Namespace, src.ConfigMapName))
+		} else if src.ConfigmapName != "" {
+			cfg, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, src.Namespace, src.ConfigmapName))
 			if err != nil {
-				return nil, fmt.Errorf("envFrom configMap %s.%s: %w", src.Namespace, src.ConfigMapName, err)
+				return nil, fmt.Errorf("envFrom configMap %s.%s: %w", src.Namespace, src.ConfigmapName, err)
 			}
 			data = cfg.Data
 		}
@@ -1006,7 +1006,7 @@ func (c *instanceController) interpolateEnv(ctx context.Context, value, defaultN
 		closeIdx += openIdx
 
 		// Extract the template variable content and trim whitespace inside the braces
-		templateVar := strings.TrimSpace(result[openIdx+2 : closeIdx])
+		templateVar := trimWhitespaces(result[openIdx+2 : closeIdx])
 
 		// Resolve the template variable
 		resolvedValue, err := c.resolveTemplateVariable(ctx, templateVar, defaultNamespace)
@@ -1121,7 +1121,7 @@ func (c *instanceController) resolveMounts(ctx context.Context, service *types.S
 
 		for _, mount := range service.ConfigmapMounts {
 			// Determine config name; default to mount.Name if ConfigName is omitted
-			configName := mount.ConfigName
+			configName := mount.ConfigmapName
 			if configName == "" {
 				configName = mount.Name
 			}

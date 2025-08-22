@@ -20,11 +20,19 @@ func MakeVersionKey(resourceType types.ResourceType, namespace, name, version st
 
 // MakePrefix creates a prefix for listing resources by type and namespace.
 func MakePrefix(resourceType types.ResourceType, namespace string) []byte {
+	if namespace == "all" || namespace == "*" {
+		return []byte(fmt.Sprintf("%s/", resourceType))
+	}
+
 	return []byte(fmt.Sprintf("%s/%s", resourceType, namespace))
 }
 
 // MakeVersionPrefix creates a prefix for listing resource versions.
 func MakeVersionPrefix(resourceType types.ResourceType, namespace, name string) []byte {
+	if namespace == "all" || namespace == "*" {
+		return []byte(fmt.Sprintf("%s-versions/%s/", resourceType, name))
+	}
+
 	return []byte(fmt.Sprintf("%s-versions/%s/%s/", resourceType, namespace, name))
 }
 

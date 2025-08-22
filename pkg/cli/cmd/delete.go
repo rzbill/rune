@@ -570,7 +570,7 @@ func handleTextOutput(ctx context.Context, serviceClient *client.ServiceClient, 
 	}
 
 	// Default behavior: monitor progress in real-time
-	return monitorDeletion(ctx, serviceClient, namespace, resp.DeletionID)
+	return monitorDeletion(ctx, serviceClient, namespaceArg, resp.DeletionID)
 }
 
 // monitorDeletion monitors the deletion progress using service watcher
@@ -754,7 +754,7 @@ func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions
 
 	// Create the status request
 	statusReq := &generated.GetDeletionStatusRequest{
-		Namespace: namespace,
+		Namespace: namespaceArg,
 		Name:      deletionID,
 	}
 

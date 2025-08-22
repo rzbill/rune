@@ -99,5 +99,7 @@ secret:
 plugins:
   dir: "/usr/local/lib/rune/plugins"
   enabled:
+    - "dashboard"
     - "metrics"
-    - "backup" 
+    - "registry"
+    - "functions"

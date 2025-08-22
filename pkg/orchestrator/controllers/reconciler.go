@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/log"
-	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 )
@@ -26,7 +25,6 @@ type reconciler struct {
 	store              store.Store
 	instanceController InstanceController
 	healthController   HealthController
-	runnerManager      manager.IRunnerManager
 	logger             log.Logger
 	reconcileInterval  time.Duration
 	mu                 sync.Mutex
@@ -204,7 +202,9 @@ func (r *reconciler) cleanUpOrphanedInstances(ctx context.Context, orphanedInsta
 				r.logger.Error("Failed to clean up orphaned instance",
 					log.Str("instance", instance.ID),
 					log.Err(err))
+				return err
 			}
+
 		}
 	}
 	return nil
@@ -452,24 +452,29 @@ func (r *reconciler) ensureServiceInstances(ctx context.Context, service *types.
 
 // dependenciesReady evaluates whether all declared dependencies for a service are ready.
 // Readiness definition (MVP):
-// - If dependency service defines readiness probe: at least one instance is Running and readiness=true
+// - If dependency is not a service, it's ready
+// - If dependency is a service and it defines readiness probe: at least one instance is Running and readiness=true
 // - Else: at least one instance is Running
 func (r *reconciler) dependenciesReady(ctx context.Context, service *types.Service) (bool, error) {
 	for _, dep := range service.Dependencies {
-		depNS := dep.Namespace
-		if depNS == "" {
-			depNS = service.Namespace
-		}
 		// Fetch dependency service
-		var depService types.Service
-		if err := r.store.Get(ctx, types.ResourceTypeService, depNS, dep.Service, &depService); err != nil {
-			return false, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, dep.Service, err)
-		}
-		// List instances for dependency
-		instances, err := r.listInstancesForService(ctx, depNS, dep.Service)
+		dependencyResource, err := r.fetchDependencyResource(ctx, &dep, service)
 		if err != nil {
-			return false, fmt.Errorf("failed to list instances for dependency %s/%s: %w", depNS, dep.Service, err)
+			return false, err
 		}
+
+		// If dependency is not a service, it's ready
+		depService, ok := dependencyResource.(types.Service)
+		if !ok {
+			continue
+		}
+
+		// List instances for dependency
+		instances, err := r.listInstancesForService(ctx, depService.Namespace, dep.Service)
+		if err != nil {
+			return false, fmt.Errorf("failed to list instances for dependency %s/%s: %w", depService.Namespace, dep.Service, err)
+		}
+
 		// Evaluate readiness
 		readyFound := false
 		hasReadinessProbe := depService.Health != nil && depService.Health.Readiness != nil
@@ -498,6 +503,27 @@ func (r *reconciler) dependenciesReady(ctx context.Context, service *types.Servi
 		}
 	}
 	return true, nil
+}
+
+func (r *reconciler) fetchDependencyResource(ctx context.Context, dep *types.DependencyRef, service *types.Service) (interface{}, error) {
+	var dependencyResource interface{}
+	depNS := dep.Namespace
+	if depNS == "" {
+		depNS = service.Namespace
+	}
+
+	depResourceType := dep.GetDependencyResourceType()
+	depResourceName := dep.GetDependencyResourceName()
+
+	r.logger.Info("fetching dependency resource",
+		log.Str("resourceType", string(depResourceType)),
+		log.Str("namespace", depNS),
+		log.Str("name", depResourceName))
+
+	if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &dependencyResource); err != nil {
+		return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
+	}
+	return dependencyResource, nil
 }
 
 // reconcileExistingInstance updates an existing instance, recreating it if necessary

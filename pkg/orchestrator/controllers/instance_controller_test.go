@@ -1037,7 +1037,7 @@ func TestPrepareEnvVars_EnvFrom(t *testing.T) {
 		Namespace: "default",
 		EnvFrom: []types.EnvFromSource{
 			{SecretName: "env-secrets", Namespace: "default", Prefix: "APP_"},
-			{ConfigMapName: "app-settings", Namespace: "default"},
+			{ConfigmapName: "app-settings", Namespace: "default"},
 		},
 		// Explicit env overrides imported
 		Env: map[string]string{

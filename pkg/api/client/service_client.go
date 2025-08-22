@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +42,7 @@ func (s *ServiceClient) CreateService(service *types.Service) error {
 
 	// Create the gRPC request
 	req := &generated.CreateServiceRequest{
-		Service: s.serviceToProto(service),
+		Service: ServiceToProto(service),
 	}
 
 	// Send the request to the API server
@@ -95,7 +97,7 @@ func (s *ServiceClient) GetService(namespace, name string) (*types.Service, erro
 	}
 
 	// Convert the proto message to a service
-	service, err := s.protoToService(resp.Service)
+	service, err := ProtoToService(resp.Service)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert service: %w", err)
 	}
@@ -112,7 +114,7 @@ func (s *ServiceClient) UpdateService(service *types.Service, force bool) error 
 
 	// Create the gRPC request
 	req := &generated.UpdateServiceRequest{
-		Service: s.serviceToProto(service),
+		Service: ServiceToProto(service),
 		Force:   force,
 	}
 
@@ -286,7 +288,7 @@ func (s *ServiceClient) ListServices(namespace string, labelSelector string, fie
 	// Convert the proto messages to services
 	services := make([]*types.Service, 0, len(resp.Services))
 	for _, protoService := range resp.Services {
-		service, err := s.protoToService(protoService)
+		service, err := ProtoToService(protoService)
 		if err != nil {
 			s.logger.Error("Failed to convert service", log.Err(err))
 			continue
@@ -332,7 +334,7 @@ func (s *ServiceClient) ScaleService(namespace, name string, scale int) error {
 	req := &generated.ScaleServiceRequest{
 		Name:      name,
 		Namespace: namespace,
-		Scale:     int32(scale),
+		Scale:     utils.ToInt32NonNegative(scale),
 	}
 
 	// Send the request to the API server
@@ -373,9 +375,8 @@ func (s *ServiceClient) ScaleServiceWithRequest(req *generated.ScaleServiceReque
 }
 
 // Helper functions for converting between types.Service and generated.Service
-
 // serviceToProto converts a types.Service to a generated.Service proto message.
-func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Service {
+func ServiceToProto(service *types.Service) *generated.Service {
 	if service == nil {
 		return nil
 	}
@@ -386,19 +387,18 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		Namespace: service.Namespace,
 		Image:     service.Image,
 		Command:   service.Command,
-		Scale:     int32(service.Scale),
+		Scale:     utils.ToInt32NonNegative(service.Scale),
 		Runtime:   string(service.Runtime),
 	}
 
-	//TODO: Remove this, users should not be able to set timestamps
-	/*/ Format timestamps as RFC3339 strings
-	if !service.Metadata.CreatedAt.IsZero() {
-		protoService.Metadata.CreatedAt = service.Metadata.CreatedAt.Format(time.RFC3339)
+	if service.Metadata != nil {
+		protoService.Metadata = &generated.ServiceMetadata{
+			Generation:       utils.ToInt32NonNegative64(service.Metadata.Generation),
+			CreatedAt:        service.Metadata.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        service.Metadata.UpdatedAt.Format(time.RFC3339),
+			LastNonZeroScale: utils.ToInt32NonNegative(service.Metadata.LastNonZeroScale),
+		}
 	}
-
-	if !service.Metadata.UpdatedAt.IsZero() {
-		protoService.Metadata.UpdatedAt = service.Metadata.UpdatedAt.Format(time.RFC3339)
-	}*/
 
 	// Convert args
 	if len(service.Args) > 0 {
@@ -420,8 +420,8 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		for i, port := range service.Ports {
 			protoService.Ports[i] = &generated.ServicePort{
 				Name:       port.Name,
-				Port:       int32(port.Port),
-				TargetPort: int32(port.TargetPort),
+				Port:       utils.ToInt32NonNegative(port.Port),
+				TargetPort: utils.ToInt32NonNegative(port.TargetPort),
 				Protocol:   port.Protocol,
 			}
 		}
@@ -432,7 +432,7 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 		protoService.Expose = &generated.ServiceExpose{
 			Port:     service.Expose.Port,
 			Host:     service.Expose.Host,
-			HostPort: uint32(service.Expose.HostPort),
+			HostPort: utils.ToUint32NonNegative(service.Expose.HostPort),
 			Path:     service.Expose.Path,
 		}
 	}
@@ -477,10 +477,10 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 				items = append(items, &generated.KeyToPath{Key: it.Key, Path: it.Path})
 			}
 			protoService.ConfigmapMounts[i] = &generated.ConfigmapMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				ConfigName: m.ConfigName,
-				Items:      items,
+				Name:          m.Name,
+				MountPath:     m.MountPath,
+				ConfigmapName: m.ConfigmapName,
+				Items:         items,
 			}
 		}
 	}
@@ -505,19 +505,19 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 
 		if service.Health.Liveness != nil {
 			protoService.Health.Liveness = &generated.Probe{
-				InitialDelaySeconds: int32(service.Health.Liveness.InitialDelaySeconds),
-				PeriodSeconds:       int32(service.Health.Liveness.IntervalSeconds),
-				TimeoutSeconds:      int32(service.Health.Liveness.TimeoutSeconds),
+				InitialDelaySeconds: utils.ToInt32NonNegative(service.Health.Liveness.InitialDelaySeconds),
+				PeriodSeconds:       utils.ToInt32NonNegative(service.Health.Liveness.IntervalSeconds),
+				TimeoutSeconds:      utils.ToInt32NonNegative(service.Health.Liveness.TimeoutSeconds),
 			}
 
 			switch service.Health.Liveness.Type {
 			case "http":
 				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_HTTP
 				protoService.Health.Liveness.Path = service.Health.Liveness.Path
-				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
+				protoService.Health.Liveness.Port = utils.ToInt32NonNegative(service.Health.Liveness.Port)
 			case "tcp":
 				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_TCP
-				protoService.Health.Liveness.Port = int32(service.Health.Liveness.Port)
+				protoService.Health.Liveness.Port = utils.ToInt32NonNegative(service.Health.Liveness.Port)
 			case "command":
 				protoService.Health.Liveness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
 				protoService.Health.Liveness.Command = service.Health.Liveness.Command
@@ -526,19 +526,19 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 
 		if service.Health.Readiness != nil {
 			protoService.Health.Readiness = &generated.Probe{
-				InitialDelaySeconds: int32(service.Health.Readiness.InitialDelaySeconds),
-				PeriodSeconds:       int32(service.Health.Readiness.IntervalSeconds),
-				TimeoutSeconds:      int32(service.Health.Readiness.TimeoutSeconds),
+				InitialDelaySeconds: utils.ToInt32NonNegative(service.Health.Readiness.InitialDelaySeconds),
+				PeriodSeconds:       utils.ToInt32NonNegative(service.Health.Readiness.IntervalSeconds),
+				TimeoutSeconds:      utils.ToInt32NonNegative(service.Health.Readiness.TimeoutSeconds),
 			}
 
 			switch service.Health.Readiness.Type {
 			case "http":
 				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_HTTP
 				protoService.Health.Readiness.Path = service.Health.Readiness.Path
-				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
+				protoService.Health.Readiness.Port = utils.ToInt32NonNegative(service.Health.Readiness.Port)
 			case "tcp":
 				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_TCP
-				protoService.Health.Readiness.Port = int32(service.Health.Readiness.Port)
+				protoService.Health.Readiness.Port = utils.ToInt32NonNegative(service.Health.Readiness.Port)
 			case "command":
 				protoService.Health.Readiness.Type = generated.ProbeType_PROBE_TYPE_COMMAND
 				protoService.Health.Readiness.Command = service.Health.Readiness.Command
@@ -550,15 +550,19 @@ func (s *ServiceClient) serviceToProto(service *types.Service) *generated.Servic
 	if len(service.Dependencies) > 0 {
 		protoService.Dependencies = make([]*generated.DependencyRef, 0, len(service.Dependencies))
 		for _, d := range service.Dependencies {
-			protoService.Dependencies = append(protoService.Dependencies, &generated.DependencyRef{Service: d.Service, Namespace: d.Namespace})
+			protoService.Dependencies = append(protoService.Dependencies, &generated.DependencyRef{
+				Namespace: d.Namespace,
+				Service:   d.Service,
+				Secret:    d.Secret,
+				Configmap: d.Configmap,
+			})
 		}
 	}
 
 	return protoService
 }
 
-// protoToService converts a generated.Service proto message to a types.Service.
-func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service, error) {
+func ProtoToService(proto *generated.Service) (*types.Service, error) {
 	if proto == nil {
 		return nil, fmt.Errorf("proto service is nil")
 	}
@@ -571,27 +575,29 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 		Image:     proto.Image,
 		Command:   proto.Command,
 		Scale:     int(proto.Scale),
-		Metadata:  &types.ServiceMetadata{Generation: int64(proto.Metadata.Generation)},
 		Runtime:   types.RuntimeType(proto.Runtime),
 	}
 
-	createdAt, err := parseTimestamp(proto.Metadata.CreatedAt)
-	if err != nil {
-		s.logger.Warn("Failed to parse created_at timestamp",
-			log.Str("service", proto.Name),
-			log.Str("timestamp", proto.Metadata.CreatedAt),
-			log.Err(err))
-	}
-	service.Metadata.CreatedAt = *createdAt
+	// Convert metadata
+	if proto.Metadata != nil {
+		if service.Metadata == nil {
+			service.Metadata = &types.ServiceMetadata{}
+		}
+		service.Metadata.Generation = int64(proto.Metadata.Generation)
+		service.Metadata.LastNonZeroScale = int(proto.Metadata.LastNonZeroScale)
 
-	updatedAt, err := parseTimestamp(proto.Metadata.UpdatedAt)
-	if err != nil {
-		s.logger.Warn("Failed to parse updated_at timestamp",
-			log.Str("service", proto.Name),
-			log.Str("timestamp", proto.Metadata.UpdatedAt),
-			log.Err(err))
+		createdAt, err := utils.ParseTimestamp(proto.Metadata.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse created_at timestamp: %w", err)
+		}
+		service.Metadata.CreatedAt = *createdAt
+
+		updatedAt, err := utils.ParseTimestamp(proto.Metadata.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse updated_at timestamp: %w", err)
+		}
+		service.Metadata.UpdatedAt = *updatedAt
 	}
-	service.Metadata.UpdatedAt = *updatedAt
 
 	// Convert args
 	if len(proto.Args) > 0 {
@@ -672,10 +678,10 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 				items = append(items, types.KeyToPath{Key: it.Key, Path: it.Path})
 			}
 			service.ConfigmapMounts[i] = types.ConfigmapMount{
-				Name:       m.Name,
-				MountPath:  m.MountPath,
-				ConfigName: m.ConfigName,
-				Items:      items,
+				Name:          m.Name,
+				MountPath:     m.MountPath,
+				ConfigmapName: m.ConfigmapName,
+				Items:         items,
 			}
 		}
 	}
@@ -745,7 +751,12 @@ func (s *ServiceClient) protoToService(proto *generated.Service) (*types.Service
 	if len(proto.Dependencies) > 0 {
 		service.Dependencies = make([]types.DependencyRef, 0, len(proto.Dependencies))
 		for _, d := range proto.Dependencies {
-			service.Dependencies = append(service.Dependencies, types.DependencyRef{Service: d.Service, Namespace: d.Namespace})
+			service.Dependencies = append(service.Dependencies, types.DependencyRef{
+				Service:   d.Service,
+				Namespace: d.Namespace,
+				Secret:    d.Secret,
+				Configmap: d.Configmap,
+			})
 		}
 	}
 
@@ -893,7 +904,7 @@ func (s *ServiceClient) WatchServices(namespace string, labelSelector string, fi
 			}
 
 			// Convert the proto service to a type service
-			service, err := s.protoToService(resp.Service)
+			service, err := ProtoToService(resp.Service)
 			if err != nil {
 				s.logger.Error("Failed to convert service", log.Err(err))
 				eventCh <- WatchEvent{
@@ -945,7 +956,7 @@ func (s *ServiceClient) WatchScaling(namespace, name string, targetScale int) (<
 	req := &generated.WatchScalingRequest{
 		ServiceName: name,
 		Namespace:   namespace,
-		TargetScale: int32(targetScale),
+		TargetScale: utils.ToInt32NonNegative(targetScale),
 	}
 
 	// Create a context with cancel
