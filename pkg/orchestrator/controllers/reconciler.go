@@ -520,10 +520,37 @@ func (r *reconciler) fetchDependencyResource(ctx context.Context, dep *types.Dep
 		log.Str("namespace", depNS),
 		log.Str("name", depResourceName))
 
-	if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &dependencyResource); err != nil {
-		return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
+	// For dependencies, fetch into concrete types so the store can unmarshal correctly
+	switch depResourceType {
+	case types.ResourceTypeService:
+		var svc types.Service
+		// Use explicit service name if provided, else fall back to computed name
+		name := dep.Service
+		if name == "" {
+			name = depResourceName
+		}
+		if err := r.store.Get(ctx, types.ResourceTypeService, depNS, name, &svc); err != nil {
+			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, name, err)
+		}
+		return svc, nil
+	case types.ResourceTypeConfigMap:
+		var cfg types.ConfigMap
+		if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
+		}
+		return cfg, nil
+	case types.ResourceTypeSecret:
+		var sec types.Secret
+		if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &sec); err != nil {
+			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
+		}
+		return sec, nil
+	default:
+		if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &dependencyResource); err != nil {
+			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
+		}
+		return dependencyResource, nil
 	}
-	return dependencyResource, nil
 }
 
 // reconcileExistingInstance updates an existing instance, recreating it if necessary
@@ -749,14 +776,15 @@ func (r *reconciler) listInstancesForService(ctx context.Context, namespace, ser
 		return nil, fmt.Errorf("failed to list instances: %w", err)
 	}
 
-	// Filter instances for this service
+	// Filter instances for this service (by ServiceName)
+	filtered := make([]types.Instance, 0, len(instances))
 	for _, instance := range instances {
-		if instance.ServiceID == serviceName {
-			instances = append(instances, instance)
+		if instance.ServiceName == serviceName {
+			filtered = append(filtered, instance)
 		}
 	}
 
-	return instances, nil
+	return filtered, nil
 }
 
 // isRecreationRequired checks if an error from UpdateInstance indicates that

@@ -21,6 +21,137 @@ type Renderer struct {
 	Stack         []string // include stack for cycle detection (absolute paths)
 	MaxDepth      int
 	PhRegex       *regexp.Regexp
+	Filters       map[string]func(current interface{}, args []interface{}, ok bool) (interface{}, bool, error)
+}
+
+// NewRenderer creates a renderer with sane defaults.
+func NewRenderer(root string, values map[string]interface{}, ctx map[string]interface{}) *Renderer {
+	r := &Renderer{
+		Root:          root,
+		Values:        values,
+		Ctx:           ctx,
+		FileCache:     make(map[string]string),
+		TemplateCache: make(map[string]string),
+		Stack:         nil,
+		MaxDepth:      32,
+		PhRegex:       regexp.MustCompile(`\{\{(.*?)\}\}`),
+		Filters:       make(map[string]func(interface{}, []interface{}, bool) (interface{}, bool, error)),
+	}
+	// Built-in default filter
+	r.Filters["default"] = func(current interface{}, args []interface{}, ok bool) (interface{}, bool, error) {
+		if len(args) != 1 {
+			return nil, false, fmt.Errorf("default requires exactly one argument")
+		}
+		if !ok || current == nil {
+			return args[0], true, nil
+		}
+		return current, ok, nil
+	}
+	return r
+}
+
+// HasPlaceholders reports whether a string contains template delimiters.
+func HasPlaceholders(s string) bool {
+	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
+}
+
+// RenderValuesMapFixpoint repeatedly renders placeholders in the map until a fixpoint
+// is reached or maxPasses is exceeded.
+func (r *Renderer) RenderValuesMapFixpoint(values map[string]interface{}, maxPasses int) error {
+	for i := 0; i < maxPasses; i++ {
+		before, _ := yaml.Marshal(values)
+		if err := r.RenderValuesMap(values); err != nil {
+			return err
+		}
+		after, _ := yaml.Marshal(values)
+		if bytes.Equal(before, after) {
+			break
+		}
+	}
+	return nil
+}
+
+// PreprocessValuesYAML pre-processes values YAML text to support unquoted placeholders
+// by quoting bare placeholders and then rendering placeholders against the renderer state.
+func (r *Renderer) PreprocessValuesYAML(text string) (string, error) {
+	quoted := PreQuoteUnquotedPlaceholders(text)
+	if HasPlaceholders(quoted) {
+		return r.RenderString(quoted, 0)
+	}
+	return quoted, nil
+}
+
+// PreQuoteUnquotedPlaceholders wraps bare {{ ... }} placeholders where a value
+// consists solely of a placeholder (key: {{...}} or - {{...}}) to avoid YAML parse errors.
+func PreQuoteUnquotedPlaceholders(in string) string {
+	lines := strings.Split(in, "\n")
+	for i, line := range lines {
+		trimLeft := strings.TrimLeft(line, " \t")
+		indentLen := len(line) - len(trimLeft)
+		indent := line[:indentLen]
+		rest := trimLeft
+		if rest == "" {
+			continue
+		}
+		if strings.HasPrefix(rest, "- ") {
+			val := strings.TrimSpace(rest[2:])
+			if strings.HasPrefix(val, "{{") && strings.HasSuffix(val, "}}") && !(strings.HasPrefix(val, "\"") || strings.HasPrefix(val, "'")) {
+				lines[i] = indent + "- \"" + val + "\""
+				continue
+			}
+		}
+		colonIdx := strings.Index(rest, ":")
+		if colonIdx > 0 {
+			after := strings.TrimSpace(rest[colonIdx+1:])
+			if after != "" && strings.HasPrefix(after, "{{") && strings.HasSuffix(after, "}}") && !(strings.HasPrefix(after, "\"") || strings.HasPrefix(after, "'")) {
+				before := rest[:colonIdx+1]
+				lines[i] = indent + before + " \"" + after + "\""
+				continue
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// RenderValuesMap walks a map and renders any string placeholders using this renderer.
+// It mutates the provided map in place.
+func (r *Renderer) RenderValuesMap(values map[string]interface{}) error {
+	var walk func(any) (any, error)
+	walk = func(n any) (any, error) {
+		switch t := n.(type) {
+		case map[string]interface{}:
+			for k, v := range t {
+				nv, err := walk(v)
+				if err != nil {
+					return nil, err
+				}
+				t[k] = nv
+			}
+			return t, nil
+		case []interface{}:
+			for i, v := range t {
+				nv, err := walk(v)
+				if err != nil {
+					return nil, err
+				}
+				t[i] = nv
+			}
+			return t, nil
+		case string:
+			if strings.Contains(t, "{{") && strings.Contains(t, "}}") {
+				out, err := r.RenderString(t, 0)
+				if err != nil {
+					return nil, err
+				}
+				return out, nil
+			}
+			return t, nil
+		default:
+			return t, nil
+		}
+	}
+	_, err := walk(values)
+	return err
 }
 
 // RenderString renders a YAML text with recursion/depth guards and caching.
@@ -61,24 +192,9 @@ func (r *Renderer) RenderString(input string, depth int) (string, error) {
 }
 
 func (r *Renderer) renderIncludeTemplate(path, indent string, depth int) ([]string, error) {
-	incPath := filepath.Join(r.Root, path)
-	baseRoot, _ := filepath.Abs(r.Root)
-	incAbs, _ := filepath.Abs(incPath)
-	if !strings.HasPrefix(incAbs, baseRoot+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("template include escapes runeset root: %s", path)
-	}
-	if r.inStack(incAbs) {
-		return nil, fmt.Errorf("template include cycle detected: %s", incAbs)
-	}
-	content, err := r.readCached(incAbs)
+	rendered, err := r.renderFile(path, depth)
 	if err != nil {
 		return nil, fmt.Errorf("include template %s: %w", path, err)
-	}
-	r.push(incAbs)
-	rendered, err := r.RenderString(content, depth+1)
-	r.pop()
-	if err != nil {
-		return nil, err
 	}
 	var out []string
 	for _, l := range strings.Split(rendered, "\n") {
@@ -199,8 +315,17 @@ func (r *Renderer) evalPlaceholder(pe *placeholderExpr) (interface{}, bool, erro
 	val, ok := lookupRunesetValue(src, pe.path)
 	// Apply filters left-to-right
 	for _, f := range pe.filters {
-		switch f.name {
-		case "default":
+		if r.Filters != nil {
+			if fn, exists := r.Filters[f.name]; exists {
+				nv, nok, err := fn(val, f.args, ok)
+				if err != nil {
+					return nil, false, err
+				}
+				val, ok = nv, nok
+				continue
+			}
+		}
+		if f.name == "default" {
 			if len(f.args) != 1 {
 				return nil, false, fmt.Errorf("default requires exactly one argument")
 			}
@@ -208,9 +333,9 @@ func (r *Renderer) evalPlaceholder(pe *placeholderExpr) (interface{}, bool, erro
 				val = f.args[0]
 				ok = true
 			}
-		default:
-			return nil, false, fmt.Errorf("unknown filter: %s", f.name)
+			continue
 		}
+		return nil, false, fmt.Errorf("unknown filter: %s", f.name)
 	}
 	return val, ok, nil
 }
@@ -376,4 +501,28 @@ func marshalRunesetYAMLFragment(v interface{}, indent string) ([]string, error) 
 		lines[i] = indent + lines[i]
 	}
 	return lines, nil
+}
+
+// renderFile reads a file under root and returns its rendered contents.
+func (r *Renderer) renderFile(relPath string, depth int) (string, error) {
+	incPath := filepath.Join(r.Root, relPath)
+	baseRoot, _ := filepath.Abs(r.Root)
+	incAbs, _ := filepath.Abs(incPath)
+	if !strings.HasPrefix(incAbs, baseRoot+string(os.PathSeparator)) {
+		return "", fmt.Errorf("file include escapes runeset root: %s", relPath)
+	}
+	if r.inStack(incAbs) {
+		return "", fmt.Errorf("file include cycle detected: %s", incAbs)
+	}
+	content, err := r.readCached(incAbs)
+	if err != nil {
+		return "", err
+	}
+	r.push(incAbs)
+	out, err := r.RenderString(content, depth+1)
+	r.pop()
+	if err != nil {
+		return "", err
+	}
+	return out, nil
 }

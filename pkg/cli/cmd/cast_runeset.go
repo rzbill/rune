@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rzbill/rune/pkg/cli/utils"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 	yaml "gopkg.in/yaml.v3"
 )
@@ -34,14 +34,14 @@ func runRunesetCast(cmd *cobra.Command, root string) error {
 		return fmt.Errorf("runeset %s missing required 'casts/' directory", root)
 	}
 
-	// Merge runeset values
-	mergedValues, err := mergeRunesetValues(mf, root)
+	// Build execution context map (read-only)
+	ctx := buildContextFromManifest(mf)
+
+	// Merge runeset values (collect first, resolve later)
+	mergedValues, err := mergeRunesetValuesTemplated(mf, root, ctx)
 	if err != nil {
 		return err
 	}
-
-	// Build execution context map (read-only)
-	ctx := buildContextFromManifest(mf)
 
 	// Gather casts
 	castFiles, err := gatherRunesetCasts(castsDir)
@@ -175,7 +175,8 @@ func mergeInto(dst, src map[string]interface{}) {
 		if mv, ok := v.(map[string]interface{}); ok {
 			if existing, ok2 := dst[k].(map[string]interface{}); ok2 {
 				mergeInto(existing, mv)
-				dst[k] = existing
+				dsf := existing
+				dst[k] = dsf
 			} else {
 				dst[k] = cloneMap(mv)
 			}
@@ -273,8 +274,10 @@ func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]inter
 		if err != nil {
 			return nil, fmt.Errorf("failed to read values file %s: %w", vf, err)
 		}
+		// Pre-quote unquoted placeholders to avoid YAML parse errors
+		text := utils.PreQuoteUnquotedPlaceholders(string(b))
 		var m map[string]interface{}
-		if err := yaml.Unmarshal(b, &m); err != nil {
+		if err := yaml.Unmarshal([]byte(text), &m); err != nil {
 			return nil, fmt.Errorf("failed to parse values file %s: %w", vf, err)
 		}
 		mergeInto(merged, m)
@@ -283,6 +286,21 @@ func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]inter
 		return nil, err
 	}
 	return merged, nil
+}
+
+// mergeRunesetValuesTemplated collects all values plainly, then resolves templated strings
+// using the fully merged map. This requires templated scalars in YAML files to be quoted.
+func mergeRunesetValuesTemplated(mf types.RunesetManifest, root string, ctx map[string]interface{}) (map[string]interface{}, error) {
+	mv, err := mergeRunesetValues(mf, root)
+	if err != nil {
+		return nil, err
+	}
+	// 7) Final resolve pass over merged map (handles remaining templated strings)
+	r := utils.NewRenderer(root, mv, ctx)
+	if err := r.RenderValuesMapFixpoint(mv, 3); err != nil {
+		return nil, err
+	}
+	return mv, nil
 }
 
 // mergeValuesFromDir merges all YAML files in a directory into target in lexicographic order.
@@ -311,8 +329,10 @@ func mergeValuesFromDir(dir string, target map[string]interface{}) error {
 		if err != nil {
 			return fmt.Errorf("failed to read values file %s: %w", f, err)
 		}
+		// Pre-quote unquoted placeholders to avoid YAML parse errors
+		text := utils.PreQuoteUnquotedPlaceholders(string(b))
 		var m map[string]interface{}
-		if err := yaml.Unmarshal(b, &m); err != nil {
+		if err := yaml.Unmarshal([]byte(text), &m); err != nil {
 			return fmt.Errorf("failed to parse values file %s: %w", f, err)
 		}
 		mergeInto(target, m)
@@ -374,6 +394,9 @@ func gatherRunesetCasts(castsDir string) ([]string, error) {
 // renderRunesetCasts renders all casts in a directory into bytes.
 func renderRunesetCasts(root string, castFiles []string, mergedValues map[string]interface{}, ctx map[string]interface{}) ([][]byte, error) {
 
+	// Create renderer
+	r := utils.NewRenderer(root, mergedValues, ctx)
+
 	// Render each cast into bytes
 	rendered := make([][]byte, 0, len(castFiles))
 	for _, p := range castFiles {
@@ -381,7 +404,7 @@ func renderRunesetCasts(root string, castFiles []string, mergedValues map[string
 		if err != nil {
 			return nil, fmt.Errorf("failed to read cast %s: %w", p, err)
 		}
-		out, err := types.RenderRunesetYAML(string(b), root, mergedValues, ctx)
+		out, err := r.RenderString(string(b), 0)
 		if err != nil {
 			return nil, fmt.Errorf("render error in %s: %w", p, err)
 		}

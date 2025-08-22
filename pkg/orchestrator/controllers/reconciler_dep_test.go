@@ -53,3 +53,46 @@ func TestReconciler_DependencyReadinessGating(t *testing.T) {
 		t.Fatalf("expected instance creation after deps ready")
 	}
 }
+
+// Non-service dependencies (secrets, configmaps) should not gate instance creation
+func TestReconciler_DependencyReadiness_NonService(t *testing.T) {
+	ctx := context.Background()
+	testStore := setupStore(t)
+	logger := log.NewTestLogger()
+	rm := manager.NewTestRunnerManager(nil)
+
+	instCtrl := NewFakeInstanceController()
+	healthCtrl := NewHealthController(logger, testStore, rm, instCtrl)
+	rec := newReconciler(testStore, instCtrl, healthCtrl, logger)
+
+	// Create required non-service dependencies
+	cfg := &types.ConfigMap{Name: "cfg", Namespace: "default", Data: map[string]string{"k": "v"}}
+	if err := testStore.Create(ctx, types.ResourceTypeConfigMap, cfg.Namespace, cfg.Name, cfg); err != nil {
+		t.Fatalf("store create configmap: %v", err)
+	}
+	sec := &types.Secret{Name: "sec", Namespace: "default", Type: "static", Data: map[string]string{"p": "x"}}
+	if err := testStore.Create(ctx, types.ResourceTypeSecret, sec.Namespace, sec.Name, sec); err != nil {
+		t.Fatalf("store create secret: %v", err)
+	}
+
+	// Service depending only on non-service deps should proceed immediately
+	api := &types.Service{
+		Name:      "api2",
+		Namespace: "default",
+		Scale:     1,
+		Dependencies: []types.DependencyRef{
+			{Configmap: "cfg", Namespace: "default"},
+			{Secret: "sec", Namespace: "default"},
+		},
+	}
+	if err := testStore.Create(ctx, types.ResourceTypeService, api.Namespace, api.Name, api); err != nil {
+		t.Fatalf("store create api2: %v", err)
+	}
+
+	if err := rec.reconcileService(ctx, api); err != nil {
+		t.Fatalf("reconcile api2: %v", err)
+	}
+	if len(instCtrl.CreateInstanceCalls) == 0 {
+		t.Fatalf("expected instance creation when only non-service deps are declared")
+	}
+}

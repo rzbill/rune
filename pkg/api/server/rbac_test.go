@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rzbill/rune/pkg/store"
+	"github.com/rzbill/rune/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -12,7 +14,16 @@ import (
 
 // Test minimal RBAC policy on unary interceptor
 func TestRBACUnaryInterceptor(t *testing.T) {
-	s, err := New(WithAuth(nil))
+	ctx := context.Background()
+
+	st := store.NewTestStore()
+	_ = st.Open("")
+	_ = SeedBuiltinPolicies(ctx, st)
+	// subject used in test
+	u := &types.User{Namespace: "system", Name: "sub", ID: "sub", Policies: []string{"root"}}
+	_ = st.Create(ctx, types.ResourceTypeUser, "system", "sub", u)
+
+	s, err := New(WithAuth(nil), WithStore(st))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -34,7 +45,7 @@ func TestRBACUnaryInterceptor(t *testing.T) {
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied without subject, got %v", err)
 	}
-	// with subject allowed (placeholder until policy engine wired)
+	// with subject allowed via policy
 	if err := call(true, "/rune.api.ServiceService/CreateService"); err != nil {
 		t.Fatalf("expected allow with subject: %v", err)
 	}
@@ -42,7 +53,15 @@ func TestRBACUnaryInterceptor(t *testing.T) {
 
 // Test RBAC on stream interceptor for logs (read) vs exec (write)
 func TestRBACStreamInterceptor(t *testing.T) {
-	s, err := New(WithAuth(nil))
+	ctx := context.Background()
+
+	st := store.NewTestStore()
+	_ = st.Open("")
+	_ = SeedBuiltinPolicies(ctx, st)
+	u := &types.User{Namespace: "system", Name: "sub", ID: "sub", Policies: []string{"root"}}
+	_ = st.Create(ctx, types.ResourceTypeUser, "system", "sub", u)
+
+	s, err := New(WithAuth(nil), WithStore(st))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -63,7 +82,7 @@ func TestRBACStreamInterceptor(t *testing.T) {
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied without subject, got %v", err)
 	}
-	// with subject allowed (placeholder)
+	// with subject allowed via policy
 	if err := call(true, "/rune.api.ExecService/StreamExec"); err != nil {
 		t.Fatalf("expected allow with subject: %v", err)
 	}
