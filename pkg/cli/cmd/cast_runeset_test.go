@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -88,7 +89,9 @@ func TestRuneset_DryRun_ExampleApp(t *testing.T) {
 
 	// Act
 	out := captureOutput(func() {
-		_ = runRunesetCast(nil, root)
+		err := runRunesetCast(nil, root)
+		fmt.Println(err)
+		require.NoError(t, err)
 	})
 
 	// Assert

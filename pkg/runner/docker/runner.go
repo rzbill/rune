@@ -4,7 +4,6 @@ package docker
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,9 +12,6 @@ import (
 	"strings"
 	"time"
 
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	imageTypes "github.com/docker/docker/api/types/image"
@@ -685,103 +681,6 @@ func matchWildcardHost(pattern, host string) bool {
 	idx := strings.Index(pattern, "*")
 	suffix := pattern[idx+1:]
 	return strings.HasSuffix(host, suffix)
-}
-
-func (r *DockerRunner) encodeDockerAuth(cfg RegistryConfig, host string, logger log.Logger) string {
-	auth := cfg.Auth
-	switch strings.ToLower(auth.Type) {
-	case "basic":
-		if auth.Username == "" || auth.Password == "" {
-			return ""
-		}
-		return encodeAuthJSON(auth.Username, auth.Password, host)
-	case "token":
-		if auth.Token == "" {
-			return ""
-		}
-		// use a generic username for token-based auth
-		return encodeAuthJSON("token", auth.Token, host)
-	case "ecr":
-		if entry, ok := r.ecrAuthCache[host]; ok {
-			if time.Until(entry.Expires) > 5*time.Minute {
-				return encodeAuthJSON(entry.Username, entry.Password, host)
-			}
-		}
-		username, password, expiry, err := r.fetchECRAuth(host, auth.Region)
-		if err != nil {
-			logger.Warn("ECR auth retrieval failed; pulling without RegistryAuth", log.Str("registry", host), log.Err(err))
-			return ""
-		}
-		r.ecrAuthCache[host] = ecrAuthEntry{Username: username, Password: password, Expires: expiry}
-		return encodeAuthJSON(username, password, host)
-	default:
-		// If no type specified, attempt basic if username/password present, else token
-		if auth.Username != "" && auth.Password != "" {
-			return encodeAuthJSON(auth.Username, auth.Password, host)
-		}
-		if auth.Token != "" {
-			return encodeAuthJSON("token", auth.Token, host)
-		}
-		return ""
-	}
-}
-
-func encodeAuthJSON(username, password, server string) string {
-	payload := map[string]string{
-		"username":      username,
-		"password":      password,
-		"serveraddress": server,
-	}
-	b, _ := json.Marshal(payload)
-	return base64.StdEncoding.EncodeToString(b)
-}
-
-// fetchECRAuth retrieves an authorization token for the given ECR registry host.
-func (r *DockerRunner) fetchECRAuth(host, region string) (string, string, time.Time, error) {
-	if region == "" {
-		parts := strings.Split(host, ".")
-		if len(parts) >= 6 {
-			region = parts[3]
-		}
-	}
-	if region == "" {
-		return "", "", time.Time{}, fmt.Errorf("unable to determine ECR region for host %s", host)
-	}
-	cfg, err := awscfg.LoadDefaultConfig(context.Background(), awscfg.WithRegion(region))
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-	cli := ecr.NewFromConfig(cfg)
-	out, err := cli.GetAuthorizationToken(context.Background(), &ecr.GetAuthorizationTokenInput{})
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-	if len(out.AuthorizationData) == 0 {
-		return "", "", time.Time{}, fmt.Errorf("no ECR authorization data returned")
-	}
-	var chosen ecrtypes.AuthorizationData
-	for _, ad := range out.AuthorizationData {
-		if ad.ProxyEndpoint != nil && strings.Contains(*ad.ProxyEndpoint, host) {
-			chosen = ad
-			break
-		}
-	}
-	if chosen.AuthorizationToken == nil {
-		chosen = out.AuthorizationData[0]
-	}
-	tok, err := base64.StdEncoding.DecodeString(*chosen.AuthorizationToken)
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-	parts := strings.SplitN(string(tok), ":", 2)
-	if len(parts) != 2 {
-		return "", "", time.Time{}, fmt.Errorf("invalid ECR token format")
-	}
-	expiry := time.Now().Add(12 * time.Hour)
-	if chosen.ExpiresAt != nil {
-		expiry = *chosen.ExpiresAt
-	}
-	return parts[0], parts[1], expiry, nil
 }
 
 // instanceToContainerConfig converts a Rune instance to Docker container config.

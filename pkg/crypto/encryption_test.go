@@ -145,7 +145,6 @@ func TestAEAD_InvalidKeyLength(t *testing.T) {
 	// Test with invalid key lengths
 	invalidKeys := [][]byte{
 		nil,
-		[]byte{},
 		make([]byte, 16), // Too short
 		make([]byte, 64), // Too long
 	}

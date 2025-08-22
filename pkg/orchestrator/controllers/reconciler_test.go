@@ -309,8 +309,9 @@ func TestDeleteInstanceFunction(t *testing.T) {
 	assert.Equal(t, instance, instanceCtrl.DeleteInstanceCalls[0].Instance)
 
 	// Verify the instance was removed
-	err = instanceCtrl.GetInstance(ctx, "default", "instance1", instance)
+	instance, err = instanceCtrl.GetInstance(ctx, "default", "instance1")
 	assert.Error(t, err, "Instance should be deleted after DeleteInstance call")
+	assert.Nil(t, instance)
 }
 
 func TestReconcilerCreateInstance(t *testing.T) {

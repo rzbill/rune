@@ -463,21 +463,6 @@ func (c *scalingController) GetActiveOperation(ctx context.Context, namespace, s
 	return activeOp, nil
 }
 
-// stop stops all scaling operations
-func (c *scalingController) stop() {
-	if c.cancel != nil {
-		c.cancel() // Cancel all service watching
-	}
-
-	c.ops.Range(func(key, value interface{}) bool {
-		if cancel, ok := value.(context.CancelFunc); ok {
-			cancel()
-		}
-		return true
-	})
-	c.wg.Wait()
-}
-
 // recoverInProgressOperations finds and resumes any scaling operations that were in progress
 // when the server was shut down or crashed
 func (c *scalingController) recoverInProgressOperations(ctx context.Context) error {
@@ -606,38 +591,6 @@ func (c *scalingController) recoverInProgressOperations(ctx context.Context) err
 	}
 
 	c.logger.Info("Scaling operation recovery complete", log.Int("recovered", recoveredCount))
-	return nil
-}
-
-// completeOperationIfTargetReached checks if a service has reached its target scale
-// and completes the operation if so
-func (c *scalingController) completeOperationIfTargetReached(ctx context.Context, namespace, serviceName, operationID string) error {
-	// Get the service
-	var service types.Service
-	if err := c.store.Get(ctx, types.ResourceTypeService, namespace, serviceName, &service); err != nil {
-		return fmt.Errorf("failed to get service: %w", err)
-	}
-
-	// Get the operation
-	var op types.ScalingOperation
-	if err := c.store.Get(ctx, types.ResourceTypeScalingOperation, namespace, operationID, &op); err != nil {
-		return fmt.Errorf("failed to get operation: %w", err)
-	}
-
-	// If the operation is not in progress, nothing to do
-	if op.Status != types.ScalingOperationStatusInProgress {
-		return nil
-	}
-
-	// If we've reached the target, complete the operation
-	if service.Scale == op.TargetScale {
-		c.logger.Info("Target scale reached, completing operation",
-			log.Str("operation_id", op.ID),
-			log.Str("service", op.ServiceName),
-			log.Int("scale", service.Scale))
-		return c.completeOperation(ctx, &op)
-	}
-
 	return nil
 }
 

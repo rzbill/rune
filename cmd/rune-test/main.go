@@ -142,7 +142,7 @@ func handleCast(args []string) {
 
 	// Write the file
 	jsonData, _ := json.MarshalIndent(serviceMap, "", "  ")
-	err = os.WriteFile(fixturePath, jsonData, 0644)
+	err = os.WriteFile(fixturePath, jsonData, 0o600)
 	if err != nil {
 		fmt.Printf("Error writing fixture: %s\n", err)
 		os.Exit(1)

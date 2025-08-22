@@ -447,16 +447,16 @@ func (c *FakeInstanceController) AddInstance(instance *types.Instance) {
 }
 
 // GetInstance allows tests to retrieve an instance from the controller's storage
-func (c *FakeInstanceController) GetInstance(ctx context.Context, namespace, instanceID string, instance *types.Instance) error {
+func (c *FakeInstanceController) GetInstance(ctx context.Context, namespace, instanceID string) (*types.Instance, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	instance, exists := c.instances[instanceID]
 	if !exists {
-		return fmt.Errorf("instance not found: %s", instanceID)
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
 
-	return nil
+	return instance, nil
 }
 
 // Reset clears all recorded calls and stored instances

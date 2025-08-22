@@ -323,7 +323,7 @@ func (t *ResourceTable) RenderDeletionOperations(operations []*generated.Deletio
 			operation.Id,
 			operation.Namespace,
 			operation.ServiceName,
-			string(operation.Status),
+			operation.Status,
 			progress,
 		}
 		rows = append(rows, row)

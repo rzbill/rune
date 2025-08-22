@@ -8,6 +8,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +17,6 @@ var (
 	restartWait       bool
 	restartNoWait     bool
 	restartTimeout    time.Duration
-	restartClientKey  string
 	restartClientAddr string
 )
 
@@ -57,10 +57,10 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get service %s/%s: %w", restartNamespace, serviceName, err)
 	}
-	current := int(svc.Scale)
+	current := svc.Scale
 	// If stopped, restore to last non-zero scale (fallback to 1)
 	if current == 0 {
-		desired := int(svc.Metadata.LastNonZeroScale)
+		desired := svc.Metadata.LastNonZeroScale
 		if desired <= 0 {
 			desired = 1
 		}
@@ -68,7 +68,7 @@ func runRestart(cmd *cobra.Command, args []string) error {
 		upReq := &generated.ScaleServiceRequest{
 			Name:      serviceName,
 			Namespace: restartNamespace,
-			Scale:     int32(desired),
+			Scale:     utils.ToInt32NonNegative(desired),
 			Mode:      generated.ScalingMode_SCALING_MODE_IMMEDIATE,
 		}
 		if _, err := svcClient.ScaleServiceWithRequest(upReq); err != nil {
@@ -110,7 +110,7 @@ func runRestart(cmd *cobra.Command, args []string) error {
 	upReq := &generated.ScaleServiceRequest{
 		Name:      serviceName,
 		Namespace: restartNamespace,
-		Scale:     int32(current),
+		Scale:     utils.ToInt32NonNegative(current),
 		Mode:      generated.ScalingMode_SCALING_MODE_IMMEDIATE,
 	}
 	if _, err := svcClient.ScaleServiceWithRequest(upReq); err != nil {

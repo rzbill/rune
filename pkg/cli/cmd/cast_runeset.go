@@ -443,11 +443,11 @@ func extractRunesetArchive(archivePath string) (string, error) {
 			_ = os.RemoveAll(tmpDir)
 			return "", err
 		}
-		target := filepath.Join(tmpDir, hdr.Name)
-		// ensure path within tmpDir
-		if !strings.HasPrefix(target, filepath.Clean(tmpDir)+string(os.PathSeparator)) {
+		// Safely construct target path to prevent directory traversal
+		target, err := utils.SafePath(tmpDir, hdr.Name)
+		if err != nil {
 			_ = os.RemoveAll(tmpDir)
-			return "", fmt.Errorf("archive entry escapes extraction dir: %s", hdr.Name)
+			return "", fmt.Errorf("unsafe archive entry: %w", err)
 		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -456,6 +456,11 @@ func extractRunesetArchive(archivePath string) (string, error) {
 				return "", err
 			}
 		case tar.TypeReg:
+			// Check file size to prevent decompression bombs
+			if hdr.Size > utils.MAX_FILE_SIZE {
+				_ = os.RemoveAll(tmpDir)
+				return "", fmt.Errorf("file too large: %s (%d bytes, max %d bytes)", hdr.Name, hdr.Size, utils.MAX_FILE_SIZE)
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				_ = os.RemoveAll(tmpDir)
 				return "", err
@@ -465,7 +470,8 @@ func extractRunesetArchive(archivePath string) (string, error) {
 				_ = os.RemoveAll(tmpDir)
 				return "", err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			// Use io.CopyN with file size limit to prevent decompression bombs
+			if _, err := io.CopyN(out, tr, hdr.Size); err != nil {
 				out.Close()
 				_ = os.RemoveAll(tmpDir)
 				return "", err
@@ -499,7 +505,8 @@ func downloadRunesetArchive(url string) (string, error) {
 		return "", err
 	}
 	defer tmpFile.Close()
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	// Use io.CopyN with size limit to prevent decompression bombs
+	if _, err := io.CopyN(tmpFile, resp.Body, utils.MAX_FILE_SIZE); err != nil {
 		return "", err
 	}
 	return tmpFile.Name(), nil

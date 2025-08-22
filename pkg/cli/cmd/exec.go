@@ -12,6 +12,7 @@ import (
 	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
@@ -143,8 +144,8 @@ func runExec(cmd *cobra.Command, args []string) error {
 	// Set terminal size if TTY is enabled
 	if options.TTY {
 		if width, height, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-			execOptions.TerminalWidth = uint32(width)
-			execOptions.TerminalHeight = uint32(height)
+			execOptions.TerminalWidth = utils.ToUint32NonNegative(width)
+			execOptions.TerminalHeight = utils.ToUint32NonNegative(height)
 		}
 	}
 

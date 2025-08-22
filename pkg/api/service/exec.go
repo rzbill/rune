@@ -11,6 +11,7 @@ import (
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -453,7 +454,7 @@ func (s *ExecService) sendExitCode(stream generated.ExecService_StreamExecServer
 	if err := stream.Send(&generated.ExecResponse{
 		Response: &generated.ExecResponse_Exit{
 			Exit: &generated.ExitInfo{
-				Code:     int32(exitCode),
+				Code:     utils.ToInt32NonNegative(exitCode),
 				Signaled: exitCode > 128,
 			},
 		},

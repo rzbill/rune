@@ -208,7 +208,6 @@ type TestExecStream struct {
 	Resizes       []struct{ Width, Height uint32 }
 
 	stdoutPos    int
-	stderrPos    int
 	stderrReader *bytes.Reader
 	closed       bool
 	mu           sync.Mutex

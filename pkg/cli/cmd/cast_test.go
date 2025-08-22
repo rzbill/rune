@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 func TestParseCastFilesResources(t *testing.T) {
 	// Create a temporary directory
-	tempDir, err := ioutil.TempDir("", "cast-test")
+	tempDir, err := os.MkdirTemp("", "cast-test")
 	assert.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
@@ -27,7 +26,7 @@ service:
       port: 80
 `
 	validFilePath := filepath.Join(tempDir, "valid-service.yaml")
-	err = ioutil.WriteFile(validFilePath, []byte(validServiceYAML), 0644)
+	err = os.WriteFile(validFilePath, []byte(validServiceYAML), 0644)
 	assert.NoError(t, err)
 
 	// Create an invalid service YAML file (missing required fields)
@@ -38,7 +37,7 @@ service:
   scale: 1
 `
 	invalidFilePath := filepath.Join(tempDir, "invalid-service.yaml")
-	err = ioutil.WriteFile(invalidFilePath, []byte(invalidServiceYAML), 0644)
+	err = os.WriteFile(invalidFilePath, []byte(invalidServiceYAML), 0644)
 	assert.NoError(t, err)
 
 	// Create a YAML file with multiple services
@@ -52,7 +51,7 @@ services:
     scale: 2
 `
 	multiFilePath := filepath.Join(tempDir, "multi-service.yaml")
-	err = ioutil.WriteFile(multiFilePath, []byte(multiServiceYAML), 0644)
+	err = os.WriteFile(multiFilePath, []byte(multiServiceYAML), 0644)
 	assert.NoError(t, err)
 
 	// Test loading a valid service file

@@ -41,6 +41,9 @@ type BatchQueueOptions struct {
 
 // WorkerPoolConfig holds the configuration for a worker pool
 type WorkerPoolConfig struct {
+	// Name of the worker pool
+	Name string
+
 	// Number of workers in the pool
 	NumWorkers int
 
@@ -170,6 +173,7 @@ func DefaultWorkerPool(name string, numWorkers int) (*WorkerPool, error) {
 	}
 
 	config := WorkerPoolConfig{
+		Name:           name,
 		NumWorkers:     numWorkers,
 		QueueType:      queue.QueueTypePriority,
 		QueueCapacity:  100,
@@ -195,6 +199,7 @@ func DeletionWorkerPool(numWorkers int) (*WorkerPool, error) {
 	}
 
 	config := WorkerPoolConfig{
+		Name:           "deletion",
 		NumWorkers:     numWorkers,
 		QueueType:      queue.QueueTypePriority, // Priority queue for deletion urgency
 		QueueCapacity:  50,                      // Smaller capacity for deletion tasks

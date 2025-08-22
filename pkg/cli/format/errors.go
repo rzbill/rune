@@ -709,8 +709,6 @@ func (f *ErrorFormatter) fixMissingField(errStr string, lineNum int, data []byte
 			}
 			break
 		}
-
-		lines = append(lines, line)
 	}
 
 	// Reset for second pass

@@ -15,6 +15,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -208,7 +209,7 @@ func (s *ServiceService) ListServices(ctx context.Context, req *generated.ListSe
 			Message: fmt.Sprintf("Found %d services", len(protoServices)),
 		},
 		Paging: &generated.PagingParams{
-			Limit:  int32(len(protoServices)),
+			Limit:  utils.ToInt32NonNegative(len(protoServices)),
 			Offset: 0,
 		},
 	}, nil
@@ -423,7 +424,7 @@ func (s *ServiceService) validateGlobalDependencyCycles(ctx context.Context, can
 
 	// Run shared cycle detection
 	if errs := types.DetectDependencyCycles(adj); len(errs) > 0 {
-		return fmt.Errorf(errs[0].Error())
+		return errs[0]
 	}
 	return nil
 }
@@ -660,9 +661,9 @@ func (s *ServiceService) deletionOperationToProto(operation *types.DeletionOpera
 		Id:                operation.ID,
 		Namespace:         operation.Namespace,
 		ServiceName:       operation.ServiceName,
-		TotalInstances:    int32(operation.TotalInstances),
-		DeletedInstances:  int32(operation.DeletedInstances),
-		FailedInstances:   int32(operation.FailedInstances),
+		TotalInstances:    utils.ToInt32NonNegative(operation.TotalInstances),
+		DeletedInstances:  utils.ToInt32NonNegative(operation.DeletedInstances),
+		FailedInstances:   utils.ToInt32NonNegative(operation.FailedInstances),
 		StartTime:         operation.StartTime.Unix(),
 		Status:            string(operation.Status),
 		FailureReason:     operation.FailureReason,
@@ -1022,10 +1023,10 @@ func (s *ServiceService) WatchScaling(req *generated.WatchScalingRequest, stream
 
 			// Create and send response
 			response := &generated.ScalingStatusResponse{
-				CurrentScale:     int32(service.Scale),
+				CurrentScale:     utils.ToInt32NonNegative(service.Scale),
 				TargetScale:      targetScale,
-				RunningInstances: int32(runningCount),
-				PendingInstances: int32(pendingCount),
+				RunningInstances: utils.ToInt32NonNegative(runningCount),
+				PendingInstances: utils.ToInt32NonNegative(pendingCount),
 				Complete:         isComplete,
 				Status: &generated.Status{
 					Code:    int32(codes.OK),

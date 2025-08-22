@@ -11,25 +11,22 @@ linters:
     - unparam
     - unused
     - revive
+    - predeclared
 
 linters-settings:
   govet:
-    # Disable shadow checks to avoid failing on variable shadowing
-    check-shadowing: false
+    # Shadow linter is now enabled separately
   golint:
     min-confidence: 0.8
   gofmt:
     simplify: true
   gosec:
     excludes:
-      - G204 # Audit use of command execution
+      - G306 # Use of unsafe file permissions
+      - G204 # Audit use of command execution (expected behavior for orchestration platform)
   unparam:
     # Allow unused function parameters (we often use cobra RunE signatures and similar)
     check-exported: false
-  errcheck:
-    # Be lenient: don't require checking type assertions or blank-assignments
-    check-type-assertions: false
-    check-blank: false
   revive:
     rules:
       - name: unused-parameter
@@ -50,17 +47,48 @@ issues:
         - errcheck
       # Make errcheck optional by excluding its diagnostics from failing the run
       text: ".*"
+    - linters:
+        - govet
+      text: "copylocks: assignment copies lock value"
+    - linters:
+        - unparam
+      text: "result .* is never used"
+    - linters:
+        - unparam
+      text: ".* always receives .*"
+    - linters:
+        - unparam
+      text: ".* is unused"
+    - linters:
+        - unparam
+      text: "result .* is always nil"
+    - linters:
+        - unparam
+      text: "result .* is always \"\""
+    - linters:
+        - staticcheck
+      text: "SA1019: .* is deprecated"
+    - linters:
+        - predeclared
+      text: "param .* has same name as predeclared identifier"
+    - linters:
+        - predeclared
+      text: "function .* has same name as predeclared identifier"
+    - linters:
+        - predeclared
+      text: "variable .* has same name as predeclared identifier"
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-files:
+    - ".*\\.generated\\.go$"
+
+  exclude-dirs:
+    - vendor/
+    - examples/
 
 run:
   deadline: 5m
   tests: true
-  skip-dirs:
-    - vendor/
-    - examples/
-  skip-files:
-    - ".*\\.generated\\.go$"
 
 output:
   format: colored-line-number

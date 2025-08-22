@@ -161,7 +161,7 @@ func (s *InstanceService) ListInstances(ctx context.Context, req *generated.List
 			Message: fmt.Sprintf("Found %d instances", len(protoInstances)),
 		},
 		Paging: &generated.PagingParams{
-			Limit:  int32(len(protoInstances)),
+			Limit:  utils.ToInt32NonNegative(len(protoInstances)),
 			Offset: 0,
 		},
 	}, nil
@@ -379,11 +379,11 @@ func (s *InstanceService) instanceModelToProto(instance *types.Instance) (*gener
 		Ip:            instance.IP,
 		StatusMessage: instance.StatusMessage,
 		ContainerId:   instance.ContainerID,
-		Pid:           int32(instance.PID),
+		Pid:           utils.ToInt32NonNegative(instance.PID),
 		Environment:   instance.Environment,
 		Metadata: &generated.InstanceMetadata{
-			Generation:   int32(instance.Metadata.ServiceGeneration),
-			RestartCount: int32(instance.Metadata.RestartCount),
+			Generation:   utils.ToInt32NonNegative64(instance.Metadata.ServiceGeneration),
+			RestartCount: utils.ToInt32NonNegative(instance.Metadata.RestartCount),
 		},
 		CreatedAt: instance.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: instance.UpdatedAt.Format(time.RFC3339),

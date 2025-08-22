@@ -7,7 +7,7 @@ app:
     FEATURE_FLAGS: beta-search,new-dashboard
 svc:
   expose:
-    portName: {{ values:portName }}
+    portName: http
     host: api.example.local
     hostPort: 8080
 

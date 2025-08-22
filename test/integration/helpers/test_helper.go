@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -310,7 +309,7 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 	}
 
 	// Read fixture directory
-	files, readDirErr := ioutil.ReadDir(h.fixtureDir)
+	files, readDirErr := os.ReadDir(h.fixtureDir)
 	if readDirErr != nil {
 		return readDirErr
 	}
@@ -326,7 +325,7 @@ func (h *TestHelper) loadFixtures(ctx context.Context) error {
 		}
 
 		// Read fixture file
-		data, readFileErr := ioutil.ReadFile(filepath.Join(h.fixtureDir, file.Name()))
+		data, readFileErr := os.ReadFile(filepath.Join(h.fixtureDir, file.Name()))
 		if readFileErr != nil {
 			return readFileErr
 		}

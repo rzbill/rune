@@ -10,6 +10,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner/docker"
 	"github.com/rzbill/rune/pkg/runner/process"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -72,16 +73,16 @@ func getDockerConfig() *docker.DockerConfig {
 
 	// Optional mount permission settings
 	if viper.IsSet("docker.secret_dir_mode") {
-		config.SecretDirMode = os.FileMode(viper.GetInt("docker.secret_dir_mode"))
+		config.SecretDirMode = os.FileMode(utils.ToUint32NonNegative(viper.GetInt("docker.secret_dir_mode")))
 	}
 	if viper.IsSet("docker.secret_file_mode") {
-		config.SecretFileMode = os.FileMode(viper.GetInt("docker.secret_file_mode"))
+		config.SecretFileMode = os.FileMode(utils.ToUint32NonNegative(viper.GetInt("docker.secret_file_mode")))
 	}
 	if viper.IsSet("docker.config_dir_mode") {
-		config.ConfigDirMode = os.FileMode(viper.GetInt("docker.config_dir_mode"))
+		config.ConfigDirMode = os.FileMode(utils.ToUint32NonNegative(viper.GetInt("docker.config_dir_mode")))
 	}
 	if viper.IsSet("docker.config_file_mode") {
-		config.ConfigFileMode = os.FileMode(viper.GetInt("docker.config_file_mode"))
+		config.ConfigFileMode = os.FileMode(utils.ToUint32NonNegative(viper.GetInt("docker.config_file_mode")))
 	}
 
 	// Load registry auth entries from viper if present

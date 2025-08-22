@@ -764,14 +764,6 @@ func extractTimestamp(line []byte) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// min returns the smaller of x or y
-func min(x, y int) int {
-	if x < y {
-		return x
-	}
-	return y
-}
-
 // materializeSecretMounts writes secret files to their target paths.
 // Returns a list of file paths created (best-effort; only files under the
 // runner workDir are later cleaned automatically).
@@ -898,7 +890,7 @@ func (r *ProcessRunner) writeConfigFiles(mount types.ResolvedConfigmapMount) ([]
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			return fmt.Errorf("failed to create parent dirs for %s: %w", dest, err)
 		}
-		if err := os.WriteFile(dest, []byte(value), 0644); err != nil {
+		if err := os.WriteFile(dest, []byte(value), 0o644); err != nil {
 			return fmt.Errorf("failed to write config file %s: %w", dest, err)
 		}
 		created = append(created, dest)

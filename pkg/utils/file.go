@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+const (
+	// maxFileSize is the maximum size for any single file to prevent decompression bombs
+	MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB
+)
+
 // IsDirectory checks if a path is a directory.
 func IsDirectory(path string) bool {
 	info, err := os.Stat(path)
@@ -108,4 +113,26 @@ func ExpandFilePaths(paths []string, recursive bool) ([]string, error) {
 	}
 
 	return expandedPaths, nil
+}
+
+// SafePath safely constructs a target path within a base directory, preventing directory traversal
+func SafePath(baseDir, entryName string) (string, error) {
+	// Clean the entry name to normalize path separators and remove . and ..
+	cleanName := filepath.Clean(entryName)
+
+	// Check for absolute paths or paths starting with ..
+	if filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "..") {
+		return "", fmt.Errorf("unsafe path: %s", entryName)
+	}
+
+	// Join with base directory
+	target := filepath.Join(baseDir, cleanName)
+
+	// Ensure the resulting path is still within the base directory
+	cleanBase := filepath.Clean(baseDir)
+	if !strings.HasPrefix(target, cleanBase+string(os.PathSeparator)) && target != cleanBase {
+		return "", fmt.Errorf("path escapes base directory: %s", entryName)
+	}
+
+	return target, nil
 }

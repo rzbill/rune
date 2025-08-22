@@ -13,6 +13,7 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -113,7 +114,14 @@ func (s *ConfigMapService) ListConfigMaps(ctx context.Context, req *generated.Li
 }
 
 func toProtoConfigMap(c *types.ConfigMap) *generated.ConfigMap {
-	return &generated.ConfigMap{Name: c.Name, Namespace: c.Namespace, Data: c.Data, Version: int32(c.Version), CreatedAt: c.CreatedAt.Format(time.RFC3339), UpdatedAt: c.UpdatedAt.Format(time.RFC3339)}
+	return &generated.ConfigMap{
+		Name:      c.Name,
+		Namespace: c.Namespace,
+		Data:      c.Data,
+		Version:   utils.ToInt32NonNegative(c.Version),
+		CreatedAt: c.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: c.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 // hashConfig returns a deterministic hash for comparing config content

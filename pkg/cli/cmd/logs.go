@@ -14,6 +14,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +37,6 @@ var (
 	logsShowPrefix     bool
 	logsNoColor        bool
 	logsOutputFormat   string
-	logsClientKey      string
 	logsClientAddr     string
 	logsInstanceID     string
 )
@@ -238,7 +238,7 @@ func streamLogs(ctx context.Context, apiClient *client.Client, targetName string
 		ResourceTarget: targetName,
 		Namespace:      options.Namespace,
 		Follow:         options.Follow,
-		Tail:           int32(options.Tail),
+		Tail:           utils.ToInt32NonNegative(options.Tail),
 		Timestamps:     options.ShowTimestamps,
 	}
 

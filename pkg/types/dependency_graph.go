@@ -56,9 +56,7 @@ func DetectDependencyCycles(adj map[string][]string) []error {
 
 	for u := range adj {
 		if color[u] == colorWhite {
-			if dfs(u) {
-				// continue scanning to report additional cycles
-			}
+			dfs(u) // continue scanning to report additional cycles
 		}
 	}
 	return cycleErrs

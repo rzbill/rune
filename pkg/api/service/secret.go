@@ -14,6 +14,7 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -166,8 +167,13 @@ func (b *tokenBucket) Allow() bool {
 
 func toProtoSecret(s *types.Secret) *generated.Secret {
 	return &generated.Secret{
-		Name: s.Name, Namespace: s.Namespace, Type: s.Type, Data: s.Data,
-		Version: int32(s.Version), CreatedAt: s.CreatedAt.Format(time.RFC3339), UpdatedAt: s.UpdatedAt.Format(time.RFC3339),
+		Name:      s.Name,
+		Namespace: s.Namespace,
+		Type:      s.Type,
+		Data:      s.Data,
+		Version:   utils.ToInt32NonNegative(s.Version),
+		CreatedAt: s.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: s.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

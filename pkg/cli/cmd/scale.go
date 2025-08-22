@@ -9,6 +9,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/cli/format"
+	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,6 @@ var (
 	scaleWait         bool
 	scaleNoWait       bool
 	scaleTimeout      time.Duration
-	scaleClientKey    string
 	scaleClientAddr   string
 )
 
@@ -105,15 +105,15 @@ func runScale(cmd *cobra.Command, args []string) error {
 	req := &generated.ScaleServiceRequest{
 		Name:      serviceName,
 		Namespace: scaleNamespace,
-		Scale:     int32(replicas),
+		Scale:     utils.ToInt32NonNegative(replicas),
 	}
 
 	// Handle scaling mode
 	if scaleMode == "gradual" {
 		// Set gradual scaling parameters
 		req.Mode = generated.ScalingMode_SCALING_MODE_GRADUAL
-		req.StepSize = int32(scaleStep)
-		req.IntervalSeconds = int32(scaleInterval.Seconds())
+		req.StepSize = utils.ToInt32NonNegative(scaleStep)
+		req.IntervalSeconds = utils.ToInt32NonNegative(int(scaleInterval.Seconds()))
 
 		fmt.Printf("Gradually scaling service %s from %d to %d instances (step size: %d, interval: %s)\n",
 			format.Highlight(serviceName), currentScale, replicas, scaleStep, scaleInterval)

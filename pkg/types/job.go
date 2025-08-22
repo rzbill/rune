@@ -281,10 +281,11 @@ func (j *JobSpec) Validate() error {
 		return NewValidationError("array job count must be positive")
 	}
 
-	if j.Schedule != "" {
+	// TODO: validate cron expression
+	/*if j.Schedule != "" {
 		// In a real implementation, validate the cron expression
 		// This is a placeholder
-	}
+	}*/
 
 	return nil
 }

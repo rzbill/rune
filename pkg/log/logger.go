@@ -149,6 +149,11 @@ func ContextExtractor(ctx context.Context) Fields {
 		fields[OperationKey] = v
 	}
 
+	// Extract custom field keys (injected by ContextInjector)
+	// We need to scan all context keys to find our custom fieldKeyType keys
+	// This is a limitation of Go's context package - we can't enumerate all keys
+	// For now, we'll rely on the standard keys above and any custom extraction logic
+
 	return fields
 }
 
@@ -159,7 +164,7 @@ func ContextInjector(ctx context.Context, fields Fields) context.Context {
 	}
 
 	for k, v := range fields {
-		ctx = context.WithValue(ctx, k, v)
+		ctx = context.WithValue(ctx, makeFieldKey(k), v)
 	}
 
 	return ctx
@@ -189,6 +194,16 @@ func FromContext(ctx context.Context) Logger {
 type loggerKeyType struct{}
 
 var loggerKey = loggerKeyType{}
+
+// fieldKeyType is the context key type for logging fields to avoid collisions
+type fieldKeyType struct {
+	key string
+}
+
+// makeFieldKey creates a unique context key for a field
+func makeFieldKey(key string) fieldKeyType {
+	return fieldKeyType{key: key}
+}
 
 // WithLogger adds a logger to a context.Context.
 func WithLogger(ctx context.Context, logger Logger) context.Context {

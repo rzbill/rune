@@ -11,6 +11,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 // ApplySecurityContext applies security settings from a ProcessSecurityContext to a command
@@ -91,8 +92,8 @@ func applyUserAndGroup(cmd *exec.Cmd, username, groupname string) error {
 	// This is OS-specific, for Unix-like systems
 	if runtime.GOOS != "windows" {
 		cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid: uint32(uid),
-			Gid: uint32(gid),
+			Uid: utils.ToUint32NonNegative(uid),
+			Gid: utils.ToUint32NonNegative(gid),
 		}
 	} else {
 		return fmt.Errorf("user/group switching not supported on Windows")

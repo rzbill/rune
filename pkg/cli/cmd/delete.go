@@ -322,11 +322,6 @@ func runDelete(ctx context.Context, serviceName string, opts *deleteOptions) err
 	// Create service client
 	serviceClient := client.NewServiceClient(apiClient)
 
-	// Handle detach mode
-	if opts.detach {
-		// Detach mode: start deletion and return immediately
-	}
-
 	// Use grace period if specified
 	if opts.gracePeriod > 0 {
 		opts.timeoutSeconds = opts.gracePeriod

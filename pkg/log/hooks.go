@@ -3,6 +3,8 @@ package log
 import (
 	"strings"
 	"sync"
+
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 // RedactionHook redacts sensitive values from log entries.
@@ -96,8 +98,8 @@ func NewSamplingHook(initial, thereafter int) *SamplingHook {
 
 	return &SamplingHook{
 		counters:   make(map[string]uint64),
-		initial:    uint64(initial),
-		thereafter: uint64(thereafter),
+		initial:    utils.ToUint64NonNegative(initial),
+		thereafter: utils.ToUint64NonNegative(thereafter),
 	}
 }
 

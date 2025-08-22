@@ -10,12 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/runner"
@@ -529,37 +527,6 @@ func newTimestampFilteredReader(reader io.ReadCloser, since, until time.Time) io
 	}()
 
 	return pipeReader
-}
-
-// buildLogOptionsForTest converts runner.LogOptions to Docker container log options
-// Used only for testing the conversion logic
-func buildLogOptionsForTest(options runner.LogOptions) container.LogsOptions {
-	// Convert time fields to strings
-	var since, until string
-	if !options.Since.IsZero() {
-		since = options.Since.Format(time.RFC3339)
-	}
-	if !options.Until.IsZero() {
-		until = options.Until.Format(time.RFC3339)
-	}
-
-	// Convert tail option to string
-	var tail string
-	if options.Tail <= 0 {
-		tail = "all"
-	} else {
-		tail = strconv.Itoa(options.Tail)
-	}
-
-	return container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     options.Follow,
-		Timestamps: options.Timestamps,
-		Since:      since,
-		Until:      until,
-		Tail:       tail,
-	}
 }
 
 // TestTimestampConversion tests the conversion of runner LogOptions times to Docker-compatible timestamp strings

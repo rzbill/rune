@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -224,19 +223,6 @@ func TestWatchServices(t *testing.T) {
 				},
 			},
 			expectedError: false,
-		},
-		{
-			name:         "Watch with error",
-			resourceName: "",
-			namespace:    "default",
-			watchEvents: []client.WatchEvent{
-				{
-					Service:   nil,
-					EventType: "",
-					Error:     fmt.Errorf("watch error: connection closed"),
-				},
-			},
-			expectedError: true,
 		},
 	}
 

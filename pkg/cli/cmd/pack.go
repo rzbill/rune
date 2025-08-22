@@ -110,5 +110,5 @@ func writeSHA256(path string) error {
 		return err
 	}
 	sum := fmt.Sprintf("%x", h.Sum(nil))
-	return os.WriteFile(path+".sha256", []byte(sum+"  "+filepath.Base(path)+"\n"), 0644)
+	return os.WriteFile(path+".sha256", []byte(sum+"  "+filepath.Base(path)+"\n"), 0o600)
 }

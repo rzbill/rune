@@ -13,6 +13,7 @@ import (
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 // HealthController monitors instance health
@@ -86,7 +87,6 @@ type instanceHealth struct {
 	consecutiveFailures int
 	healthRestartCount  int // Separate count for health check restarts (backoff calculation)
 	lastRestartTime     time.Time
-	instanceController  InstanceController
 }
 
 // NewHealthController creates a new health controller
@@ -525,7 +525,7 @@ func (c *healthController) restartInstanceWithBackoff(instanceID string, ih *ins
 
 	// Calculate the backoff duration based on health restart count
 	// Base backoff is 10 seconds, doubles each restart up to a max of 5 minutes
-	backoff := 10 * time.Second * time.Duration(1<<uint(ih.healthRestartCount))
+	backoff := 10 * time.Second * time.Duration(1<<utils.ToUintNonNegative(ih.healthRestartCount))
 	maxBackoff := 5 * time.Minute
 	if backoff > maxBackoff {
 		backoff = maxBackoff

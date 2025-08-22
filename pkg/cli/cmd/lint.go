@@ -3,7 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -88,7 +88,7 @@ func runLintCmd(cmd *cobra.Command, args []string) error {
 
 	for _, filePath := range filesToLint {
 		// Read file contents for context-aware formatting
-		data, readErr := ioutil.ReadFile(filePath)
+		data, readErr := os.ReadFile(filePath)
 		if readErr != nil {
 			if lintOutputFormat == "text" {
 				fmt.Printf("%s %s\n", format.StatusSymbol(false), filePath)
@@ -212,11 +212,11 @@ func lintFile(filePath string, data []byte) (*format.ErrorFormatter, int) {
 		anyFixed := false
 		for _, valErr := range formatter.Errors {
 			if fixed, newData := formatter.TryAutoFix(valErr.Message, valErr.LineNumber); fixed {
-				if werr := ioutil.WriteFile(filePath, newData, 0o644); werr == nil {
+				if wErr := os.WriteFile(filePath, newData, 0o600); wErr == nil {
 					anyFixed = true
 					totalFixes++
 					formatter.FixCount++
-					data = newData
+					//data = newData
 					formatter.FileData = newData
 				}
 			}

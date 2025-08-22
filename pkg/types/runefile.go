@@ -2,7 +2,7 @@ package types
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
@@ -137,7 +137,7 @@ type PluginConfig struct {
 
 // ParseRuneFile parses a Rune configuration file from the given file path
 func ParseRuneFile(filePath string) (*RuneFile, error) {
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -507,7 +507,7 @@ func (rf *RuneFile) GetLineInfo(key string) (int, bool) {
 
 // IsRuneConfigFile checks if a file appears to be a Rune configuration file
 func IsRuneConfigFile(filePath string) (bool, error) {
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return false, err
 	}

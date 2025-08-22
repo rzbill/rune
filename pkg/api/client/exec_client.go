@@ -12,6 +12,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
+	"github.com/rzbill/rune/pkg/utils"
 	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 )
@@ -263,8 +264,8 @@ func (s *ExecSession) RunInteractive() error {
 					req := &generated.ExecRequest{
 						Request: &generated.ExecRequest_Resize{
 							Resize: &generated.TerminalSize{
-								Width:  uint32(width),
-								Height: uint32(height),
+								Width:  utils.ToUint32NonNegative(width),
+								Height: utils.ToUint32NonNegative(height),
 							},
 						},
 					}

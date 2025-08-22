@@ -39,6 +39,20 @@ func ToUint32NonNegative(n int) uint32 {
 	return uint32(n)
 }
 
+func ToUint64NonNegative(n int) uint64 {
+	if n < 0 {
+		return 0
+	}
+	return uint64(n)
+}
+
+func ToUintNonNegative(n int) uint {
+	if n < 0 {
+		return 0
+	}
+	return uint(n)
+}
+
 func MapToPretty(v interface{}) string {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {

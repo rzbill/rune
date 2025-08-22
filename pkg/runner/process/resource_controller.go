@@ -102,7 +102,7 @@ func (c *resourceController) applyCPULimit(cpuLimit string) error {
 	quota := int(cpuValue * float64(period))
 	value := fmt.Sprintf("%d %d", quota, period)
 
-	if err := os.WriteFile(cpuMaxPath, []byte(value), 0644); err != nil {
+	if err := os.WriteFile(cpuMaxPath, []byte(value), 0o600); err != nil {
 		return fmt.Errorf("failed to write CPU limit: %w", err)
 	}
 
@@ -121,7 +121,7 @@ func (c *resourceController) applyMemoryLimit(memoryLimit string) error {
 	memoryMaxPath := filepath.Join(c.cgroupPath, "memory.max")
 
 	// Write the memory limit in bytes
-	if err := os.WriteFile(memoryMaxPath, []byte(strconv.FormatInt(memoryBytes, 10)), 0644); err != nil {
+	if err := os.WriteFile(memoryMaxPath, []byte(strconv.FormatInt(memoryBytes, 10)), 0o600); err != nil {
 		return fmt.Errorf("failed to write memory limit: %w", err)
 	}
 
@@ -134,7 +134,7 @@ func (c *resourceController) addProcess() error {
 	procsPath := filepath.Join(c.cgroupPath, "cgroup.procs")
 
 	// Write the PID
-	if err := os.WriteFile(procsPath, []byte(strconv.Itoa(c.pid)), 0644); err != nil {
+	if err := os.WriteFile(procsPath, []byte(strconv.Itoa(c.pid)), 0o600); err != nil {
 		return fmt.Errorf("failed to add process to cgroup: %w", err)
 	}
 

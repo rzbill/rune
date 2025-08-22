@@ -16,7 +16,6 @@ var (
 	stopWait       bool
 	stopNoWait     bool
 	stopTimeout    time.Duration
-	stopClientKey  string
 	stopClientAddr string
 )
 
