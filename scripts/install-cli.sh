@@ -97,7 +97,7 @@ install_from_source() {
   fi
   
   if ! command -v git >/dev/null 2>&1; then
-    die "Git is required to build from source. Please install git first"
+    install_git
   fi
   
   log "Building Rune CLI from source"
@@ -163,6 +163,39 @@ install_go() {
   
   log "Go ${version} installed successfully"
   rm -rf "$tmp"
+}
+
+install_git() {
+  log "Installing Git"
+  
+  if [ "$(id -u)" -eq 0 ]; then
+    # Detect OS and install Git
+    if command -v apt-get >/dev/null 2>&1; then
+      # Debian/Ubuntu
+      apt-get update -y
+      apt-get install -y git
+    elif command -v yum >/dev/null 2>&1; then
+      # RHEL/CentOS/Amazon Linux
+      yum install -y git
+    elif command -v dnf >/dev/null 2>&1; then
+      # Fedora/RHEL 8+
+      dnf install -y git
+    elif command -v brew >/dev/null 2>&1; then
+      # macOS with Homebrew
+      brew install git
+    else
+      die "Could not detect package manager. Please install Git manually and try again"
+    fi
+  else
+    die "Git installation requires root privileges. Please install Git manually or run with sudo"
+  fi
+  
+  # Verify installation
+  if ! command -v git >/dev/null 2>&1; then
+    die "Git installation failed"
+  fi
+  
+  log "Git installed successfully"
 }
 
 verify_installation() {
