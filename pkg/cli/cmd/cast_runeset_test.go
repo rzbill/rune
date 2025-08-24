@@ -36,25 +36,16 @@ func TestRuneset_RenderOnly_ExampleApp(t *testing.T) {
 	root := filepath.Join(cwd, "../../../examples/runesets/example-app")
 	vals := filepath.Join(root, "values/values.yaml")
 
-	oldValuesFiles := valuesFilesArg
-	oldRender := renderOnlyArg
-	oldDry := dryRunArg
-	oldNS := namespaceArg
-	defer func() {
-		valuesFilesArg = oldValuesFiles
-		renderOnlyArg = oldRender
-		dryRunArg = oldDry
-		namespaceArg = oldNS
-	}()
-
-	valuesFilesArg = []string{vals}
-	renderOnlyArg = true
-	dryRunArg = false
-	namespaceArg = "demo"
+	opts := &castOptions{
+		valuesFiles: []string{vals},
+		renderOnly:  true,
+		dryRun:      false,
+		namespace:   "demo",
+	}
 
 	// Act
 	out := captureOutput(func() {
-		_ = runRunesetCast(nil, root)
+		_ = runRunesetCast(root, opts)
 	})
 
 	// Assert (spot-check key expansions and includes)
@@ -71,25 +62,16 @@ func TestRuneset_DryRun_ExampleApp(t *testing.T) {
 	root := filepath.Join(cwd, "../../../examples/runesets/example-app")
 	vals := filepath.Join(root, "values/values.yaml")
 
-	oldValuesFiles := valuesFilesArg
-	oldRender := renderOnlyArg
-	oldDry := dryRunArg
-	oldNS := namespaceArg
-	defer func() {
-		valuesFilesArg = oldValuesFiles
-		renderOnlyArg = oldRender
-		dryRunArg = oldDry
-		namespaceArg = oldNS
-	}()
-
-	valuesFilesArg = []string{vals}
-	renderOnlyArg = false
-	dryRunArg = true
-	namespaceArg = "demo"
+	opts := &castOptions{
+		valuesFiles: []string{vals},
+		renderOnly:  false,
+		dryRun:      true,
+		namespace:   "demo",
+	}
 
 	// Act
 	out := captureOutput(func() {
-		err := runRunesetCast(nil, root)
+		err := runRunesetCast(root, opts)
 		fmt.Println(err)
 		require.NoError(t, err)
 	})
@@ -118,14 +100,13 @@ func TestRuneset_ArchiveRoundTrip_Render(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	oldValuesFiles := valuesFilesArg
-	oldRender := renderOnlyArg
-	valuesFilesArg = []string{filepath.Join(tmpDir, "values", "values.yaml")}
-	renderOnlyArg = true
-	defer func() { valuesFilesArg = oldValuesFiles; renderOnlyArg = oldRender }()
+	opts := &castOptions{
+		valuesFiles: []string{filepath.Join(tmpDir, "values", "values.yaml")},
+		renderOnly:  true,
+	}
 
 	out := captureOutput(func() {
-		_ = runRunesetCast(nil, tmpDir)
+		_ = runRunesetCast(tmpDir, opts)
 	})
 	require.Contains(t, out, "name: \"x\"")
 	require.Contains(t, out, "image: \"nginx:latest\"")

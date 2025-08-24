@@ -20,7 +20,7 @@ func TestRBACUnaryInterceptor(t *testing.T) {
 	_ = st.Open("")
 	_ = SeedBuiltinPolicies(ctx, st)
 	// subject used in test
-	u := &types.User{Namespace: "system", Name: "sub", ID: "sub", Policies: []string{"root"}}
+	u := &types.User{Name: "sub", ID: "sub", Policies: []string{"root"}}
 	_ = st.Create(ctx, types.ResourceTypeUser, "system", "sub", u)
 
 	s, err := New(WithAuth(nil), WithStore(st))
@@ -58,7 +58,7 @@ func TestRBACStreamInterceptor(t *testing.T) {
 	st := store.NewTestStore()
 	_ = st.Open("")
 	_ = SeedBuiltinPolicies(ctx, st)
-	u := &types.User{Namespace: "system", Name: "sub", ID: "sub", Policies: []string{"root"}}
+	u := &types.User{Name: "sub", ID: "sub", Policies: []string{"root"}}
 	_ = st.Create(ctx, types.ResourceTypeUser, "system", "sub", u)
 
 	s, err := New(WithAuth(nil), WithStore(st))

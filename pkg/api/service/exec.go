@@ -34,7 +34,7 @@ func NewExecService(logger log.Logger, orchestrator orchestrator.Orchestrator) *
 
 // getTargetInstance resolves an instance from an init request, handling both service-based and instance-based targeting
 func (s *ExecService) getTargetInstance(ctx context.Context, initReq *generated.ExecInitRequest) (*types.Instance, error) {
-	namespace := types.EnsureNamespace(initReq.Namespace)
+	namespace := types.NS(initReq.Namespace)
 
 	if initReq.GetServiceName() != "" {
 		s.logger.Debug("Getting instance from service", log.Str("service", initReq.GetServiceName()))
@@ -192,7 +192,7 @@ func (s *ExecService) createExecOptions(initReq *generated.ExecInitRequest) type
 
 // createExecStream creates the exec stream based on the target type
 func (s *ExecService) createExecStream(ctx context.Context, initReq *generated.ExecInitRequest, instance *types.Instance, execOptions types.ExecOptions) (types.ExecStream, error) {
-	namespace := types.EnsureNamespace(initReq.Namespace)
+	namespace := types.NS(initReq.Namespace)
 
 	if initReq.GetServiceName() != "" {
 		// Target is a service - use ExecInService

@@ -21,11 +21,16 @@ import (
 type ConfigMapService struct {
 	generated.UnimplementedConfigMapServiceServer
 	repo   *repos.ConfigRepo
+	nsRepo *repos.NamespaceRepo
 	logger log.Logger
 }
 
 func NewConfigMapService(coreStore store.Store, logger log.Logger) *ConfigMapService {
-	return &ConfigMapService{repo: repos.NewConfigRepo(coreStore), logger: logger}
+	return &ConfigMapService{
+		repo:   repos.NewConfigRepo(coreStore),
+		nsRepo: repos.NewNamespaceRepo(coreStore),
+		logger: logger,
+	}
 }
 
 func (s *ConfigMapService) CreateConfigMap(ctx context.Context, req *generated.CreateConfigMapRequest) (*generated.ConfigMapResponse, error) {
@@ -33,14 +38,22 @@ func (s *ConfigMapService) CreateConfigMap(ctx context.Context, req *generated.C
 		return nil, status.Error(codes.InvalidArgument, "config map is required")
 	}
 	now := time.Now()
-	c := &types.ConfigMap{Name: req.ConfigMap.Name, Namespace: ns(req.ConfigMap.Namespace), Data: req.ConfigMap.Data, Version: 1, CreatedAt: now, UpdatedAt: now}
+
+	namespace := types.NS(req.ConfigMap.Namespace)
+	err := ensureNamespaceExists(ctx, s.nsRepo, namespace, req.EnsureNamespace)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to ensure namespace exists: %v", err)
+	}
+
+	c := &types.ConfigMap{Name: req.ConfigMap.Name, Namespace: namespace, Data: req.ConfigMap.Data, Version: 1, CreatedAt: now, UpdatedAt: now}
+
 	ref := types.FormatRef(types.ResourceTypeConfigMap, c.Namespace, c.Name)
 	if err := s.repo.Create(ctx, ref, c); err != nil {
 		// If already exists, fall back to update path
 		if store.IsAlreadyExistsError(err) {
 			s.logger.Info("Config already exists, updating instead",
 				log.Str("name", req.ConfigMap.Name),
-				log.Str("namespace", ns(req.ConfigMap.Namespace)))
+				log.Str("namespace", namespace))
 			return s.UpdateConfigMap(ctx, &generated.UpdateConfigMapRequest{ConfigMap: req.ConfigMap})
 		}
 		return nil, status.Errorf(codes.Internal, "create: %v", err)
@@ -49,8 +62,7 @@ func (s *ConfigMapService) CreateConfigMap(ctx context.Context, req *generated.C
 }
 
 func (s *ConfigMapService) GetConfigMap(ctx context.Context, req *generated.GetConfigMapRequest) (*generated.ConfigMapResponse, error) {
-	ref := types.FormatRef(types.ResourceTypeConfigMap, ns(req.Namespace), req.Name)
-	c, err := s.repo.Get(ctx, ref)
+	c, err := s.repo.Get(ctx, types.NS(req.Namespace), req.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "get: %v", err)
 	}
@@ -61,11 +73,10 @@ func (s *ConfigMapService) UpdateConfigMap(ctx context.Context, req *generated.U
 	if req.ConfigMap == nil {
 		return nil, status.Error(codes.InvalidArgument, "config map is required")
 	}
-	namespace := ns(req.ConfigMap.Namespace)
-	ref := types.FormatRef(types.ResourceTypeConfigMap, namespace, req.ConfigMap.Name)
+	namespace := types.NS(req.ConfigMap.Namespace)
 
 	// Fetch current; if missing, return NotFound
-	current, err := s.repo.Get(ctx, ref)
+	current, err := s.repo.Get(ctx, namespace, req.ConfigMap.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "config not found: %s/%s", namespace, req.ConfigMap.Name)
 	}
@@ -85,16 +96,15 @@ func (s *ConfigMapService) UpdateConfigMap(ctx context.Context, req *generated.U
 		log.Str("name", desired.Name), log.Str("namespace", desired.Namespace),
 		log.Str("old_hash", oldHash[:8]), log.Str("new_hash", newHash[:8]))
 
-	if err := s.repo.Update(ctx, ref, desired, store.WithSource(store.EventSourceAPI)); err != nil {
+	if err := s.repo.Update(ctx, namespace, req.ConfigMap.Name, desired, store.WithSource(store.EventSourceAPI)); err != nil {
 		return nil, status.Errorf(codes.Internal, "update: %v", err)
 	}
-	got, _ := s.repo.Get(ctx, ref)
+	got, _ := s.repo.Get(ctx, namespace, req.ConfigMap.Name)
 	return &generated.ConfigMapResponse{ConfigMap: toProtoConfigMap(got), Status: &generated.Status{Code: int32(codes.OK)}}, nil
 }
 
 func (s *ConfigMapService) DeleteConfigMap(ctx context.Context, req *generated.DeleteConfigMapRequest) (*generated.Status, error) {
-	ref := types.FormatRef(types.ResourceTypeConfigMap, ns(req.Namespace), req.Name)
-	if err := s.repo.Delete(ctx, ref); err != nil {
+	if err := s.repo.Delete(ctx, req.Namespace, req.Name); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete: %v", err)
 	}
 	return &generated.Status{Code: int32(codes.OK)}, nil
@@ -102,7 +112,7 @@ func (s *ConfigMapService) DeleteConfigMap(ctx context.Context, req *generated.D
 
 func (s *ConfigMapService) ListConfigMaps(ctx context.Context, req *generated.ListConfigMapsRequest) (*generated.ListConfigMapsResponse, error) {
 	// BaseRepo exposes List; ConfigMapRepo does not add a wrapper, so call through base
-	configs, err := s.repo.List(ctx, ns(req.Namespace))
+	configs, err := s.repo.List(ctx, types.NS(req.Namespace))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list: %v", err)
 	}

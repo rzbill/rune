@@ -11,6 +11,7 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 // AuthService implements generated.AuthServiceServer
@@ -58,22 +59,26 @@ func (s *AuthService) CreateToken(ctx context.Context, req *generated.CreateToke
 		return nil, fmt.Errorf("invalid subject-type: %s (only 'user' supported)", subjectType)
 	}
 
-	// Resolve subject name: prefer SubjectId (treated as user name), else use token Name
-	subjectName := req.SubjectId
-	if subjectName == "" {
-		subjectName = req.Name
-	}
-	if subjectName == "" {
-		return nil, fmt.Errorf("either subject_id or name must be provided to derive subject")
+	// Resolve identifier for subject: prefer SubjectId, else use subject name or token name
+	nameOrID := utils.PickNonEmpty(req.SubjectId, req.SubjectName, req.Name)
+	if nameOrID == "" {
+		return nil, fmt.Errorf("either subject_name or subject_id must be provided to derive subject")
 	}
 
 	// Ensure user exists (create if missing); attach default policies on auto-create
-	u, err := s.userRepo.Get(ctx, "system", subjectName)
-	if err != nil {
-		u = &types.User{Namespace: "system", Name: subjectName}
-		if err := s.userRepo.Create(ctx, u); err != nil {
+	u, err := s.userRepo.GetByNameOrID(ctx, nameOrID)
+	if store.IsNotFoundError(err) {
+		// Resolve subject name: prefer SubjectId (treated as user name), else use token Name
+		subjectName := utils.PickNonEmpty(req.SubjectName, req.Name)
+		if subjectName == "" {
+			return nil, fmt.Errorf("either subject_name or name must be provided to create subject")
+		}
+		createdUser, err := s.userRepo.Create(ctx, &types.User{Name: subjectName})
+		if err != nil {
 			return nil, err
 		}
+		// set newly created user to u
+		u = createdUser
 		// Attach provided policies; fallback to readonly if none provided
 		attached := false
 		if len(req.Policies) > 0 {
@@ -94,21 +99,16 @@ func (s *AuthService) CreateToken(ctx context.Context, req *generated.CreateToke
 		}
 	}
 
-	subjectID := u.ID
-	if subjectID == "" {
-		subjectID = u.Name
-	}
-
 	// Issue token
-	tok, secret, err := s.tokenRepo.Issue(ctx, "system", req.Name, subjectID, subjectType, req.Description, time.Duration(req.TtlSeconds)*time.Second)
+	tok, secret, err := s.tokenRepo.Issue(ctx, req.Name, u.ID, subjectType, req.Description, time.Duration(req.TtlSeconds)*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	return &generated.CreateTokenResponse{Id: tok.ID, Name: tok.Name, Namespace: tok.Namespace, Secret: secret}, nil
+	return &generated.CreateTokenResponse{Id: tok.ID, Name: tok.Name, Secret: secret}, nil
 }
 
 func (s *AuthService) RevokeToken(ctx context.Context, req *generated.RevokeTokenRequest) (*generated.RevokeTokenResponse, error) {
-	if err := s.tokenRepo.Revoke(ctx, req.Namespace, req.Name); err != nil {
+	if err := s.tokenRepo.Revoke(ctx, req.Id); err != nil {
 		return nil, err
 	}
 	return &generated.RevokeTokenResponse{Revoked: true}, nil

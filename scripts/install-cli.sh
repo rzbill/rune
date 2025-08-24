@@ -92,10 +92,8 @@ install_from_release() {
 }
 
 install_from_source() {
-  local goversion=1.22.5
-  
   if ! command -v go >/dev/null 2>&1; then
-    die "Go is required to build from source. Please install Go ${goversion}+ first"
+    install_go
   fi
   
   if ! command -v git >/dev/null 2>&1; then
@@ -123,6 +121,48 @@ install_from_source() {
   
   rm -rf "$src"
   log "Built and installed rune CLI to $INSTALL_DIR/rune"
+}
+
+install_go() {
+  local version="1.22.5"
+  local arch os tmp
+  
+  log "Installing Go ${version}"
+  
+  arch=$(arch_normalize)
+  os=$(os_normalize)
+  tmp=$(mktemp -d)
+  
+  # Download Go
+  local url="https://go.dev/dl/go${version}.${os}-${arch}.tar.gz"
+  log "Downloading Go ${version} from $url"
+  
+  if ! curl -fsSL -o "$tmp/go.tgz" "$url"; then
+    # Fallback to amd64 if specific arch fails
+    url="https://go.dev/dl/go${version}.${os}-amd64.tar.gz"
+    log "Falling back to amd64: $url"
+    if ! curl -fsSL -o "$tmp/go.tgz" "$url"; then
+      die "Failed to download Go ${version}"
+    fi
+  fi
+  
+  # Extract to /usr/local
+  if [ "$(id -u)" -eq 0 ]; then
+    rm -rf /usr/local/go && tar -C /usr/local -xzf "$tmp/go.tgz"
+  else
+    die "Go installation requires root privileges. Please install Go ${version}+ manually or run with sudo"
+  fi
+  
+  # Add Go to PATH for current session
+  export PATH="/usr/local/go/bin:$PATH"
+  
+  # Verify installation
+  if ! /usr/local/go/bin/go version >/dev/null 2>&1; then
+    die "Go installation failed"
+  fi
+  
+  log "Go ${version} installed successfully"
+  rm -rf "$tmp"
 }
 
 verify_installation() {

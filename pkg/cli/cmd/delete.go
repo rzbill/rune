@@ -270,7 +270,8 @@ Examples:
 
 // statusOptions holds the options for the status subcommand
 type statusOptions struct {
-	output string
+	namespace string
+	output    string
 }
 
 // newDeleteStatusCmd creates the status subcommand
@@ -301,6 +302,7 @@ Examples:
 
 	// Add flags
 	cmd.PersistentFlags().StringVarP(&opts.output, "output", "o", "text", "Output format (text, json, yaml)")
+	cmd.PersistentFlags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace of the target")
 
 	return cmd
 }
@@ -565,7 +567,7 @@ func handleTextOutput(ctx context.Context, serviceClient *client.ServiceClient, 
 	}
 
 	// Default behavior: monitor progress in real-time
-	return monitorDeletion(ctx, serviceClient, namespaceArg, resp.DeletionID)
+	return monitorDeletion(ctx, serviceClient, opts.namespace, resp.DeletionID)
 }
 
 // monitorDeletion monitors the deletion progress using service watcher
@@ -749,7 +751,7 @@ func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions
 
 	// Create the status request
 	statusReq := &generated.GetDeletionStatusRequest{
-		Namespace: namespaceArg,
+		Namespace: opts.namespace,
 		Name:      deletionID,
 	}
 

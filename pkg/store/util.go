@@ -106,5 +106,8 @@ func IsAlreadyExistsError(err error) bool {
 
 // IsNotFoundError checks if an error is a not found error.
 func IsNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
 	return strings.Contains(err.Error(), "not found")
 }

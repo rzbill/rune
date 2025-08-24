@@ -263,7 +263,7 @@ func (t *ResourceTable) RenderNamespaces(namespaces []*types.Namespace) error {
 
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
-		t.Headers = []string{"NAME", "DESCRIPTION", "AGE", "LABELS"}
+		t.Headers = []string{"NAME", "AGE", "LABELS"}
 	}
 
 	// Create rows
@@ -286,7 +286,6 @@ func (t *ResourceTable) RenderNamespaces(namespaces []*types.Namespace) error {
 
 		row := []string{
 			namespace.Name,
-			namespace.Description,
 			age,
 			labels,
 		}

@@ -37,12 +37,13 @@ func (s *ServiceClient) GetLogger() log.Logger {
 }
 
 // CreateService creates a new service on the API server.
-func (s *ServiceClient) CreateService(service *types.Service) error {
+func (s *ServiceClient) CreateService(service *types.Service, ensureNamespace bool) error {
 	s.logger.Debug("Creating service", log.Str("name", service.Name), log.Str("namespace", service.Namespace))
 
 	// Create the gRPC request
 	req := &generated.CreateServiceRequest{
-		Service: ServiceToProto(service),
+		Service:         ServiceToProto(service),
+		EnsureNamespace: ensureNamespace,
 	}
 
 	// Send the request to the API server

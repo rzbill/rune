@@ -140,3 +140,41 @@ func ParseTimestamp(timestampStr string) (*time.Time, error) {
 	}
 	return nil, nil
 }
+
+func PickNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// ValidateDNS1123Name validates the a name according to DNS-1123 rules
+func ValidateDNS1123Name(name string) error {
+	// Check length (1-63 characters)
+	if len(name) < 1 || len(name) > 63 {
+		return fmt.Errorf("namespace name must be between 1 and 63 characters")
+	}
+
+	// Check if starts or ends with hyphen
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return fmt.Errorf("namespace name cannot start or end with a hyphen")
+	}
+
+	// Check characters (only lowercase letters, digits, and hyphens)
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return fmt.Errorf("namespace name can only contain lowercase letters, digits, and hyphens")
+		}
+	}
+
+	// Check for consecutive hyphens
+	for i := 1; i < len(name); i++ {
+		if name[i] == '-' && name[i-1] == '-' {
+			return fmt.Errorf("namespace name cannot contain consecutive hyphens")
+		}
+	}
+
+	return nil
+}

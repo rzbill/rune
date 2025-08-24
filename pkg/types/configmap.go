@@ -7,7 +7,7 @@ type ConfigMap struct {
 	// Unique identifier for the config
 	ID string `json:"id" yaml:"id"`
 
-	// Human-readable name for the config
+	// Human-readable name for the config (DNS-1123 unique name within a namespace)
 	Name string `json:"name" yaml:"name"`
 
 	// Namespace the config belongs to

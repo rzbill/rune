@@ -899,13 +899,13 @@ func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.
 	for _, src := range service.EnvFrom {
 		var data map[string]string
 		if src.SecretName != "" {
-			sec, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, src.Namespace, src.SecretName))
+			sec, err := c.secretRepo.Get(ctx, src.Namespace, src.SecretName)
 			if err != nil {
 				return nil, fmt.Errorf("envFrom secret %s.%s: %w", src.Namespace, src.SecretName, err)
 			}
 			data = sec.Data
 		} else if src.ConfigmapName != "" {
-			cfg, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, src.Namespace, src.ConfigmapName))
+			cfg, err := c.configRepo.Get(ctx, src.Namespace, src.ConfigmapName)
 			if err != nil {
 				return nil, fmt.Errorf("envFrom configMap %s.%s: %w", src.Namespace, src.ConfigmapName, err)
 			}
@@ -1050,7 +1050,7 @@ func (c *instanceController) resolveTemplateVariable(ctx context.Context, templa
 
 // resolveSecretValue fetches and extracts a value from a secret
 func (c *instanceController) resolveSecretValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
-	sec, err := c.secretRepo.Get(ctx, resourceRef.ToFetchRef())
+	sec, err := c.secretRepo.Get(ctx, resourceRef.Namespace, resourceRef.Name)
 	if err != nil {
 		return "", fmt.Errorf("get secret %s.%s: %w", resourceRef.Namespace, resourceRef.Name, err)
 	}
@@ -1066,7 +1066,7 @@ func (c *instanceController) resolveSecretValue(ctx context.Context, resourceRef
 
 // resolveConfigMapValue fetches and extracts a value from a configmap
 func (c *instanceController) resolveConfigMapValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
-	cfg, err := c.configRepo.Get(ctx, resourceRef.ToFetchRef())
+	cfg, err := c.configRepo.Get(ctx, resourceRef.Namespace, resourceRef.Name)
 	if err != nil {
 		return "", fmt.Errorf("get configmap %s.%s: %w", resourceRef.Namespace, resourceRef.Name, err)
 	}
@@ -1098,7 +1098,7 @@ func (c *instanceController) resolveMounts(ctx context.Context, service *types.S
 				secretName = mount.Name
 			}
 			// Get the secret from the store
-			secret, err := c.secretRepo.Get(ctx, types.FormatRef(types.ResourceTypeSecret, service.Namespace, secretName))
+			secret, err := c.secretRepo.Get(ctx, service.Namespace, secretName)
 			if err != nil {
 				return fmt.Errorf("failed to get secret %s for mount %s: %w", secretName, mount.Name, err)
 			}
@@ -1126,7 +1126,7 @@ func (c *instanceController) resolveMounts(ctx context.Context, service *types.S
 				configName = mount.Name
 			}
 			// Get the config from the store
-			config, err := c.configRepo.Get(ctx, types.FormatRef(types.ResourceTypeConfigMap, service.Namespace, configName))
+			config, err := c.configRepo.Get(ctx, service.Namespace, configName)
 			if err != nil {
 				return fmt.Errorf("failed to get config %s for mount %s: %w", configName, mount.Name, err)
 			}

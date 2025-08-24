@@ -10,6 +10,7 @@ import (
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 // AdminService implements generated.AdminServiceServer
@@ -32,12 +33,13 @@ func NewAdminService(st store.Store, logger log.Logger) *AdminService {
 func (s *AdminService) AdminBootstrap(ctx context.Context, _ *generated.AdminBootstrapRequest) (*generated.AdminBootstrapResponse, error) {
 	// Ensure root user exists; create if missing
 	ur := repos.NewUserRepo(s.st)
-	root, err := ur.Get(ctx, "system", "root")
-	if err != nil {
-		root = &types.User{Namespace: "system", Name: "root"}
-		if err := ur.Create(ctx, root); err != nil {
+	root, err := ur.GetByName(ctx, "root")
+	if store.IsNotFoundError(err) {
+		createdRoot, err := ur.Create(ctx, &types.User{Name: "root"})
+		if err != nil {
 			return nil, err
 		}
+		root = createdRoot
 	}
 
 	// Ensure root policy attached to root user
@@ -47,12 +49,7 @@ func (s *AdminService) AdminBootstrap(ctx context.Context, _ *generated.AdminBoo
 	// Issue root token with unique name
 	tr := repos.NewTokenRepo(s.st)
 	name := fmt.Sprintf("bootstrap-admin-%d", time.Now().UnixNano())
-	// Bind subject to user ID if present; otherwise fall back to user name
-	subject := root.ID
-	if subject == "" {
-		subject = root.Name
-	}
-	tok, secret, err := tr.Issue(ctx, "system", name, subject, "user", "bootstrap-admin", 0)
+	tok, secret, err := tr.Issue(ctx, name, root.ID, "user", "bootstrap-admin", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +70,7 @@ func (s *AdminService) ensureUserHasPolicy(ctx context.Context, ur *repos.UserRe
 // PolicyCreate creates or updates a policy
 func (s *AdminService) PolicyCreate(ctx context.Context, req *generated.PolicyCreateRequest) (*generated.PolicyCreateResponse, error) {
 	pr := repos.NewPolicyRepo(s.st)
-	p := &types.Policy{Namespace: "system", Name: req.Policy.Name, Description: req.Policy.Description, Builtin: false}
+	p := &types.Policy{Name: req.Policy.Name, Description: req.Policy.Description, Builtin: false}
 	for _, r := range req.Policy.Rules {
 		p.Rules = append(p.Rules, types.PolicyRule{Resource: r.Resource, Verbs: r.Verbs, Namespace: r.Namespace})
 	}
@@ -89,7 +86,7 @@ func (s *AdminService) PolicyCreate(ctx context.Context, req *generated.PolicyCr
 // PolicyUpdate updates a policy
 func (s *AdminService) PolicyUpdate(ctx context.Context, req *generated.PolicyUpdateRequest) (*generated.PolicyUpdateResponse, error) {
 	pr := repos.NewPolicyRepo(s.st)
-	p := &types.Policy{Namespace: "system", Name: req.Policy.Name, Description: req.Policy.Description, Builtin: req.Policy.Builtin}
+	p := &types.Policy{Name: req.Policy.Name, Description: req.Policy.Description, Builtin: req.Policy.Builtin}
 	for _, r := range req.Policy.Rules {
 		p.Rules = append(p.Rules, types.PolicyRule{Resource: r.Resource, Verbs: r.Verbs, Namespace: r.Namespace})
 	}
@@ -106,7 +103,7 @@ func (s *AdminService) PolicyDelete(ctx context.Context, req *generated.PolicyDe
 	if name == "" && req.Id != "" {
 		name = req.Id
 	}
-	if err := pr.Delete(ctx, "system", name); err != nil {
+	if err := pr.Delete(ctx, name); err != nil {
 		return nil, err
 	}
 	return &generated.PolicyDeleteResponse{Deleted: true}, nil
@@ -119,7 +116,7 @@ func (s *AdminService) PolicyGet(ctx context.Context, req *generated.PolicyGetRe
 	if name == "" && req.Id != "" {
 		name = req.Id
 	}
-	p, err := pr.Get(ctx, "system", name)
+	p, err := pr.Get(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +130,7 @@ func (s *AdminService) PolicyGet(ctx context.Context, req *generated.PolicyGetRe
 // PolicyList lists policies
 func (s *AdminService) PolicyList(ctx context.Context, _ *generated.PolicyListRequest) (*generated.PolicyListResponse, error) {
 	pr := repos.NewPolicyRepo(s.st)
-	ps, err := pr.List(ctx, "system")
+	ps, err := pr.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +147,9 @@ func (s *AdminService) PolicyList(ctx context.Context, _ *generated.PolicyListRe
 
 // TokenList lists tokens (admin-only). Does not return secrets.
 func (s *AdminService) TokenList(ctx context.Context, _ *generated.TokenListRequest) (*generated.TokenListResponse, error) {
-	var list []types.Token
-	if err := s.st.List(ctx, types.ResourceTypeToken, "system", &list); err != nil {
+	tr := repos.NewTokenRepo(s.st)
+	list, err := tr.List(ctx)
+	if err != nil {
 		return nil, err
 	}
 	out := make([]*generated.TokenInfo, 0, len(list))
@@ -159,7 +157,6 @@ func (s *AdminService) TokenList(ctx context.Context, _ *generated.TokenListRequ
 		ti := &generated.TokenInfo{
 			Id:          t.ID,
 			Name:        t.Name,
-			Namespace:   t.Namespace,
 			SubjectId:   t.SubjectID,
 			SubjectType: t.SubjectType,
 			Description: t.Description,
@@ -177,11 +174,7 @@ func (s *AdminService) TokenList(ctx context.Context, _ *generated.TokenListRequ
 // PolicyAttachToSubject attaches a policy to a user subject (MVP: users only)
 func (s *AdminService) PolicyAttachToSubject(ctx context.Context, req *generated.PolicyAttachToSubjectRequest) (*generated.PolicyAttachToSubjectResponse, error) {
 	ur := repos.NewUserRepo(s.st)
-	subj := req.SubjectName
-	if subj == "" && req.SubjectId != "" {
-		subj = req.SubjectId
-	}
-	u, err := ur.Get(ctx, "system", subj)
+	u, err := ur.GetByNameOrID(ctx, utils.PickNonEmpty(req.SubjectId, req.SubjectName))
 	if err != nil {
 		return nil, err
 	}
@@ -198,11 +191,7 @@ func (s *AdminService) PolicyAttachToSubject(ctx context.Context, req *generated
 // PolicyDetachFromSubject detaches a policy from a user subject (MVP: users only)
 func (s *AdminService) PolicyDetachFromSubject(ctx context.Context, req *generated.PolicyDetachFromSubjectRequest) (*generated.PolicyDetachFromSubjectResponse, error) {
 	ur := repos.NewUserRepo(s.st)
-	subj := req.SubjectName
-	if subj == "" && req.SubjectId != "" {
-		subj = req.SubjectId
-	}
-	u, err := ur.Get(ctx, "system", subj)
+	u, err := ur.GetByNameOrID(ctx, utils.PickNonEmpty(req.SubjectId, req.SubjectName))
 	if err != nil {
 		return nil, err
 	}
@@ -227,12 +216,14 @@ func (s *AdminService) PolicyDetachFromSubject(ctx context.Context, req *generat
 func (s *AdminService) UserCreate(ctx context.Context, req *generated.UserCreateRequest) (*generated.UserCreateResponse, error) {
 	ur := repos.NewUserRepo(s.st)
 	// Try get by name; if not exists, create
-	u, err := ur.Get(ctx, "system", req.Name)
+	u, err := ur.GetByName(ctx, req.Name)
 	if err != nil {
-		u = &types.User{Namespace: "system", Name: req.Name, Email: req.Email}
-		if err := ur.Create(ctx, u); err != nil {
+		u = &types.User{Name: req.Name, Email: req.Email}
+		createdUser, err := ur.Create(ctx, u)
+		if err != nil {
 			return nil, err
 		}
+		u = createdUser
 	} else {
 		// update email if provided
 		if req.Email != "" {

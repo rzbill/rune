@@ -114,8 +114,7 @@ func TestBootstrapAndResolveRegistryAuth_BootstrapSecretFromEnv(t *testing.T) {
 
 	// Secret should exist in store and viper should be populated
 	secRepo := repos.NewSecretRepo(ts)
-	ref := types.FormatRef(types.ResourceTypeSecret, "system", "ghcr-credentials")
-	s, err := secRepo.Get(context.Background(), ref)
+	s, err := secRepo.Get(context.Background(), "system", "ghcr-credentials")
 	if err != nil {
 		t.Fatalf("get secret: %v", err)
 	}

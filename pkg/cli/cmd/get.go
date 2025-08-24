@@ -136,6 +136,8 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return handleInstanceGet(ctx, cmd, apiClient, resourceName)
 	case "namespace":
 		return handleNamespaceGet(ctx, cmd, apiClient, resourceName)
+	case "ns":
+		return handleNamespaceGet(ctx, cmd, apiClient, resourceName)
 	case "secret":
 		return handleSecretGet(ctx, cmd, apiClient, resourceName)
 	case "configmap":
@@ -244,8 +246,38 @@ func handleInstanceGet(ctx context.Context, cmd *cobra.Command, apiClient *clien
 
 // handleNamespaceGet handles get operations for namespaces
 func handleNamespaceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
-	// TODO: Implement namespace handling
-	return fmt.Errorf("namespace operations not yet implemented")
+	namespaceClient := client.NewNamespaceClient(apiClient)
+
+	// If watch mode is enabled, handle watching
+	if watchResources {
+		return watchNamespaces(ctx, namespaceClient, resourceName)
+	}
+
+	// If a specific namespace name is provided, get that namespace
+	if resourceName != "" {
+		namespace, err := namespaceClient.GetNamespace(resourceName)
+		if err != nil {
+			return fmt.Errorf("failed to get namespace %s: %w", resourceName, err)
+		}
+
+		return outputResource([]*types.Namespace{namespace}, cmd)
+	}
+
+	// Otherwise, list all namespaces
+	namespaces, err := namespaceClient.ListNamespaces(nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list namespaces: %w", err)
+	}
+
+	// Sort namespaces
+	sortNamespaces(namespaces, sortBy)
+
+	// Apply limit if specified
+	if limit > 0 && len(namespaces) > limit {
+		namespaces = namespaces[:limit]
+	}
+
+	return outputResource(namespaces, cmd)
 }
 
 // handleSecretGet handles get operations for secrets
@@ -355,6 +387,54 @@ func watchServices(ctx context.Context, serviceClient resourceWatcher.ServiceWat
 
 	// Start watching
 	return watcher.Watch(ctx, adapter)
+}
+
+// watchNamespaces watches namespaces for changes
+func watchNamespaces(ctx context.Context, namespaceClient *client.NamespaceClient, resourceName string) error {
+	// For now, implement basic watching using the client
+	watchCh, err := namespaceClient.WatchNamespaces(nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to watch namespaces: %w", err)
+	}
+
+	// Print initial namespaces
+	namespaces, err := namespaceClient.ListNamespaces(nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list initial namespaces: %w", err)
+	}
+
+	// Create table for display
+	table := NewResourceTable()
+	table.ShowHeaders = !noHeaders
+	table.ShowLabels = showLabels
+
+	// Display initial state
+	if len(namespaces) > 0 {
+		table.RenderNamespaces(namespaces)
+	}
+
+	fmt.Println("Watching namespaces... (press Ctrl+C to stop)")
+
+	// Watch for changes
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case _, ok := <-watchCh:
+			if !ok {
+				return nil
+			}
+			// For now, just re-list and display
+			namespaces, err := namespaceClient.ListNamespaces(nil, nil)
+			if err != nil {
+				fmt.Printf("Error listing namespaces: %v\n", err)
+				continue
+			}
+			// Clear screen and re-render (simple approach)
+			fmt.Print("\033[2J\033[H") // Clear screen
+			table.RenderNamespaces(namespaces)
+		}
+	}
 }
 
 // watchInstances watches instances for changes
@@ -468,6 +548,20 @@ func sortServices(services []*types.Service, sortField string) {
 	case "status":
 		sort.Slice(services, func(i, j int) bool {
 			return string(services[i].Status) < string(services[j].Status)
+		})
+	}
+}
+
+// sortNamespaces sorts namespaces based on the specified sort field
+func sortNamespaces(namespaces []*types.Namespace, sortField string) {
+	switch sortField {
+	case "name":
+		sort.Slice(namespaces, func(i, j int) bool {
+			return namespaces[i].Name < namespaces[j].Name
+		})
+	case "creationTime", "age":
+		sort.Slice(namespaces, func(i, j int) bool {
+			return namespaces[i].CreatedAt.Before(namespaces[j].CreatedAt)
 		})
 	}
 }

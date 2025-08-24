@@ -33,12 +33,13 @@ func (s *SecretClient) GetLogger() log.Logger {
 }
 
 // CreateSecret creates a new secret on the API server.
-func (s *SecretClient) CreateSecret(secret *types.Secret) error {
+func (s *SecretClient) CreateSecret(secret *types.Secret, ensureNamespace bool) error {
 	s.logger.Debug("Creating secret", log.Str("name", secret.Name), log.Str("namespace", secret.Namespace))
 
 	// Create the gRPC request
 	req := &generated.CreateSecretRequest{
-		Secret: s.secretToProto(secret),
+		Secret:          s.secretToProto(secret),
+		EnsureNamespace: ensureNamespace,
 	}
 
 	// Send the request to the API server

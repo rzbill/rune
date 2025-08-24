@@ -128,26 +128,25 @@ func bootstrapRegistrySecret(fromSecretNS, fromSecretName string, auth config.Do
 		return nil
 	}
 
-	ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-	existing, err := secRepo.Get(context.Background(), ref)
+	existing, err := secRepo.Get(context.Background(), fromSecretNS, fromSecretName)
 	if err != nil {
 		// create
 		s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: "static"}
 		if cerr := secRepo.Create(context.Background(), s); cerr != nil {
-			logger.Error("Failed to create registry secret", log.Str("ref", ref), log.Err(cerr))
+			logger.Error("Failed to create registry secret", log.Str("ref", fromSecretName), log.Err(cerr))
 			return cerr
 		}
-		logger.Info("Created registry secret", log.Str("ref", ref))
+		logger.Info("Created registry secret", log.Str("ref", fromSecretName))
 	} else if !auth.Immutable {
 		// update if different and manage != ignore
 		if auth.Manage != "ignore" {
 			// naive diff by JSON stringification via types; here just overwrite
 			s := &types.Secret{Name: fromSecretName, Namespace: fromSecretNS, Data: data, Type: existing.Type}
-			if uerr := secRepo.Update(context.Background(), ref, s); uerr != nil {
-				logger.Error("Failed to update registry secret", log.Str("ref", ref), log.Err(uerr))
+			if uerr := secRepo.Update(context.Background(), fromSecretNS, fromSecretName, s); uerr != nil {
+				logger.Error("Failed to update registry secret", log.Str("ref", fromSecretName), log.Err(uerr))
 				return uerr
 			}
-			logger.Info("Updated registry secret", log.Str("ref", ref))
+			logger.Info("Updated registry secret", log.Str("ref", fromSecretName))
 		}
 	}
 	return nil
@@ -155,10 +154,9 @@ func bootstrapRegistrySecret(fromSecretNS, fromSecretName string, auth config.Do
 
 // resolveRegistrySecret fetches a registry secret and populates the auth map with appropriate credentials
 func resolveRegistrySecret(fromSecretNS, fromSecretName string, secRepo *repos.SecretRepo, logger log.Logger, auth map[string]any) error {
-	ref := types.FormatRef(types.ResourceTypeSecret, fromSecretNS, fromSecretName)
-	s, err := secRepo.Get(context.Background(), ref)
+	s, err := secRepo.Get(context.Background(), fromSecretNS, fromSecretName)
 	if err != nil {
-		logger.Error("Failed to fetch registry secret", log.Str("ref", ref), log.Err(err))
+		logger.Error("Failed to fetch registry secret", log.Str("ref", fromSecretName), log.Err(err))
 		return err
 	}
 	// infer keys: .dockerconfigjson > token > username/password > ecr keys

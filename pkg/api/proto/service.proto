@@ -130,6 +130,9 @@ message CreateServiceRequest {
 
   // Optional deployment tag
   string deployment_tag = 2;
+  
+  // Whether to create the namespace if it doesn't exist
+  bool ensure_namespace = 3;
 }
 
 // ServiceResponse returns a service or status.

@@ -318,9 +318,9 @@ func (cf *CastFile) Lint() []error {
 		spec := &cf.Services[i]
 		if err := spec.Validate(); err != nil {
 			if line, ok := cf.GetLineInfo("Service", spec.GetNamespace(), spec.GetName()); ok {
-				errs = append(errs, fmt.Errorf("Service %q (ns=%q) at line %d: %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), line, err))
+				errs = append(errs, fmt.Errorf("Service %q (ns=%q) at line %d: %w", spec.GetName(), NS(spec.GetNamespace()), line, err))
 			} else {
-				errs = append(errs, fmt.Errorf("Service %q (ns=%q): %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), err))
+				errs = append(errs, fmt.Errorf("Service %q (ns=%q): %w", spec.GetName(), NS(spec.GetNamespace()), err))
 			}
 		}
 	}
@@ -345,9 +345,9 @@ func (cf *CastFile) Lint() []error {
 		spec := &cf.Secrets[i]
 		if err := spec.Validate(); err != nil {
 			if line, ok := cf.GetLineInfo("Secret", spec.GetNamespace(), spec.GetName()); ok {
-				errs = append(errs, fmt.Errorf("Secret %q (ns=%q) at line %d: %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), line, err))
+				errs = append(errs, fmt.Errorf("Secret %q (ns=%q) at line %d: %w", spec.GetName(), NS(spec.GetNamespace()), line, err))
 			} else {
-				errs = append(errs, fmt.Errorf("Secret %q (ns=%q): %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), err))
+				errs = append(errs, fmt.Errorf("Secret %q (ns=%q): %w", spec.GetName(), NS(spec.GetNamespace()), err))
 			}
 		}
 	}
@@ -357,9 +357,9 @@ func (cf *CastFile) Lint() []error {
 		spec := &cf.ConfigMaps[i]
 		if err := spec.Validate(); err != nil {
 			if line, ok := cf.GetLineInfo("Config", spec.GetNamespace(), spec.GetName()); ok {
-				errs = append(errs, fmt.Errorf("Config %q (ns=%q) at line %d: %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), line, err))
+				errs = append(errs, fmt.Errorf("Config %q (ns=%q) at line %d: %w", spec.GetName(), NS(spec.GetNamespace()), line, err))
 			} else {
-				errs = append(errs, fmt.Errorf("Config %q (ns=%q): %w", spec.GetName(), EnsureNamespace(spec.GetNamespace()), err))
+				errs = append(errs, fmt.Errorf("Config %q (ns=%q): %w", spec.GetName(), NS(spec.GetNamespace()), err))
 			}
 		}
 	}

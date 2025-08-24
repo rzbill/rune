@@ -17,6 +17,9 @@ func newWhoAmICmd() *cobra.Command {
 			server := viper.GetString("contexts.default.server")
 			token := viper.GetString("contexts.default.token")
 			ns := viper.GetString("contexts.default.defaultNamespace")
+			if ns == "" {
+				ns = "default"
+			}
 
 			api, err := newAPIClient("", "")
 			if err != nil {

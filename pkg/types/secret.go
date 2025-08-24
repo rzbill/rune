@@ -9,7 +9,7 @@ type Secret struct {
 	// Unique identifier for the secret
 	ID string `json:"id" yaml:"id"`
 
-	// Human-readable name for the secret
+	// Human-readable name for the secret (DNS-1123 unique name within a namespace)
 	Name string `json:"name" yaml:"name"`
 
 	// Namespace the secret belongs to

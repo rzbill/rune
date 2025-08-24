@@ -79,13 +79,12 @@ message UserListResponse { repeated Subject users = 1; }
 message TokenInfo {
   string id = 1;
   string name = 2;
-  string namespace = 3;
-  string subject_id = 4;
-  string subject_type = 5; // user|service
-  string description = 6;
-  int64 issued_at = 7;   // unix seconds
-  int64 expires_at = 8;  // unix seconds (0 means none)
-  bool revoked = 9;
+  string subject_id = 3;
+  string subject_type = 4; // user|service
+  string description = 5;
+  int64 issued_at = 6;   // unix seconds
+  int64 expires_at = 7;  // unix seconds (0 means none)
+  bool revoked = 8;
 }
 
 message TokenListRequest {}

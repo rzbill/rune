@@ -106,12 +106,8 @@ install_from_release() {
 }
 
 install_from_source() {
-  local goversion=1.22.5
   if ! command -v go >/dev/null 2>&1; then
-    log "Installing Go ${goversion}"
-    curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${goversion}.linux-$(arch_normalize).tar.gz" || curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${goversion}.linux-amd64.tar.gz"
-    rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
-    export PATH=/usr/local/go/bin:$PATH
+    install_go
   fi
   log "Building Rune from source"
   local src=/opt/rune
@@ -119,6 +115,43 @@ install_from_source() {
   (cd "$src" && make build)
   install -m 0755 "$src/bin/rune" /usr/local/bin/rune
   install -m 0755 "$src/bin/runed" /usr/local/bin/runed
+}
+
+install_go() {
+  local version="1.22.5"
+  local arch tmp
+  
+  log "Installing Go ${version}"
+  
+  arch=$(arch_normalize)
+  tmp=$(mktemp -d)
+  
+  # Download Go
+  local url="https://go.dev/dl/go${version}.linux-${arch}.tar.gz"
+  log "Downloading Go ${version} from $url"
+  
+  if ! curl -fsSL -o "$tmp/go.tgz" "$url"; then
+    # Fallback to amd64 if specific arch fails
+    url="https://go.dev/dl/go${version}.linux-amd64.tar.gz"
+    log "Falling back to amd64: $url"
+    if ! curl -fsSL -o "$tmp/go.tgz" "$url"; then
+      die "Failed to download Go ${version}"
+    fi
+  fi
+  
+  # Extract to /usr/local
+  rm -rf /usr/local/go && tar -C /usr/local -xzf "$tmp/go.tgz"
+  
+  # Add Go to PATH for current session
+  export PATH="/usr/local/go/bin:$PATH"
+  
+  # Verify installation
+  if ! /usr/local/go/bin/go version >/dev/null 2>&1; then
+    die "Go installation failed"
+  fi
+  
+  log "Go ${version} installed successfully"
+  rm -rf "$tmp"
 }
 
 install_systemd() {

@@ -15,11 +15,10 @@ import (
 
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/rzbill/rune/pkg/utils"
-	"github.com/spf13/cobra"
 	yaml "gopkg.in/yaml.v3"
 )
 
-func runRunesetCast(cmd *cobra.Command, root string) error {
+func runRunesetCast(root string, opts *castOptions) error {
 	startTime := time.Now()
 
 	// Read manifest
@@ -35,10 +34,10 @@ func runRunesetCast(cmd *cobra.Command, root string) error {
 	}
 
 	// Build execution context map (read-only)
-	ctx := buildContextFromManifest(mf)
+	ctx := buildContextFromManifest(mf, opts)
 
 	// Merge runeset values (collect first, resolve later)
-	mergedValues, err := mergeRunesetValuesTemplated(mf, root, ctx)
+	mergedValues, err := mergeRunesetValuesTemplated(mf, root, ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -55,7 +54,7 @@ func runRunesetCast(cmd *cobra.Command, root string) error {
 		return err
 	}
 
-	if renderOnlyArg {
+	if opts.renderOnly {
 		for _, b := range rendered {
 			fmt.Println(string(b))
 			fmt.Println("---")
@@ -130,18 +129,18 @@ func runRunesetCast(cmd *cobra.Command, root string) error {
 	}
 
 	// Print banner and resource info
-	printCastBanner([]string{root}, detachArg)
-	printResourceInfo(info)
+	printCastBanner([]string{root}, opts.detach)
+	printResourceInfo(info, opts)
 
 	// If dry-run only
-	if dryRunArg {
+	if opts.dryRun {
 		fmt.Println("✅ Validation successful!")
 		fmt.Println("💬 Use without --dry-run to deploy.")
 		return nil
 	}
 
 	// Create API client
-	apiClient, err := newAPIClient(clientAddrArg, "")
+	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -149,14 +148,14 @@ func runRunesetCast(cmd *cobra.Command, root string) error {
 
 	fmt.Println("🚀 Preparing deployment plan...")
 
-	deploymentResults, err := deployResources(apiClient, info, mustParseDuration(timeoutStrArg))
+	deploymentResults, err := deployResources(apiClient, info, mustParseDuration(opts.timeoutStr), opts)
 	if err != nil {
 		return err
 	}
-	if detachArg {
+	if opts.detach {
 		printDetachedModeSummary(deploymentResults, startTime)
 	} else {
-		printWatchModeSummary(deploymentResults, startTime)
+		printWatchModeSummary(deploymentResults, startTime, opts)
 	}
 	return nil
 }
@@ -260,7 +259,7 @@ func readEnvValues() map[string]interface{} {
 
 // mergeRunesetValues merges values from runeset manifest, values dir, env, values files,
 // and --set flags (in order).
-func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]interface{}, error) {
+func mergeRunesetValues(mf types.RunesetManifest, root string, opts *castOptions) (map[string]interface{}, error) {
 	merged := make(map[string]interface{})
 	mergeInto(merged, mf.Defaults)
 
@@ -269,7 +268,7 @@ func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]inter
 		return nil, err
 	}
 	mergeInto(merged, readEnvValues())
-	for _, vf := range valuesFilesArg {
+	for _, vf := range opts.valuesFiles {
 		b, err := os.ReadFile(vf)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read values file %s: %w", vf, err)
@@ -282,7 +281,7 @@ func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]inter
 		}
 		mergeInto(merged, m)
 	}
-	if err := applySetValues(merged, setValuesArg); err != nil {
+	if err := applySetValues(merged, opts.setValues); err != nil {
 		return nil, err
 	}
 	return merged, nil
@@ -290,8 +289,8 @@ func mergeRunesetValues(mf types.RunesetManifest, root string) (map[string]inter
 
 // mergeRunesetValuesTemplated collects all values plainly, then resolves templated strings
 // using the fully merged map. This requires templated scalars in YAML files to be quoted.
-func mergeRunesetValuesTemplated(mf types.RunesetManifest, root string, ctx map[string]interface{}) (map[string]interface{}, error) {
-	mv, err := mergeRunesetValues(mf, root)
+func mergeRunesetValuesTemplated(mf types.RunesetManifest, root string, ctx map[string]interface{}, opts *castOptions) (map[string]interface{}, error) {
+	mv, err := mergeRunesetValues(mf, root, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -341,26 +340,26 @@ func mergeValuesFromDir(dir string, target map[string]interface{}) error {
 }
 
 // buildContextFromManifest constructs the context map used by renderer from manifest and flags.
-func buildContextFromManifest(mf types.RunesetManifest) map[string]interface{} {
+func buildContextFromManifest(mf types.RunesetManifest, opts *castOptions) map[string]interface{} {
 	// effective namespace
 	effectiveNS := ""
+	if opts.namespace != "" {
+		effectiveNS = opts.namespace
+	}
 	if mf.Namespace != "" {
 		effectiveNS = mf.Namespace
-	}
-	if namespaceArg != "" {
-		effectiveNS = namespaceArg
 	}
 
 	// Build execution context map (read-only)
 	mode := "apply"
-	if renderOnlyArg {
+	if opts.renderOnly {
 		mode = "render"
-	} else if dryRunArg {
+	} else if opts.dryRun {
 		mode = "dry-run"
 	}
 	release := mf.Name
-	if releaseNameArg != "" {
-		release = releaseNameArg
+	if opts.releaseName != "" {
+		release = opts.releaseName
 	}
 
 	// Build context map
@@ -590,7 +589,7 @@ func getRunesetSourceType(args []string) types.RunesetSourceType {
 }
 
 // handleRunesetCastSource handles a runeset source and runs the runeset cast.
-func handleRunesetCastSource(cmd *cobra.Command, args []string, sourceType types.RunesetSourceType) error {
+func handleRunesetCastSource(args []string, sourceType types.RunesetSourceType, opts *castOptions) error {
 	if len(args) != 1 {
 		return fmt.Errorf("runeset source requires exactly one argument")
 	}
@@ -599,13 +598,13 @@ func handleRunesetCastSource(cmd *cobra.Command, args []string, sourceType types
 	// switch remains
 	switch sourceType {
 	case types.RunesetSourceTypeRemoteArchive:
-		return handleRunesetCastSourceRemoteArchive(cmd, arg)
+		return handleRunesetCastSourceRemoteArchive(arg, opts)
 	case types.RunesetSourceTypeGitHub:
-		return handleRunesetCastSourceGitHub(cmd, arg)
+		return handleRunesetCastSourceGitHub(arg, opts)
 	case types.RunesetSourceTypePackageArchive:
-		return handleRunesetCastSourcePackageArchive(cmd, arg)
+		return handleRunesetCastSourcePackageArchive(arg, opts)
 	case types.RunesetSourceTypeDirectory:
-		return handleRunesetCastSourceDirectory(cmd, arg)
+		return handleRunesetCastSourceDirectory(arg, opts)
 	}
 	return fmt.Errorf("unknown runeset source: %s", sourceType)
 }
@@ -614,7 +613,7 @@ func handleRunesetCastSource(cmd *cobra.Command, args []string, sourceType types
 // It downloads the tarball and extracts the specified subdirectory.
 // It is used for remote archives (e.g., https://example.com/runeset.tgz) and package archives
 // (e.g., ./runeset.tgz).
-func handleRunesetCastSourceRemoteArchive(cmd *cobra.Command, source string) error {
+func handleRunesetCastSourceRemoteArchive(source string, opts *castOptions) error {
 	tmpFile, err := downloadRunesetArchive(source)
 	if err != nil {
 		return err
@@ -625,34 +624,34 @@ func handleRunesetCastSourceRemoteArchive(cmd *cobra.Command, source string) err
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
-	return runRunesetCast(cmd, tmpDir)
+	return runRunesetCast(tmpDir, opts)
 }
 
 // handleRunesetCastSourceGitHub resolves a GitHub shorthand
 // (e.g., github.com/org/repo/path@ref) and runs the runeset cast.
 // It downloads the tarball for the given ref and extracts the specified subdirectory.
-func handleRunesetCastSourceGitHub(cmd *cobra.Command, source string) error {
+func handleRunesetCastSourceGitHub(source string, opts *castOptions) error {
 	root, err := resolveGitHubRuneset(source)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(root)
-	return runRunesetCast(cmd, root)
+	return runRunesetCast(root, opts)
 }
 
 // handleRunesetCastSourcePackageArchive extracts a package archive and runs the runeset cast.
 // It is used for package archives (e.g., ./runeset.tgz).
-func handleRunesetCastSourcePackageArchive(cmd *cobra.Command, source string) error {
+func handleRunesetCastSourcePackageArchive(source string, opts *castOptions) error {
 	tmpDir, err := extractRunesetArchive(source)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
-	return runRunesetCast(cmd, tmpDir)
+	return runRunesetCast(tmpDir, opts)
 }
 
 // handleRunesetCastSourceDirectory runs the runeset cast from a directory.
 // It is used for directory with a runeset.yaml file (e.g., ./runeset).
-func handleRunesetCastSourceDirectory(cmd *cobra.Command, source string) error {
-	return runRunesetCast(cmd, source)
+func handleRunesetCastSourceDirectory(source string, opts *castOptions) error {
+	return runRunesetCast(source, opts)
 }

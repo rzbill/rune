@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,12 +30,15 @@ func TestSecretServiceCRUD(t *testing.T) {
 	svc := NewSecretService(st, log.GetDefaultLogger())
 
 	// Create
-	createResp, err := svc.CreateSecret(ctx, &generated.CreateSecretRequest{Secret: &generated.Secret{
-		Name:      "db-credentials",
-		Namespace: "prod",
-		Type:      "static",
-		Data:      map[string]string{"username": "admin", "password": "s3cr3t"},
-	}})
+	createResp, err := svc.CreateSecret(ctx, &generated.CreateSecretRequest{
+		Secret: &generated.Secret{
+			Name:      "db-credentials",
+			Namespace: "prod",
+			Type:      "static",
+			Data:      map[string]string{"username": "admin", "password": "s3cr3t"},
+		},
+		EnsureNamespace: true,
+	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -82,5 +86,41 @@ func TestSecretServiceCRUD(t *testing.T) {
 	}
 	if delResp.Code != 0 {
 		_ = delResp
+	}
+}
+
+func TestSecretServiceNoEnsureNamespace(t *testing.T) {
+	ctx := context.Background()
+	kek, err := crypto.RandomBytes(32)
+	if err != nil {
+		t.Fatalf("failed to generate KEK: %v", err)
+	}
+	st := store.NewTestStoreWithOptions(store.StoreOptions{
+		KEKBytes:                kek,
+		SecretEncryptionEnabled: true,
+		SecretLimits: store.Limits{
+			MaxObjectBytes:   1 << 20,
+			MaxKeyNameLength: 256,
+		},
+	})
+	svc := NewSecretService(st, log.GetDefaultLogger())
+
+	// Try to create secret in non-existent namespace without EnsureNamespace
+	_, err = svc.CreateSecret(ctx, &generated.CreateSecretRequest{
+		Secret: &generated.Secret{
+			Name:      "test-secret",
+			Namespace: "non-existent",
+			Type:      "static",
+			Data:      map[string]string{"key": "value"},
+		},
+		EnsureNamespace: false,
+	})
+	if err == nil {
+		t.Fatalf("expected error when creating secret in non-existent namespace without EnsureNamespace")
+	}
+
+	// Verify the error message indicates namespace doesn't exist
+	if !strings.Contains(err.Error(), "namespace") && !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("expected error about namespace not existing, got: %v", err)
 	}
 }

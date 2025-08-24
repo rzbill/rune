@@ -11,8 +11,8 @@ const (
 	DefaultNamespace = "default"
 )
 
-// EnsureNamespace returns the namespace, defaulting to DefaultNamespace if empty
-func EnsureNamespace(namespace string) string {
+// NS returns the namespace, defaulting to DefaultNamespace if empty
+func NS(namespace string) string {
 	if namespace == "" {
 		return DefaultNamespace
 	}

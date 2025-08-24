@@ -11,6 +11,7 @@ import (
 	"github.com/rzbill/rune/pkg/crypto"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 type SecretRepo struct {
@@ -67,6 +68,10 @@ func (r *SecretRepo) Create(ctx context.Context, s *types.Secret) error {
 	if s == nil || s.Name == "" || s.Namespace == "" {
 		return fmt.Errorf("invalid secret")
 	}
+	if err := utils.ValidateDNS1123Name(s.Name); err != nil {
+		return fmt.Errorf("secret name validation failed: %w", err)
+	}
+
 	if err := r.validateSecretData(s.Data); err != nil {
 		return err
 	}
@@ -103,33 +108,25 @@ func (r *SecretRepo) CreateRef(ctx context.Context, ref string, s *types.Secret)
 	return r.Create(ctx, s)
 }
 
-func (r *SecretRepo) Get(ctx context.Context, ref string) (*types.Secret, error) {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return nil, err
-	}
+func (r *SecretRepo) Get(ctx context.Context, namespace, name string) (*types.Secret, error) {
 	var stored types.StoredSecret
-	if err := r.base.core.Get(ctx, types.ResourceTypeSecret, pr.Namespace, pr.Name, &stored); err != nil {
+	if err := r.base.core.Get(ctx, types.ResourceTypeSecret, namespace, name, &stored); err != nil {
 		return nil, err
 	}
 	return r.decryptSecret(stored)
 }
 
-func (r *SecretRepo) Update(ctx context.Context, ref string, s *types.Secret, opts ...store.UpdateOption) error {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return err
-	}
-	cur, err := r.Get(ctx, ref)
+func (r *SecretRepo) Update(ctx context.Context, namespace, name string, s *types.Secret, opts ...store.UpdateOption) error {
+	cur, err := r.Get(ctx, namespace, name)
 	if err != nil {
 		return err
 	}
 	next := cur.Version + 1
-	if s.Namespace == "" {
-		s.Namespace = pr.Namespace
+	if err := utils.ValidateDNS1123Name(s.Name); err != nil {
+		return fmt.Errorf("secret name validation failed: %w", err)
 	}
-	if s.Name == "" {
-		s.Name = pr.Name
+	if s.ID == "" {
+		s.ID = uuid.NewString()
 	}
 	if err := r.validateSecretData(s.Data); err != nil {
 		return err
@@ -140,15 +137,11 @@ func (r *SecretRepo) Update(ctx context.Context, ref string, s *types.Secret, op
 	if err != nil {
 		return err
 	}
-	return r.base.core.Update(ctx, types.ResourceTypeSecret, pr.Namespace, pr.Name, rec, opts...)
+	return r.base.core.Update(ctx, types.ResourceTypeSecret, namespace, name, rec, opts...)
 }
 
-func (r *SecretRepo) Delete(ctx context.Context, ref string) error {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return err
-	}
-	return r.base.core.Delete(ctx, types.ResourceTypeSecret, pr.Namespace, pr.Name)
+func (r *SecretRepo) Delete(ctx context.Context, namespace, name string) error {
+	return r.base.core.Delete(ctx, types.ResourceTypeSecret, namespace, name)
 }
 
 func (r *SecretRepo) List(ctx context.Context, namespace string) ([]*types.Secret, error) {

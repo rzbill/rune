@@ -48,12 +48,10 @@ func ensureDefaultGRPCPort(server string) string {
 	return host
 }
 
-func getTargetRuneServer(clientAddr string) string {
+func getTargetRuneServer() string {
 	// Determine target display name
 	var targetDisplay string
-	if clientAddr != "" {
-		targetDisplay = ensureDefaultGRPCPort(clientAddr)
-	} else if s := viper.GetString("contexts.default.server"); s != "" {
+	if s := viper.GetString("contexts.default.server"); s != "" {
 		targetDisplay = ensureDefaultGRPCPort(s)
 	} else {
 		return fmt.Sprintf("localhost:%d", config.DefaultGRPCPort)

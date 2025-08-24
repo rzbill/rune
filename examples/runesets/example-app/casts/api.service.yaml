@@ -1,5 +1,5 @@
 service:
-  name: "{{ values: app.name }}-api"
+  name: "{{values:app.name}}-api"
   namespace: demo
   image: "{{ values: app.image }}:{{ values: app.tag }}"
   scale: {{ values:app.replicas | default: 2 }}

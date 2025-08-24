@@ -9,16 +9,12 @@ type PolicyRule struct {
 
 // Policy represents a named set of permission rules
 type Policy struct {
-	Namespace   string       `json:"namespace" yaml:"namespace"`
 	ID          string       `json:"id" yaml:"id"`
-	Name        string       `json:"name" yaml:"name"`
+	Name        string       `json:"name" yaml:"name"` // DNS-1123 unique name within a namespace
 	Description string       `json:"description,omitempty" yaml:"description,omitempty"`
 	Rules       []PolicyRule `json:"rules" yaml:"rules"`
 	Builtin     bool         `json:"builtin" yaml:"builtin"`
 }
 
-func (p *Policy) NamespacedName() NamespacedName {
-	return NamespacedName{Namespace: p.Namespace, Name: p.Name}
-}
 func (p *Policy) GetID() string                 { return p.ID }
 func (p *Policy) GetResourceType() ResourceType { return ResourceTypePolicy }

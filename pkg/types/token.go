@@ -4,9 +4,8 @@ import "time"
 
 // Token represents an authentication token (opaque secret stored hashed)
 type Token struct {
-	Namespace   string     `json:"namespace" yaml:"namespace"`
-	Name        string     `json:"name" yaml:"name"`
 	ID          string     `json:"id" yaml:"id"`
+	Name        string     `json:"name" yaml:"name"`
 	SubjectID   string     `json:"subjectId" yaml:"subjectId"`
 	SubjectType string     `json:"subjectType" yaml:"subjectType"` // "user" | "service"
 	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
@@ -16,8 +15,5 @@ type Token struct {
 	SecretHash  string     `json:"secretHash" yaml:"secretHash"`
 }
 
-func (t *Token) NamespacedName() NamespacedName {
-	return NamespacedName{Namespace: t.Namespace, Name: t.Name}
-}
 func (t *Token) GetID() string                 { return t.ID }
 func (t *Token) GetResourceType() ResourceType { return ResourceTypeToken }

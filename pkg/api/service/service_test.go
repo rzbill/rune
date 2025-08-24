@@ -8,6 +8,7 @@ import (
 	"github.com/rzbill/rune/pkg/api/generated"
 	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/orchestrator"
+	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,8 @@ func TestScaleService(t *testing.T) {
 	// Create service service with logger and fake orchestrator
 	logger := log.NewTestLogger()
 	fakeOrchestrator := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fakeOrchestrator, nil, logger)
+	store := store.NewTestStore()
+	svc := NewServiceService(store, fakeOrchestrator, nil, logger)
 
 	// Create test service
 	testService := &types.Service{
@@ -118,7 +120,8 @@ func TestCreateService_DependencyCycleValidation(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, nil, logger)
+	store := store.NewTestStore()
+	svc := NewServiceService(store, fake, nil, logger)
 
 	// Seed two services forming a chain a->b
 	a := &types.Service{Name: "a", Namespace: "default"}
@@ -145,7 +148,8 @@ func TestCreateService_DependencyCycleValidation_CreatePath(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, nil, logger)
+	store := store.NewTestStore()
+	svc := NewServiceService(store, fake, nil, logger)
 
 	// Seed a->b
 	a := &types.Service{Name: "a", Namespace: "default"}
@@ -176,7 +180,8 @@ func TestDeleteService_BlocksWhenDependentsExist(t *testing.T) {
 	ctx := context.Background()
 	logger := log.NewTestLogger()
 	fake := orchestrator.NewFakeOrchestrator()
-	svc := NewServiceService(fake, nil, logger)
+	store := store.NewTestStore()
+	svc := NewServiceService(store, fake, nil, logger)
 
 	// Seed db and api depends on db
 	db := &types.Service{Name: "db", Namespace: "default"}

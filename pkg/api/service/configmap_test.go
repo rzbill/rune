@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/rzbill/rune/pkg/api/generated"
@@ -17,11 +18,14 @@ func TestConfigServiceCRUD(t *testing.T) {
 	svc := NewConfigMapService(st, log.GetDefaultLogger())
 
 	// Create
-	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigMapRequest{ConfigMap: &generated.ConfigMap{
-		Name:      "app-config",
-		Namespace: "prod",
-		Data:      map[string]string{"logLevel": "info"},
-	}})
+	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigMapRequest{
+		ConfigMap: &generated.ConfigMap{
+			Name:      "app-config",
+			Namespace: "prod",
+			Data:      map[string]string{"logLevel": "info"},
+		},
+		EnsureNamespace: true,
+	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -58,5 +62,31 @@ func TestConfigServiceCRUD(t *testing.T) {
 	_, err = svc.DeleteConfigMap(ctx, &generated.DeleteConfigMapRequest{Name: "app-config", Namespace: "prod"})
 	if err != nil {
 		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestConfigServiceNoEnsureNamespace(t *testing.T) {
+	ctx := context.Background()
+	st := store.NewTestStoreWithOptions(store.StoreOptions{
+		ConfigLimits: store.Limits{MaxObjectBytes: 1 << 20, MaxKeyNameLength: 256},
+	})
+	svc := NewConfigMapService(st, log.GetDefaultLogger())
+
+	// Try to create configmap in non-existent namespace without EnsureNamespace
+	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigMapRequest{
+		ConfigMap: &generated.ConfigMap{
+			Name:      "test-config",
+			Namespace: "non-existent",
+			Data:      map[string]string{"key": "value"},
+		},
+		EnsureNamespace: false,
+	})
+	if err == nil {
+		t.Fatalf("expected error when creating configmap in non-existent namespace without EnsureNamespace")
+	}
+
+	// Verify the error message indicates namespace doesn't exist
+	if !strings.Contains(err.Error(), "namespace") && !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("expected error about namespace not existing, got: %v", err)
 	}
 }

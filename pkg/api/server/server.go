@@ -37,15 +37,16 @@ type APIServer struct {
 	logger  log.Logger
 
 	// Core services
-	serviceService  *service.ServiceService
-	instanceService *service.InstanceService
-	logService      *service.LogService
-	execService     *service.ExecService
-	healthService   *service.HealthService
-	secretService   *service.SecretService
-	configService   *service.ConfigMapService
-	authService     *service.AuthService
-	adminService    *service.AdminService
+	namespaceService *service.NamespaceService
+	serviceService   *service.ServiceService
+	instanceService  *service.InstanceService
+	logService       *service.LogService
+	execService      *service.ExecService
+	healthService    *service.HealthService
+	secretService    *service.SecretService
+	configService    *service.ConfigMapService
+	authService      *service.AuthService
+	adminService     *service.AdminService
 
 	// gRPC server
 	grpcServer *grpc.Server
@@ -108,9 +109,16 @@ func (s *APIServer) Start() error {
 
 	s.logger.Info("Starting Rune Server")
 
+	// Seed built-in namespaces (idempotent)
+	if err := SeedBuiltinNamespaces(context.Background(), s.store); err != nil {
+		s.logger.Error("Failed to seed builtin namespaces", log.Err(err))
+		return err
+	}
+
 	// Seed built-in policies (idempotent)
 	if err := SeedBuiltinPolicies(context.Background(), s.store); err != nil {
-		s.logger.Warn("Failed to seed builtin policies", log.Err(err))
+		s.logger.Error("Failed to seed builtin policies", log.Err(err))
+		return err
 	}
 
 	// Initialize the runner manager
@@ -135,7 +143,8 @@ func (s *APIServer) Start() error {
 	}
 
 	// Create service implementations
-	s.serviceService = service.NewServiceService(s.orchestrator, s.runnerManager, s.logger)
+	s.namespaceService = service.NewNamespaceService(s.store, s.logger)
+	s.serviceService = service.NewServiceService(s.store, s.orchestrator, s.runnerManager, s.logger)
 	s.instanceService = service.NewInstanceService(s.store, s.runnerManager, s.logger)
 	s.logService = service.NewLogService(s.store, s.logger, s.orchestrator)
 	s.execService = service.NewExecService(s.logger, s.orchestrator)
@@ -207,6 +216,7 @@ func (s *APIServer) startGRPCServer() error {
 	generated.RegisterConfigMapServiceServer(s.grpcServer, s.configService)
 	generated.RegisterAuthServiceServer(s.grpcServer, s.authService)
 	generated.RegisterAdminServiceServer(s.grpcServer, s.adminService)
+	generated.RegisterNamespaceServiceServer(s.grpcServer, s.namespaceService)
 
 	// Register reflection service for grpcurl/development
 	reflection.Register(s.grpcServer)
@@ -350,7 +360,7 @@ func (s *APIServer) evaluatePolicies(ctx context.Context, subjectID, resource, v
 	}
 	pr := repos.NewPolicyRepo(s.store)
 	for _, pname := range user.Policies {
-		p, err := pr.Get(ctx, "system", pname)
+		p, err := pr.Get(ctx, pname)
 		if err != nil {
 			continue
 		}

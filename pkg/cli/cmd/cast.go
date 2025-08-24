@@ -15,147 +15,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	// Cast command flags
-	namespaceArg       string
-	tagArg             string
-	dryRunArg          bool
-	detachArg          bool
-	timeoutStrArg      string
-	recursiveDirArg    bool
-	clientAddrArg      string
-	forceGenerationArg bool
+// Cast command flags
+type castOptions struct {
+	namespace       string
+	tag             string
+	dryRun          bool
+	detach          bool
+	timeoutStr      string
+	recursiveDir    bool
+	forceGeneration bool
+	createNamespace bool
 
 	// Runeset flags
-	valuesFilesArg []string
-	setValuesArg   []string
-	renderOnlyArg  bool
-	releaseNameArg string
-)
-
-// castCmd represents the cast command
-var castCmd = &cobra.Command{
-	Use:     "cast [files or directories...]",
-	Short:   "Apply resources (services, secrets, configs)",
-	Aliases: []string{"apply"},
-	Long: `Deploy a service defined in a YAML file.
-For example:
-  rune cast my-service.yml
-  rune cast my-service.yml --namespace=production
-  rune cast my-service.yml --tag=stable
-  rune cast my-directory/ --recursive
-  rune cast services/*.yaml
-  rune cast my-service.yml --force`,
-	Args:         cobra.MinimumNArgs(1),
-	SilenceUsage: true,
-	RunE:         runCast,
-}
-
-func init() {
-	rootCmd.AddCommand(castCmd)
-
-	// Local flags for the cast command
-	castCmd.Flags().StringVarP(&namespaceArg, "namespace", "n", "default", "Namespace to deploy the service in")
-	castCmd.Flags().StringVar(&tagArg, "tag", "", "Tag for this deployment (e.g., 'stable', 'canary')")
-	castCmd.Flags().BoolVar(&dryRunArg, "dry-run", false, "Validate the service definition without deploying it")
-	castCmd.Flags().BoolVar(&detachArg, "detach", false, "Detach from the deployment and return immediately")
-	castCmd.Flags().StringVar(&timeoutStrArg, "timeout", "5m", "Timeout for the wait operation")
-	castCmd.Flags().BoolVarP(&recursiveDirArg, "recursive", "r", false, "Recursively process directories")
-	castCmd.Flags().BoolVar(&forceGenerationArg, "force", false, "Force generation increment even if no changes are detected")
-
-	castCmd.Flags().StringVar(&clientAddrArg, "api-server", "", "Address of the API server")
-
-	// Runeset-related flags
-	castCmd.Flags().StringArrayVarP(&valuesFilesArg, "values", "f", []string{}, "Values file(s) to merge (repeatable; last wins)")
-	castCmd.Flags().StringArrayVar(&setValuesArg, "set", []string{}, "Set values on the command line (key=value; repeatable)")
-	castCmd.Flags().BoolVar(&renderOnlyArg, "render", false, "Render runeset casts and print to stdout without applying")
-	castCmd.Flags().StringVar(&releaseNameArg, "release", "", "Override release name used in context.releaseName")
-}
-
-// runCast is the main entry point for the cast command
-func runCast(cmd *cobra.Command, args []string) error {
-	// Parse timeout duration
-	timeout, err := time.ParseDuration(timeoutStrArg)
-	if err != nil {
-		return fmt.Errorf("invalid timeout value: %w", err)
-	}
-
-	// Delegate runeset/remote handling
-	if sourceType := getRunesetSourceType(args); sourceType != types.RunesetSourceTypeUnknown {
-		return handleRunesetCastSource(cmd, args, sourceType)
-	}
-
-	// Warn if runeset-only flags are set in non-runeset mode
-	if renderOnlyArg || len(valuesFilesArg) > 0 || len(setValuesArg) > 0 || releaseNameArg != "" {
-		fmt.Println("Note: runeset-specific flags (--render, --values, --set, --release) are ignored in non-runeset mode")
-	}
-
-	return runCastNonRuneset(args, timeout)
-}
-
-func runCastNonRuneset(args []string, timeout time.Duration) error {
-	startTime := time.Now()
-
-	// Fallback to existing behaviors (single files or arbitrary folders)
-	// Expand file paths (including directories and glob patterns)
-	filePaths, err := utils.ExpandFilePaths(args, recursiveDirArg)
-	if err != nil {
-		return err
-	}
-
-	if len(filePaths) == 0 {
-		return fmt.Errorf("no service files found")
-	}
-
-	// Print initial cast banner
-	printCastBanner(args, detachArg)
-
-	// Load, categorize, and validate resources using CastFile
-	resourceInfo, err := parseCastFilesResources(filePaths, args)
-	if err != nil {
-		return err
-	}
-
-	// If dry-run is enabled, we're done here
-	if dryRunArg {
-		fmt.Println("✅ Validation successful!")
-		fmt.Println("💬 Use without --dry-run to deploy.")
-		return nil
-	}
-
-	// Create API client
-	apiClient, err := newAPIClient(clientAddrArg, "")
-	if err != nil {
-		return fmt.Errorf("failed to connect to API server: %w", err)
-	}
-	defer apiClient.Close()
-
-	// Print deployment preparation
-	fmt.Println("🚀 Preparing deployment plan...")
-	fmt.Println()
-
-	// Deploy resources
-	deploymentResults, err := deployResources(apiClient, resourceInfo, timeout)
-	if err != nil {
-		return err
-	}
-
-	// Print summary based on deployment mode
-	if detachArg {
-		printDetachedModeSummary(deploymentResults, startTime)
-	} else {
-		printWatchModeSummary(deploymentResults, startTime)
-	}
-
-	// Capacity and allocation summary (single-node, best-effort)
-	if verbose {
-		if err := printCapacityAndAllocationSummary(apiClient, namespaceArg); err != nil {
-			// Non-fatal; log and continue
-			fmt.Println("Note: capacity/allocation summary unavailable:", err.Error())
-		}
-	}
-
-	return nil
+	valuesFiles []string
+	setValues   []string
+	renderOnly  bool
+	releaseName string
 }
 
 // ResourceInfo holds information about resources to be deployed
@@ -168,10 +43,148 @@ type ResourceInfo struct {
 	SourceArguments  []string
 }
 
+// DeploymentResult holds results of a deployment
+type DeploymentResult struct {
+	SuccessfulResources map[string][]string
+	FailedResources     map[string]string
+}
+
+// createCmd is the umbrella command for quick create
+func newCastCmd() *cobra.Command {
+	opts := &castOptions{}
+	cmd := &cobra.Command{
+		Use:     "cast [files, directories or runeset...]",
+		Short:   "Apply resources (services, secrets, configs)",
+		Aliases: []string{"apply"},
+		Long: `Deploy a service defined in a YAML file.
+	For example:
+	  rune cast my-service.yml
+	  rune cast my-service.yml --namespace=production
+	  rune cast my-service.yml --tag=stable
+	  rune cast my-directory/ --recursive
+	  rune cast services/*.yaml
+	  rune cast my-service.yml --force
+	  rune cast github.com/org/repo/path@ref --create-namespace
+	  rune cast https://example.com/runeset.tgz --release=my-release
+	  rune cast ./runeset.tgz --release=my-release
+	  rune cast ./runeset --render --set=key=value
+	  rune cast ./runeset --render --values=values.yaml`,
+		Args:         cobra.MinimumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCast(cmd.Context(), args, opts)
+		},
+	}
+
+	// Local flags for the cast command
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "default", "Namespace to deploy the service in")
+	cmd.Flags().StringVar(&opts.tag, "tag", "", "Tag for this deployment (e.g., 'stable', 'canary')")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Validate the service definition without deploying it")
+	cmd.Flags().BoolVar(&opts.detach, "detach", false, "Detach from the deployment and return immediately")
+	cmd.Flags().StringVar(&opts.timeoutStr, "timeout", "5m", "Timeout for the wait operation")
+	cmd.Flags().BoolVarP(&opts.recursiveDir, "recursive", "r", false, "Recursively process directories")
+	cmd.Flags().BoolVar(&opts.forceGeneration, "force", false, "Force generation increment even if no changes are detected")
+	cmd.Flags().BoolVar(&opts.createNamespace, "create-namespace", false, "Create the namespace if it doesn't exist")
+
+	// Runeset-related flags
+	cmd.Flags().StringArrayVarP(&opts.valuesFiles, "values", "f", []string{}, "Values file(s) to merge (repeatable; last wins)")
+	cmd.Flags().StringArrayVar(&opts.setValues, "set", []string{}, "Set values on the command line (key=value; repeatable)")
+	cmd.Flags().BoolVar(&opts.renderOnly, "render", false, "Render runeset casts and print to stdout without applying")
+	cmd.Flags().StringVar(&opts.releaseName, "release", "", "Override name used in runeset manifest")
+	return cmd
+}
+
+func init() { rootCmd.AddCommand(newCastCmd()) }
+
+func runCast(ctx context.Context, args []string, opts *castOptions) error {
+	// Parse timeout duration
+	timeout, err := time.ParseDuration(opts.timeoutStr)
+	if err != nil {
+		return fmt.Errorf("invalid timeout value: %w", err)
+	}
+
+	// Delegate runeset/remote handling
+	if sourceType := getRunesetSourceType(args); sourceType != types.RunesetSourceTypeUnknown {
+		return handleRunesetCastSource(args, sourceType, opts)
+	}
+
+	// Warn if runeset-only flags are set in non-runeset mode
+	if opts.renderOnly || len(opts.valuesFiles) > 0 || len(opts.setValues) > 0 || opts.releaseName != "" {
+		fmt.Println("Note: runeset-specific flags (--render, --values, --set, --release) are ignored in non-runeset mode")
+	}
+
+	return runCastNonRuneset(args, timeout, opts)
+}
+
+func runCastNonRuneset(args []string, timeout time.Duration, opts *castOptions) error {
+	startTime := time.Now()
+
+	// Fallback to existing behaviors (single files or arbitrary folders)
+	// Expand file paths (including directories and glob patterns)
+	filePaths, err := utils.ExpandFilePaths(args, opts.recursiveDir)
+	if err != nil {
+		return err
+	}
+
+	if len(filePaths) == 0 {
+		return fmt.Errorf("no service files found")
+	}
+
+	// Print initial cast banner
+	printCastBanner(args, opts.detach)
+
+	// Load, categorize, and validate resources using CastFile
+	resourceInfo, err := parseCastFilesResources(filePaths, args, opts)
+	if err != nil {
+		return err
+	}
+
+	// If dry-run is enabled, we're done here
+	if opts.dryRun {
+		fmt.Println("✅ Validation successful!")
+		fmt.Println("💬 Use without --dry-run to deploy.")
+		return nil
+	}
+
+	// Create API client
+	apiClient, err := newAPIClient("", "")
+	if err != nil {
+		return fmt.Errorf("failed to connect to API server: %w", err)
+	}
+	defer apiClient.Close()
+
+	// Print deployment preparation
+	fmt.Println("🚀 Preparing deployment plan...")
+	fmt.Println()
+
+	// Deploy resources
+	deploymentResults, err := deployResources(apiClient, resourceInfo, timeout, opts)
+	if err != nil {
+		return err
+	}
+
+	// Print summary based on deployment mode
+	if opts.detach {
+		printDetachedModeSummary(deploymentResults, startTime)
+	} else {
+		printWatchModeSummary(deploymentResults, startTime, opts)
+	}
+
+	// Capacity and allocation summary (single-node, best-effort)
+	if verbose {
+		if err := printCapacityAndAllocationSummary(apiClient, opts.namespace); err != nil {
+			// Non-fatal; log and continue
+			fmt.Println("Note: capacity/allocation summary unavailable:", err.Error())
+		}
+	}
+
+	return nil
+}
+
 // processResourceFiles loads, categorizes, and validates resources from files
 // parseCastFilesResources reads and validates cast files, returning discovered resources.
 // It collects errors across files and reports them in a consolidated form.
-func parseCastFilesResources(filePaths []string, sourceArgs []string) (*ResourceInfo, error) {
+func parseCastFilesResources(filePaths []string, sourceArgs []string, opts *castOptions) (*ResourceInfo, error) {
 	info := &ResourceInfo{
 		FilesByType:      make(map[string][]string),
 		ServicesByFile:   make(map[string][]*types.Service),
@@ -302,18 +315,12 @@ func parseCastFilesResources(filePaths []string, sourceArgs []string) (*Resource
 	}
 
 	// Print detected resources
-	printResourceInfo(info)
+	printResourceInfo(info, opts)
 
 	return info, nil
 }
 
-// DeploymentResult holds results of a deployment
-type DeploymentResult struct {
-	SuccessfulResources map[string][]string
-	FailedResources     map[string]string
-}
-
-func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.Duration) (*DeploymentResult, error) {
+func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.Duration, opts *castOptions) (*DeploymentResult, error) {
 	results := &DeploymentResult{
 		SuccessfulResources: make(map[string][]string),
 		FailedResources:     make(map[string]string),
@@ -330,20 +337,20 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 	}
 
 	// Deploy ConfigMaps and Secrets first, then Services
-	if err := deployConfigMaps(apiClient, info, results); err != nil {
+	if err := deployConfigMaps(apiClient, info, results, opts); err != nil {
 		return results, err
 	}
-	if err := deploySecrets(apiClient, info, results); err != nil {
+	if err := deploySecrets(apiClient, info, results, opts); err != nil {
 		return results, err
 	}
-	if err := deployServices(apiClient, info, results, timeout); err != nil {
+	if err := deployServices(apiClient, info, results, timeout, opts); err != nil {
 		return results, err
 	}
 
 	return results, nil
 }
 
-func deployServices(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, timeout time.Duration) error {
+func deployServices(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, timeout time.Duration, opts *castOptions) error {
 	serviceClient := client.NewServiceClient(apiClient)
 	// Calculate actual resource count safely
 	resourceCount := 0
@@ -376,7 +383,7 @@ func deployServices(apiClient *client.Client, info *ResourceInfo, results *Deplo
 			fmt.Print(strings.Repeat(".", 25-len(service.Name)))
 
 			// Deploy the service; server handles update-on-exists
-			if err := serviceClient.CreateService(service); err != nil {
+			if err := serviceClient.CreateService(service, opts.createNamespace); err != nil {
 				fmt.Println(" ❌")
 				results.FailedResources[service.Name] = err.Error()
 				return fmt.Errorf("failed to apply service %s: %w", service.Name, err)
@@ -387,7 +394,7 @@ func deployServices(apiClient *client.Client, info *ResourceInfo, results *Deplo
 			results.SuccessfulResources[resourceType] = append(results.SuccessfulResources[resourceType], service.Name)
 
 			// If detach is not enabled, wait for the service to be ready
-			if !detachArg {
+			if !opts.detach {
 				fmt.Printf("    Waiting for service to be ready...")
 				if err := waitForServiceReady(serviceClient, service.Namespace, service.Name, timeout); err != nil {
 					fmt.Println(" ❌")
@@ -401,7 +408,7 @@ func deployServices(apiClient *client.Client, info *ResourceInfo, results *Deplo
 	return nil
 }
 
-func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult) error {
+func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, opts *castOptions) error {
 	secretClient := client.NewSecretClient(apiClient)
 	// Calculate actual resource count safely
 	resourceCount := 0
@@ -420,12 +427,12 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 		for _, secret := range secrets {
 			resourceIndex++
 			if secret.Namespace == "" {
-				secret.Namespace = namespaceArg
+				secret.Namespace = opts.namespace
 			}
 			fmt.Printf("  [%d/%d] Creating Secret \"%s\" ", resourceIndex, resourceCount, format.Highlight(secret.Name))
 			fmt.Print(strings.Repeat(".", 25-len(secret.Name)))
 
-			if err := secretClient.CreateSecret(secret); err != nil {
+			if err := secretClient.CreateSecret(secret, opts.createNamespace); err != nil {
 				if uerr := secretClient.UpdateSecret(secret, true); uerr != nil {
 					fmt.Println(" ❌")
 					results.FailedResources[secret.Name] = uerr.Error()
@@ -439,7 +446,7 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 	return nil
 }
 
-func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult) error {
+func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, opts *castOptions) error {
 	configClient := client.NewConfigMapClient(apiClient)
 	// Calculate actual resource count safely
 	resourceCount := 0
@@ -458,11 +465,11 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 		for _, configMap := range configMaps {
 			resourceIndex++
 			if configMap.Namespace == "" {
-				configMap.Namespace = namespaceArg
+				configMap.Namespace = opts.namespace
 			}
 			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
 			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))
-			if err := configClient.CreateConfigMap(configMap); err != nil {
+			if err := configClient.CreateConfigMap(configMap, opts.createNamespace); err != nil {
 				if uerr := configClient.UpdateConfigMap(configMap); uerr != nil {
 					fmt.Println(" ❌")
 					results.FailedResources[configMap.Name] = uerr.Error()
@@ -490,7 +497,7 @@ func printCastBanner(args []string, isDetached bool) {
 }
 
 // printResourceInfo displays information about detected resources
-func printResourceInfo(info *ResourceInfo) {
+func printResourceInfo(info *ResourceInfo, opts *castOptions) {
 	// Print detected resources
 	fmt.Printf("- Detected %d resources:\n", info.TotalResources)
 	for resourceType, files := range info.FilesByType {
@@ -499,13 +506,13 @@ func printResourceInfo(info *ResourceInfo) {
 		}
 	}
 
-	fmt.Println("- Namespace:", format.Highlight(namespaceArg))
+	fmt.Println("- Namespace:", format.Highlight(opts.namespace))
 
-	targetDisplay := getTargetRuneServer(clientAddrArg)
+	targetDisplay := getTargetRuneServer()
 	fmt.Printf("- Target: %s (%s)\n", format.Highlight(targetDisplay), targetDisplay)
 	fmt.Println()
 
-	if dryRunArg {
+	if opts.dryRun {
 		fmt.Println("🧪 Running in dry-run mode (validation only)")
 	}
 }
@@ -532,7 +539,7 @@ func printDetachedModeSummary(results *DeploymentResult, startTime time.Time) {
 }
 
 // printWatchModeSummary prints a summary for watch mode
-func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
+func printWatchModeSummary(results *DeploymentResult, startTime time.Time, opts *castOptions) {
 	fmt.Println("✅ Successfully deployed:")
 
 	// Show resources with endpoints where applicable
@@ -541,9 +548,9 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time) {
 			endpoint := ""
 			switch resourceType {
 			case "Service":
-				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, namespaceArg)
+				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
 			case "Function":
-				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, namespaceArg)
+				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
 			}
 			fmt.Printf("- %s: %s%s\n", resourceType, name, endpoint)
 		}

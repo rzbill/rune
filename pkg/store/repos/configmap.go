@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 type ConfigRepo struct {
@@ -44,6 +45,11 @@ func (r *ConfigRepo) Create(ctx context.Context, ref string, c *types.ConfigMap)
 	if err != nil {
 		return err
 	}
+
+	if err := utils.ValidateDNS1123Name(c.Name); err != nil {
+		return fmt.Errorf("configmap name validation failed: %w", err)
+	}
+
 	if err := r.validateConfigData(c.Data); err != nil {
 		return err
 	}
@@ -64,43 +70,29 @@ func (r *ConfigRepo) Create(ctx context.Context, ref string, c *types.ConfigMap)
 	return r.base.Create(ctx, pr.Namespace, name, c)
 }
 
-func (r *ConfigRepo) Get(ctx context.Context, ref string) (*types.ConfigMap, error) {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return nil, err
-	}
-	return r.base.Get(ctx, pr.Namespace, pr.Name)
+func (r *ConfigRepo) Get(ctx context.Context, namespace, name string) (*types.ConfigMap, error) {
+	return r.base.Get(ctx, namespace, name)
 }
 
-func (r *ConfigRepo) Update(ctx context.Context, ref string, c *types.ConfigMap, opts ...store.UpdateOption) error {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return err
-	}
+func (r *ConfigRepo) Update(ctx context.Context, namespace, name string, c *types.ConfigMap, opts ...store.UpdateOption) error {
 	if err := r.validateConfigData(c.Data); err != nil {
 		return err
 	}
-	name := c.Name
-	if name == "" {
-		name = pr.Name
-	}
+
 	// Fetch current to compute next version and preserve creation time
-	cur, err := r.base.Get(ctx, pr.Namespace, name)
+	cur, err := r.base.Get(ctx, namespace, name)
 	if err != nil {
 		return err
 	}
+
 	c.CreatedAt = cur.CreatedAt
 	c.UpdatedAt = time.Now()
 	c.Version = cur.Version + 1
-	return r.base.Update(ctx, pr.Namespace, name, c, opts...)
+	return r.base.Update(ctx, namespace, name, c, opts...)
 }
 
-func (r *ConfigRepo) Delete(ctx context.Context, ref string) error {
-	pr, err := types.ParseResourceRef(ref)
-	if err != nil {
-		return err
-	}
-	return r.base.Delete(ctx, pr.Namespace, pr.Name)
+func (r *ConfigRepo) Delete(ctx context.Context, namespace, name string) error {
+	return r.base.Delete(ctx, namespace, name)
 }
 
 func (r *ConfigRepo) validateConfigData(data map[string]string) error {

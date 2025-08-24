@@ -14,6 +14,7 @@ import (
 	"github.com/rzbill/rune/pkg/orchestrator"
 	"github.com/rzbill/rune/pkg/runner/manager"
 	"github.com/rzbill/rune/pkg/store"
+	"github.com/rzbill/rune/pkg/store/repos"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/rzbill/rune/pkg/utils"
 	"google.golang.org/grpc/codes"
@@ -29,14 +30,16 @@ const (
 type ServiceService struct {
 	generated.UnimplementedServiceServiceServer
 
+	namespaceRepo *repos.NamespaceRepo
 	orchestrator  orchestrator.Orchestrator
 	runnerManager *manager.RunnerManager
 	logger        log.Logger
 }
 
 // NewServiceService creates a new ServiceService with the given orchestrator and logger.
-func NewServiceService(orchestrator orchestrator.Orchestrator, runnerManager *manager.RunnerManager, logger log.Logger) *ServiceService {
+func NewServiceService(store store.Store, orchestrator orchestrator.Orchestrator, runnerManager *manager.RunnerManager, logger log.Logger) *ServiceService {
 	return &ServiceService{
+		namespaceRepo: repos.NewNamespaceRepo(store),
 		orchestrator:  orchestrator,
 		runnerManager: runnerManager,
 		logger:        logger,
@@ -62,9 +65,10 @@ func (s *ServiceService) CreateService(ctx context.Context, req *generated.Creat
 		service.ID = uuid.New().String()
 	}
 
-	// Set namespace to default if not provided
-	if service.Namespace == "" {
-		service.Namespace = DefaultNamespace
+	// Set namespace to default if not provided and validate that it exists
+	service.Namespace = types.NS(service.Namespace)
+	if err := ensureNamespaceExists(ctx, s.namespaceRepo, service.Namespace, req.EnsureNamespace); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "failed to ensure namespace exists: %v", err)
 	}
 
 	//Set Metadata with initial generation, creation and update times

@@ -7,6 +7,7 @@ import (
 
 	"github.com/rzbill/rune/pkg/store"
 	"github.com/rzbill/rune/pkg/types"
+	"github.com/rzbill/rune/pkg/utils"
 )
 
 type ServiceRepo struct {
@@ -31,6 +32,11 @@ func (r *ServiceRepo) Create(ctx context.Context, s *types.Service) error {
 	if s == nil || s.Name == "" || s.Namespace == "" {
 		return fmt.Errorf("invalid service")
 	}
+
+	if err := utils.ValidateDNS1123Name(s.Name); err != nil {
+		return fmt.Errorf("service name validation failed: %w", err)
+	}
+
 	if err := s.Validate(); err != nil {
 		return fmt.Errorf("service validation failed: %w", err)
 	}

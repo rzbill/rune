@@ -49,7 +49,7 @@ func newAdminTokenCreateCmd() *cobra.Command {
 			if err := os.WriteFile(outFile, []byte(resp.Secret), 0o600); err != nil {
 				return fmt.Errorf("failed to write token to %s: %w", outFile, err)
 			}
-			fmt.Printf("Token created: id=%s name=%s namespace=%s written to %s\n", resp.Id, resp.Name, resp.Namespace, outFile)
+			fmt.Printf("Token created: id=%s name=%s written to %s\n", resp.Id, resp.Name, outFile)
 			return nil
 		},
 	}
@@ -64,7 +64,7 @@ func newAdminTokenCreateCmd() *cobra.Command {
 }
 
 func newAdminTokenRevokeCmd() *cobra.Command {
-	var namespace, name string
+	var tokenIdArg string
 	cmd := &cobra.Command{
 		Use:   "revoke",
 		Short: "Revoke a token",
@@ -76,7 +76,7 @@ func newAdminTokenRevokeCmd() *cobra.Command {
 			defer api.Close()
 
 			ac := generated.NewAuthServiceClient(api.Conn())
-			resp, err := ac.RevokeToken(context.Background(), &generated.RevokeTokenRequest{Namespace: namespace, Name: name})
+			resp, err := ac.RevokeToken(context.Background(), &generated.RevokeTokenRequest{Id: tokenIdArg})
 			if err != nil {
 				return err
 			}
@@ -87,8 +87,7 @@ func newAdminTokenRevokeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&namespace, "namespace", "system", "Namespace")
-	cmd.Flags().StringVar(&name, "name", "", "Token name")
+	cmd.Flags().StringVar(&tokenIdArg, "id", "", "Token ID")
 	return cmd
 }
 
@@ -121,7 +120,7 @@ func newAdminTokenListCmd() *cobra.Command {
 					exp = time.Unix(t.ExpiresAt, 0).Format(time.RFC3339)
 				}
 				issued := time.Unix(t.IssuedAt, 0).Format(time.RFC3339)
-				fmt.Printf("%s\t%s\t%s\t%s\t%s\trevoked=%v\n", t.Namespace, t.Name, t.SubjectId, issued, exp, t.Revoked)
+				fmt.Printf("%s\t%s\t%s\t%s\trevoked=%v\n", t.Name, t.SubjectId, issued, exp, t.Revoked)
 			}
 			return nil
 		},

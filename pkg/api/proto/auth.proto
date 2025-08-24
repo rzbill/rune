@@ -13,21 +13,20 @@ message WhoAmIResponse {
 message CreateTokenRequest {
   string name = 1;
   string subject_id = 2;
-  string subject_type = 3; // user|service
-  repeated string policies = 4; // repurposed to carry default policies on auto-create
-  int64 ttl_seconds = 5; // 0 for no expiry
-  string description = 6;
+  string subject_name = 3;
+  string subject_type = 4; // user|service
+  repeated string policies = 5; // repurposed to carry default policies on auto-create
+  int64 ttl_seconds = 6; // 0 for no expiry
+  string description = 7;
 }
 message CreateTokenResponse {
   string id = 1;
   string name = 2;
-  string namespace = 3;
-  string secret = 4; // returned once
+  string secret = 3; // returned once
 }
 
 message RevokeTokenRequest {
-  string namespace = 1;
-  string name = 2;
+  string id = 1;
 }
 message RevokeTokenResponse {
   bool revoked = 1;

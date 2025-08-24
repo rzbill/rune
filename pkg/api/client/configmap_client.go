@@ -31,11 +31,12 @@ func NewConfigMapClient(client *Client) *ConfigMapClient {
 func (c *ConfigMapClient) GetLogger() log.Logger { return c.logger }
 
 // CreateConfig creates a new configmap on the API server.
-func (c *ConfigMapClient) CreateConfigMap(configmap *types.ConfigMap) error {
+func (c *ConfigMapClient) CreateConfigMap(configmap *types.ConfigMap, ensureNamespace bool) error {
 	c.logger.Debug("Creating configmap", log.Str("name", configmap.Name), log.Str("namespace", configmap.Namespace))
 
 	req := &generated.CreateConfigMapRequest{
-		ConfigMap: c.configToProto(configmap),
+		ConfigMap:       c.configToProto(configmap),
+		EnsureNamespace: ensureNamespace,
 	}
 
 	ctx, cancel := c.client.Context()
