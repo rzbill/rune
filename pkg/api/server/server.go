@@ -264,10 +264,7 @@ func (s *APIServer) rbacUnaryInterceptor() grpc.UnaryServerInterceptor {
 		if !s.options.EnableAuth {
 			return handler(ctx, req)
 		}
-		// Allow WhoAmI to pass RBAC for login verification
-		if info.FullMethod == "/rune.api.AuthService/WhoAmI" {
-			return handler(ctx, req)
-		}
+
 		// Require authenticated subject, except bootstrap which is already allowed above
 		if info.FullMethod == "/rune.api.AdminService/AdminBootstrap" {
 			return handler(ctx, req)
