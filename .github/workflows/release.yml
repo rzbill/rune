@@ -3,7 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'           # Stable releases (v1.0.0, v1.2.3)
+      - 'v*.*.*-*'         # Pre-releases (v1.0.0-dev.1, v1.0.0-alpha.1, v1.0.0-beta.1, v1.0.0-rc.1)
 
 jobs:
   build-release:
@@ -17,26 +18,35 @@ jobs:
         with:
           go-version: '1.22.x'
           check-latest: true
+      - name: Determine release type
+        id: release-type
+        run: |
+          if [[ "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "type=stable" >> $GITHUB_OUTPUT
+            echo "is-prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "type=prerelease" >> $GITHUB_OUTPUT
+            echo "is-prerelease=true" >> $GITHUB_OUTPUT
+          fi
+          echo "Release type: ${{ steps.release-type.outputs.type }}"
+          echo "Is prerelease: ${{ steps.release-type.outputs.is-prerelease }}"
       - name: Build all platforms
         run: |
           # Build for all target platforms using Makefile
-          make build GOOS=linux GOARCH=amd64
-          make build GOOS=linux GOARCH=arm64
-          make build GOOS=darwin GOARCH=amd64
-          make build GOOS=darwin GOARCH=arm64
+          make build-all
           
           # Create dist directories and copy binaries
           mkdir -p dist/linux_amd64 dist/linux_arm64 dist/darwin_amd64 dist/darwin_arm64
           
           # Copy Linux binaries
-          cp bin/rune dist/linux_amd64/
-          cp bin/runed dist/linux_amd64/
-          cp bin/rune dist/linux_arm64/
-          cp bin/runed dist/linux_arm64/
+          cp bin/linux_amd64/rune dist/linux_amd64/
+          cp bin/linux_amd64/runed dist/linux_amd64/
+          cp bin/linux_arm64/rune dist/linux_arm64/
+          cp bin/linux_arm64/runed dist/linux_arm64/
           
           # Copy macOS binaries (CLI only for now)
-          cp bin/rune dist/darwin_amd64/
-          cp bin/rune dist/darwin_arm64/
+          cp bin/darwin_amd64/rune dist/darwin_amd64/
+          cp bin/darwin_arm64/rune dist/darwin_arm64/
           
           # List built binaries
           echo "Built binaries:"
@@ -65,6 +75,7 @@ jobs:
             dist/rune-cli_darwin_amd64.tar.gz
             dist/rune-cli_darwin_arm64.tar.gz
             dist/checksums.txt
+          prerelease: ${{ steps.release-type.outputs.is-prerelease }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

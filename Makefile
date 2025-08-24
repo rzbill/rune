@@ -1,4 +1,4 @@
-.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test-unit test-integration coverage-unit coverage help
+.PHONY: build test lint clean setup dev generate proto proto-tools docs docker install coverage-report coverage-summary test-unit test-integration coverage-unit coverage help build-all build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
 
 # Tools and paths
 GO ?= go
@@ -8,8 +8,10 @@ BIN_DIR ?= bin
 BINARY_NAME = rune
 VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
 BUILD_TIME = $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+COMMIT = $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 LDFLAGS = -X github.com/rzbill/rune/pkg/version.Version=$(VERSION) \
-          -X github.com/rzbill/rune/pkg/version.BuildTime=$(BUILD_TIME)
+          -X github.com/rzbill/rune/pkg/version.BuildTime=$(BUILD_TIME) \
+          -X github.com/rzbill/rune/pkg/version.Commit=$(COMMIT)
 
 # Coverage files
 UNIT_COVERAGE = coverage_unit.out
@@ -20,13 +22,57 @@ THRESHOLD ?= $(or $(COVERAGE_THRESHOLD),23)
 # Default goal
 .DEFAULT_GOAL := build
 
-## Build binaries
+## Build binaries for current platform
 build:
-	@echo "Building $(BINARY_NAME)..."
+	@echo "Building $(BINARY_NAME) for current platform..."
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) ./cmd/rune
 	@$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME)d ./cmd/runed
 	@echo "Build completed!"
+
+## Build all platforms for release
+build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
+	@echo "All platform builds completed!"
+
+## Build for Linux AMD64
+build-linux-amd64:
+	@echo "Building $(BINARY_NAME) for Linux AMD64..."
+	@mkdir -p $(BIN_DIR)/linux_amd64
+	@GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/linux_amd64/$(BINARY_NAME) ./cmd/rune
+	@GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/linux_amd64/$(BINARY_NAME)d ./cmd/runed
+	@echo "Linux AMD64 build completed!"
+
+## Build for Linux ARM64
+build-linux-arm64:
+	@echo "Building $(BINARY_NAME) for Linux ARM64..."
+	@mkdir -p $(BIN_DIR)/linux_arm64
+	@GOOS=linux GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/linux_arm64/$(BINARY_NAME) ./cmd/rune
+	@GOOS=linux GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/linux_arm64/$(BINARY_NAME)d ./cmd/runed
+	@echo "Linux ARM64 build completed!"
+
+## Build for macOS AMD64
+build-darwin-amd64:
+	@echo "Building $(BINARY_NAME) for macOS AMD64..."
+	@mkdir -p $(BIN_DIR)/darwin_amd64
+	@GOOS=darwin GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/darwin_amd64/$(BINARY_NAME) ./cmd/rune
+	@echo "macOS AMD64 build completed!"
+
+## Build for macOS ARM64
+build-darwin-arm64:
+	@echo "Building $(BINARY_NAME) for macOS ARM64..."
+	@mkdir -p $(BIN_DIR)/darwin_arm64
+	@GOOS=darwin GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/darwin_arm64/$(BINARY_NAME) ./cmd/rune
+	@echo "macOS ARM64 build completed!"
+
+## Build for specific platform (usage: make build-platform GOOS=linux GOARCH=amd64)
+build-platform:
+	@echo "Building $(BINARY_NAME) for $(GOOS)/$(GOARCH)..."
+	@mkdir -p $(BIN_DIR)/$(GOOS)_$(GOARCH)
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(GOOS)_$(GOARCH)/$(BINARY_NAME) ./cmd/rune
+	@if [ "$(GOOS)" = "linux" ]; then \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(GOOS)_$(GOARCH)/$(BINARY_NAME)d ./cmd/runed; \
+	fi
+	@echo "$(GOOS)/$(GOARCH) build completed!"
 
 ## Install binaries to GOPATH/bin
 install: build
@@ -166,7 +212,13 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Build:"
-	@echo "  build             Build binaries"
+	@echo "  build             Build binaries for current platform"
+	@echo "  build-all         Build for all platforms (Linux AMD64/ARM64, macOS AMD64/ARM64)"
+	@echo "  build-linux-amd64 Build for Linux AMD64"
+	@echo "  build-linux-arm64 Build for Linux ARM64"
+	@echo "  build-darwin-amd64 Build for macOS AMD64"
+	@echo "  build-darwin-arm64 Build for macOS ARM64"
+	@echo "  build-platform    Build for specific platform (usage: make build-platform GOOS=linux GOARCH=amd64)"
 	@echo "  install           Build and install to GOPATH/bin"
 	@echo ""
 	@echo "Testing:"
