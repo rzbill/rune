@@ -92,12 +92,12 @@ install_from_release() {
 }
 
 install_from_source() {
+  if ! command -v git >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+    install_dev_tools
+  fi
+
   if ! command -v go >/dev/null 2>&1; then
     install_go
-  fi
-  
-  if ! command -v git >/dev/null 2>&1; then
-    install_git
   fi
   
   log "Building Rune CLI from source"
@@ -165,37 +165,46 @@ install_go() {
   rm -rf "$tmp"
 }
 
-install_git() {
-  log "Installing Git"
+install_dev_tools() {
+  log "Installing Development Tools (Git, Make, etc.)"
   
   if [ "$(id -u)" -eq 0 ]; then
-    # Detect OS and install Git
+    # Detect OS and install Development Tools
     if command -v apt-get >/dev/null 2>&1; then
       # Debian/Ubuntu
       apt-get update -y
-      apt-get install -y git
+      apt-get install -y build-essential git
     elif command -v yum >/dev/null 2>&1; then
       # RHEL/CentOS/Amazon Linux
-      yum install -y git
+      yum update -y || true
+      yum groupinstall -y "Development Tools" || yum install -y git make
     elif command -v dnf >/dev/null 2>&1; then
       # Fedora/RHEL 8+
-      dnf install -y git
+      dnf update -y || true
+      dnf groupinstall -y "Development Tools" || dnf install -y git make
     elif command -v brew >/dev/null 2>&1; then
       # macOS with Homebrew
-      brew install git
+      brew install git make
     else
-      die "Could not detect package manager. Please install Git manually and try again"
+      die "Could not detect package manager. Please install Git and Make manually and try again"
     fi
   else
-    die "Git installation requires root privileges. Please install Git manually or run with sudo"
+    die "Development tools installation requires root privileges. Please install them manually or run with sudo"
   fi
   
-  # Verify installation
-  if ! command -v git >/dev/null 2>&1; then
-    die "Git installation failed"
+  # Verify key tools are available
+  local missing_tools=""
+  for tool in git make; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      missing_tools="$missing_tools $tool"
+    fi
+  done
+  
+  if [ -n "$missing_tools" ]; then
+    die "Installation incomplete. Missing tools:$missing_tools"
   fi
   
-  log "Git installed successfully"
+  log "Development tools installed successfully"
 }
 
 verify_installation() {
