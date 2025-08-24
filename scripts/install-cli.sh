@@ -100,6 +100,15 @@ install_from_source() {
     install_go
   fi
   
+  # Ensure module cache env in non-interactive shells
+  if [ -z "${HOME:-}" ]; then
+    export HOME=/root
+  fi
+  export GOPATH="${GOPATH:-$HOME/go}"
+  export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
+  go env -w GOPATH="$GOPATH" >/dev/null 2>&1 || true
+  go env -w GOMODCACHE="$GOMODCACHE" >/dev/null 2>&1 || true
+  
   log "Building Rune CLI from source"
   local src=/tmp/rune-cli-build
   rm -rf "$src"
