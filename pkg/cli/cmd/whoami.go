@@ -37,7 +37,22 @@ func newWhoAmICmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("Server: %s\nDefault Namespace: %s\nSubject: %s\nToken: %s\n", server, ns, resp.SubjectId, maskToken(token))
+			// Display user information with enhanced details
+			fmt.Printf("Server: %s\nDefault Namespace: %s\nSubject ID: %s\n", server, ns, resp.SubjectId)
+
+			if resp.SubjectName != "" {
+				fmt.Printf("Name: %s\n", resp.SubjectName)
+			}
+
+			if resp.SubjectEmail != "" {
+				fmt.Printf("Email: %s\n", resp.SubjectEmail)
+			}
+
+			if len(resp.Policies) > 0 {
+				fmt.Printf("Policies: %v\n", resp.Policies)
+			}
+
+			fmt.Printf("Token: %s\n", maskToken(token))
 			return nil
 		},
 	}

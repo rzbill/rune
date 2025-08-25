@@ -7,7 +7,9 @@ option go_package = "github.com/rzbill/rune/pkg/api/generated";
 message WhoAmIRequest {}
 message WhoAmIResponse {
   string subject_id = 1;
-  repeated string policies = 2;
+  string subject_name = 2;  // User's display name
+  string subject_email = 3; // User's email address
+  repeated string policies = 4;
 }
 
 message CreateTokenRequest {

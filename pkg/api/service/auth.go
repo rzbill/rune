@@ -40,23 +40,49 @@ func NewAuthService(st store.Store, logger log.Logger) *AuthService {
 // AuthService implementation
 func (s *AuthService) WhoAmI(ctx context.Context, _ *generated.WhoAmIRequest) (*generated.WhoAmIResponse, error) {
 	resp := &generated.WhoAmIResponse{}
+
 	// Re-extract bearer and look up token to avoid relying on server context types
 	if token, err := grpc_auth.AuthFromMD(ctx, "bearer"); err == nil {
 		if tok, err2 := s.tokenRepo.FindBySecret(ctx, token); err2 == nil {
 			resp.SubjectId = tok.SubjectID
+
+			// Look up the actual subject details based on SubjectType
+			switch tok.SubjectType {
+			case "user":
+				// Look up user details
+				if user, err := s.userRepo.GetByNameOrID(ctx, tok.SubjectID); err == nil {
+					resp.SubjectName = user.Name
+					resp.SubjectEmail = user.Email
+					resp.Policies = user.Policies
+				} else {
+					s.logger.Warn("Failed to look up user details", log.F("subject_id", tok.SubjectID), log.Err(err))
+				}
+
+			case "service":
+				// TODO: Implement service lookup when service types are added
+				// For now, just set the subject name from token name
+				resp.SubjectName = tok.Name
+				s.logger.Debug("Service token detected, service lookup not yet implemented", log.F("subject_id", tok.SubjectID))
+
+			default:
+				s.logger.Warn("Unknown subject type", log.F("subject_type", tok.SubjectType), log.F("subject_id", tok.SubjectID))
+			}
 		}
 	}
+
 	return resp, nil
 }
 
 func (s *AuthService) CreateToken(ctx context.Context, req *generated.CreateTokenRequest) (*generated.CreateTokenResponse, error) {
-	// Determine subject type (users only for MVP)
+	// Determine subject type (users only for MVP, services planned for future)
 	subjectType := req.SubjectType
 	if subjectType == "" {
 		subjectType = "user"
 	}
+
+	// TODO: Implement service token creation when service types are added
 	if subjectType != "user" {
-		return nil, fmt.Errorf("invalid subject-type: %s (only 'user' supported)", subjectType)
+		return nil, fmt.Errorf("invalid subject-type: %s (only 'user' supported for now, service support planned)", subjectType)
 	}
 
 	// Resolve identifier for subject: prefer SubjectId, else use subject name or token name
