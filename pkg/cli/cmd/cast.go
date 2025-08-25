@@ -77,7 +77,7 @@ func newCastCmd() *cobra.Command {
 	}
 
 	// Local flags for the cast command
-	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "default", "Namespace to deploy the service in")
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace to deploy the service in (overrides existing namespace if specified)")
 	cmd.Flags().StringVar(&opts.tag, "tag", "", "Tag for this deployment (e.g., 'stable', 'canary')")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Validate the service definition without deploying it")
 	cmd.Flags().BoolVar(&opts.detach, "detach", false, "Detach from the deployment and return immediately")
@@ -172,6 +172,7 @@ func runCastNonRuneset(args []string, timeout time.Duration, opts *castOptions) 
 
 	// Capacity and allocation summary (single-node, best-effort)
 	if verbose {
+		// Pass namespace for capacity summary (empty string means all namespaces)
 		if err := printCapacityAndAllocationSummary(apiClient, opts.namespace); err != nil {
 			// Non-fatal; log and continue
 			fmt.Println("Note: capacity/allocation summary unavailable:", err.Error())
@@ -369,6 +370,11 @@ func deployServices(apiClient *client.Client, info *ResourceInfo, results *Deplo
 		for _, service := range services {
 			resourceIndex++
 
+			// Override namespace if specified in command line options
+			if opts.namespace != "" {
+				service.Namespace = opts.namespace
+			}
+
 			// Determine resource type for display
 			resourceType := "Service"
 
@@ -426,9 +432,12 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 	for _, secrets := range info.SecretsByFile {
 		for _, secret := range secrets {
 			resourceIndex++
-			if secret.Namespace == "" {
+
+			// Override namespace if specified in command line options
+			if opts.namespace != "" {
 				secret.Namespace = opts.namespace
 			}
+
 			fmt.Printf("  [%d/%d] Creating Secret \"%s\" ", resourceIndex, resourceCount, format.Highlight(secret.Name))
 			fmt.Print(strings.Repeat(".", 25-len(secret.Name)))
 
@@ -464,9 +473,12 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 	for _, configMaps := range info.ConfigMapsByFile {
 		for _, configMap := range configMaps {
 			resourceIndex++
-			if configMap.Namespace == "" {
+
+			// Override namespace if specified in command line options
+			if opts.namespace != "" {
 				configMap.Namespace = opts.namespace
 			}
+
 			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
 			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))
 			if err := configClient.CreateConfigMap(configMap, opts.createNamespace); err != nil {
@@ -506,7 +518,11 @@ func printResourceInfo(info *ResourceInfo, opts *castOptions) {
 		}
 	}
 
-	fmt.Println("- Namespace:", format.Highlight(opts.namespace))
+	if opts.namespace != "" {
+		fmt.Println("- Namespace:", format.Highlight(opts.namespace))
+	} else {
+		fmt.Println("- Namespace:", format.Highlight("from resource definition"))
+	}
 
 	targetDisplay := getTargetRuneServer()
 	fmt.Printf("- Target: %s (%s)\n", format.Highlight(targetDisplay), targetDisplay)
@@ -548,9 +564,17 @@ func printWatchModeSummary(results *DeploymentResult, startTime time.Time, opts 
 			endpoint := ""
 			switch resourceType {
 			case "Service":
-				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
+				if opts.namespace != "" {
+					endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
+				} else {
+					endpoint = " (endpoint: namespace from resource definition)"
+				}
 			case "Function":
-				endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
+				if opts.namespace != "" {
+					endpoint = fmt.Sprintf(" (endpoint: http://%s.%s.rune)", name, opts.namespace)
+				} else {
+					endpoint = " (endpoint: namespace from resource definition)"
+				}
 			}
 			fmt.Printf("- %s: %s%s\n", resourceType, name, endpoint)
 		}
@@ -594,7 +618,15 @@ func printCapacityAndAllocationSummary(apiClient *client.Client, namespace strin
 
 	// Sum allocated (Requests) across active instances in the namespace
 	instClient := client.NewInstanceClient(apiClient)
-	instances, err := instClient.ListInstances(namespace, "", "", "")
+
+	// Handle empty namespace - list instances from all namespaces
+	var instances []*types.Instance
+	if namespace != "" {
+		instances, err = instClient.ListInstances(namespace, "", "", "")
+	} else {
+		instances, err = instClient.ListInstances("", "", "", "")
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to list instances: %w", err)
 	}
