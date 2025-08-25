@@ -17,7 +17,7 @@ type Service struct {
 	// Unique identifier for the service
 	ID string `json:"id" yaml:"id"`
 
-	// Human-readable name for the service (DNS-1123 unique name within a namespace)
+	// Human-readable name for the service // DNS-1123 unique name within a namespace
 	Name string `json:"name" yaml:"name"`
 
 	// Namespace the service belongs to

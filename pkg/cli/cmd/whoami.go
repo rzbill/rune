@@ -13,7 +13,7 @@ import (
 
 // whoamiOutput represents the structured output for whoami command
 type whoamiOutput struct {
-	Context          string   `json:"context" yaml:"context"`
+	CurrentContext   string   `json:"currentContext" yaml:"currentContext"`
 	Server           string   `json:"server" yaml:"server"`
 	DefaultNamespace string   `json:"defaultNamespace" yaml:"defaultNamespace"`
 	Token            string   `json:"token" yaml:"token"`
@@ -48,7 +48,7 @@ func newWhoAmICmd() *cobra.Command {
 
 			// Prepare output structure
 			output := &whoamiOutput{
-				Context:          currentContext,
+				CurrentContext:   currentContext,
 				Server:           server,
 				DefaultNamespace: ns,
 				Token:            maskToken(token),
@@ -65,7 +65,7 @@ func newWhoAmICmd() *cobra.Command {
 				}
 
 				// Default table output
-				fmt.Printf("Current Context: %s\n", output.Context)
+				fmt.Printf("Current Context: %s\n", output.CurrentContext)
 				fmt.Printf("Server: %s\n", output.Server)
 				fmt.Printf("Default Namespace: %s\n", output.DefaultNamespace)
 				fmt.Printf("Token: %s\n", output.Token)
@@ -88,7 +88,7 @@ func newWhoAmICmd() *cobra.Command {
 				}
 
 				// Default table output
-				fmt.Printf("Current Context: %s\n", output.Context)
+				fmt.Printf("Current Context: %s\n", output.CurrentContext)
 				fmt.Printf("Server: %s\n", output.Server)
 				fmt.Printf("Default Namespace: %s\n", output.DefaultNamespace)
 				fmt.Printf("Token: %s\n", output.Token)
@@ -122,7 +122,7 @@ func newWhoAmICmd() *cobra.Command {
 			}
 
 			// Default table output
-			fmt.Printf("Current Context: %s\n", output.Context)
+			fmt.Printf("Current Context: %s\n", output.CurrentContext)
 			fmt.Printf("Server: %s\n", output.Server)
 			fmt.Printf("Default Namespace: %s\n", output.DefaultNamespace)
 			fmt.Printf("Token: %s\n", output.Token)

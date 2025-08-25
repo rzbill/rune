@@ -19,6 +19,8 @@ type CastFile struct {
 	lineInfo map[string]int `json:"-" yaml:"-"`
 	// Template references extracted during preprocessing
 	templateMap map[string]string `json:"-" yaml:"-"`
+	// Collection of parsing errors (not serialized)
+	parseErrors []error `json:"-" yaml:"-"`
 }
 
 // ParseCastFile reads and parses a cast file, handling template syntax
@@ -128,52 +130,67 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 		val := node.Content[i+1]
 		if key.Value == "service" && val.Kind == yaml.MappingNode {
 			var spec ServiceSpec
-			if b, err := yaml.Marshal(val); err == nil {
-				if err := yaml.Unmarshal(b, &spec); err == nil {
-					spec.rawNode = val
-					// Restore template references in environment variables
-					if cf.templateMap != nil {
-						spec.RestoreTemplateReferences(cf.templateMap)
-						spec.RestoreEnvFrom(cf.templateMap)
-					}
-					if !spec.Skip {
-						cf.Services = append(cf.Services, spec)
-						cf.Specs = append(cf.Specs, &spec)
-						// record line info
-						name, ns := extractNameNamespace(val)
-						cf.lineInfo[makeLineKey("Service", ns, name)] = val.Line
-					}
-				}
+			b, err := yaml.Marshal(val)
+			if err != nil {
+				cf.AddParseError(fmt.Errorf("failed to marshal service at line %d: %w", val.Line, err))
+				continue
+			}
+			if err := yaml.Unmarshal(b, &spec); err != nil {
+				cf.AddParseError(fmt.Errorf("failed to unmarshal service at line %d: %w", val.Line, err))
+				continue
+			}
+			spec.rawNode = val
+			// Restore template references in environment variables
+			if cf.templateMap != nil {
+				spec.RestoreTemplateReferences(cf.templateMap)
+				spec.RestoreEnvFrom(cf.templateMap)
+			}
+			if !spec.Skip {
+				cf.Services = append(cf.Services, spec)
+				cf.Specs = append(cf.Specs, &spec)
+				// record line info
+				name, ns := extractNameNamespace(val)
+				cf.lineInfo[makeLineKey("Service", ns, name)] = val.Line
 			}
 		}
 		if key.Value == "secret" && val.Kind == yaml.MappingNode {
 			var spec SecretSpec
-			if b, err := yaml.Marshal(val); err == nil {
-				if err := yaml.Unmarshal(b, &spec); err == nil {
-					spec.rawNode = val
-					if !spec.Skip {
-						cf.Secrets = append(cf.Secrets, spec)
-						cf.Specs = append(cf.Specs, &spec)
-						// record line info
-						name, ns := extractNameNamespace(val)
-						cf.lineInfo[makeLineKey("Secret", ns, name)] = val.Line
-					}
-				}
+			b, err := yaml.Marshal(val)
+			if err != nil {
+				cf.AddParseError(fmt.Errorf("failed to marshal secret at line %d: %w", val.Line, err))
+				continue
+			}
+			if err := yaml.Unmarshal(b, &spec); err != nil {
+				cf.AddParseError(fmt.Errorf("failed to unmarshal secret at line %d: %w", val.Line, err))
+				continue
+			}
+			spec.rawNode = val
+			if !spec.Skip {
+				cf.Secrets = append(cf.Secrets, spec)
+				cf.Specs = append(cf.Specs, &spec)
+				// record line info
+				name, ns := extractNameNamespace(val)
+				cf.lineInfo[makeLineKey("Secret", ns, name)] = val.Line
 			}
 		}
 		if key.Value == "configMap" && val.Kind == yaml.MappingNode {
 			var spec ConfigMapSpec
-			if b, err := yaml.Marshal(val); err == nil {
-				if err := yaml.Unmarshal(b, &spec); err == nil {
-					spec.rawNode = val
-					if !spec.Skip {
-						cf.ConfigMaps = append(cf.ConfigMaps, spec)
-						cf.Specs = append(cf.Specs, &spec)
-						// record line info
-						name, ns := extractNameNamespace(val)
-						cf.lineInfo[makeLineKey("Config", ns, name)] = val.Line
-					}
-				}
+			b, err := yaml.Marshal(val)
+			if err != nil {
+				cf.AddParseError(fmt.Errorf("failed to marshal configMap at line %d: %w", val.Line, err))
+				continue
+			}
+			if err := yaml.Unmarshal(b, &spec); err != nil {
+				cf.AddParseError(fmt.Errorf("failed to unmarshal configMap at line %d: %w", val.Line, err))
+				continue
+			}
+			spec.rawNode = val
+			if !spec.Skip {
+				cf.ConfigMaps = append(cf.ConfigMaps, spec)
+				cf.Specs = append(cf.Specs, &spec)
+				// record line info
+				name, ns := extractNameNamespace(val)
+				cf.lineInfo[makeLineKey("Config", ns, name)] = val.Line
 			}
 		}
 
@@ -183,19 +200,24 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				if item.Kind == yaml.MappingNode {
 					// Build typed spec from YAML node
 					var spec ServiceSpec
-					if b, err := yaml.Marshal(item); err == nil {
-						if err := yaml.Unmarshal(b, &spec); err == nil {
-							spec.rawNode = item
-							// Restore template references in environment variables
-							if cf.templateMap != nil {
-								spec.RestoreTemplateReferences(cf.templateMap)
-								spec.RestoreEnvFrom(cf.templateMap)
-							}
-							if !spec.Skip {
-								cf.Services = append(cf.Services, spec)
-								cf.Specs = append(cf.Specs, &spec)
-							}
-						}
+					b, err := yaml.Marshal(item)
+					if err != nil {
+						cf.AddParseError(fmt.Errorf("failed to marshal service in services array at line %d: %w", item.Line, err))
+						continue
+					}
+					if err := yaml.Unmarshal(b, &spec); err != nil {
+						cf.AddParseError(fmt.Errorf("failed to unmarshal service in services array at line %d: %w", item.Line, err))
+						continue
+					}
+					spec.rawNode = item
+					// Restore template references in environment variables
+					if cf.templateMap != nil {
+						spec.RestoreTemplateReferences(cf.templateMap)
+						spec.RestoreEnvFrom(cf.templateMap)
+					}
+					if !spec.Skip {
+						cf.Services = append(cf.Services, spec)
+						cf.Specs = append(cf.Specs, &spec)
 					}
 					name, ns := extractNameNamespace(item)
 					cf.lineInfo[makeLineKey("Service", ns, name)] = item.Line
@@ -206,14 +228,19 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 			for _, item := range val.Content {
 				if item.Kind == yaml.MappingNode {
 					var spec SecretSpec
-					if b, err := yaml.Marshal(item); err == nil {
-						if err := yaml.Unmarshal(b, &spec); err == nil {
-							spec.rawNode = item
-							if !spec.Skip {
-								cf.Secrets = append(cf.Secrets, spec)
-								cf.Specs = append(cf.Specs, &spec)
-							}
-						}
+					b, err := yaml.Marshal(item)
+					if err != nil {
+						cf.AddParseError(fmt.Errorf("failed to marshal secret in secrets array at line %d: %w", item.Line, err))
+						continue
+					}
+					if err := yaml.Unmarshal(b, &spec); err != nil {
+						cf.AddParseError(fmt.Errorf("failed to unmarshal secret in secrets array at line %d: %w", item.Line, err))
+						continue
+					}
+					spec.rawNode = item
+					if !spec.Skip {
+						cf.Secrets = append(cf.Secrets, spec)
+						cf.Specs = append(cf.Specs, &spec)
 					}
 					name, ns := extractNameNamespace(item)
 					cf.lineInfo[makeLineKey("Secret", ns, name)] = item.Line
@@ -225,14 +252,19 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 			for _, item := range val.Content {
 				if item.Kind == yaml.MappingNode {
 					var spec ConfigMapSpec
-					if b, err := yaml.Marshal(item); err == nil {
-						if err := yaml.Unmarshal(b, &spec); err == nil {
-							spec.rawNode = item
-							if !spec.Skip {
-								cf.ConfigMaps = append(cf.ConfigMaps, spec)
-								cf.Specs = append(cf.Specs, &spec)
-							}
-						}
+					b, err := yaml.Marshal(item)
+					if err != nil {
+						cf.AddParseError(fmt.Errorf("failed to marshal configMap in configMaps array at line %d: %w", item.Line, err))
+						continue
+					}
+					if err := yaml.Unmarshal(b, &spec); err != nil {
+						cf.AddParseError(fmt.Errorf("failed to unmarshal configMap in configMaps array at line %d: %w", item.Line, err))
+						continue
+					}
+					spec.rawNode = item
+					if !spec.Skip {
+						cf.ConfigMaps = append(cf.ConfigMaps, spec)
+						cf.Specs = append(cf.Specs, &spec)
 					}
 					name, ns := extractNameNamespace(item)
 					cf.lineInfo[makeLineKey("Config", ns, name)] = item.Line
@@ -260,6 +292,8 @@ func validateTopLevelKeys(node *yaml.Node) error {
 		"services":   true,
 		"secrets":    true,
 		"secret":     true,
+		"configmap":  true,
+		"configmaps": true,
 		"configMap":  true,
 		"configMaps": true,
 	}
@@ -312,6 +346,11 @@ func (cf *CastFile) GetSpecs() []Spec {
 // It does not stop on first error; all validation errors are collected.
 func (cf *CastFile) Lint() []error {
 	var errs []error
+
+	// Include parsing errors first
+	if cf.HasParseErrors() {
+		errs = append(errs, cf.GetParseErrors()...)
+	}
 
 	// Services: run per-spec validation
 	for i := range cf.Services {
@@ -581,6 +620,27 @@ func preprocessTemplates(data []byte) ([]byte, map[string]string, error) {
 // GetTemplateMap returns the map of template placeholders to their original template references
 func (cf *CastFile) GetTemplateMap() map[string]string {
 	return cf.templateMap
+}
+
+// AddParseError adds a parsing error to the collection
+func (cf *CastFile) AddParseError(err error) {
+	if cf.parseErrors == nil {
+		cf.parseErrors = make([]error, 0)
+	}
+	cf.parseErrors = append(cf.parseErrors, err)
+}
+
+// GetParseErrors returns all parsing errors collected during file parsing
+func (cf *CastFile) GetParseErrors() []error {
+	if cf.parseErrors == nil {
+		return []error{}
+	}
+	return cf.parseErrors
+}
+
+// HasParseErrors returns true if any parsing errors were encountered
+func (cf *CastFile) HasParseErrors() bool {
+	return len(cf.parseErrors) > 0
 }
 
 // RestoreTemplateReferences replaces template placeholders with their original template syntax
