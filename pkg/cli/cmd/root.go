@@ -67,6 +67,8 @@ func init() {
 	rootCmd.AddCommand(newAdminCmd())
 	// Register config management commands
 	rootCmd.AddCommand(newConfigCmd())
+	// Register convenient context switching alias
+	rootCmd.AddCommand(newUseContextCmd())
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -159,4 +161,20 @@ func loadCurrentContextIntoViper() error {
 		viper.Set("contexts.default.defaultNamespace", ctx.DefaultNamespace)
 	}
 	return nil
+}
+
+// newUseContextCmd creates a convenient alias for 'rune config use-context'
+func newUseContextCmd() *cobra.Command {
+	// Reuse the existing config use-context command
+	useContextCmd := newConfigUseContextCmd()
+
+	// Update the command to be a top-level alias
+	useContextCmd.Use = "use-context [context-name]"
+	useContextCmd.Short = "Switch to a different context (alias for 'rune config use-context')"
+	useContextCmd.Long = `Switch to a different context.
+
+This is a convenient alias for 'rune config use-context'.
+The context must already exist in your configuration.`
+
+	return useContextCmd
 }

@@ -103,6 +103,7 @@ Now you can create additional users with appropriate policies:
 
 ```bash
 # Create a regular user with admin policy
+rune admin token create --name github-actions --policy readwrite --out-file github_actions_token.txt
 rune admin token create --name user123 --policy admin --out-file user123_token.txt
 
 # Create a user with limited permissions
