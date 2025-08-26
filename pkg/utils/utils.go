@@ -141,7 +141,9 @@ func ParseTimestamp(timestampStr string) (*time.Time, error) {
 	return nil, nil
 }
 
-func PickNonEmpty(values ...string) string {
+// PickFirstNonEmpty picks the first non-empty value from a list of strings.
+// If all values are empty, returns the empty string.
+func PickFirstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
 			return value

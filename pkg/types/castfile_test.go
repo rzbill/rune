@@ -72,7 +72,7 @@ func TestParseCastFile_MixedForms(t *testing.T) {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
 
-	cf, err := ParseCastFile(file)
+	cf, err := ParseCastFile(file, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -198,7 +198,7 @@ service:
 			if err := os.WriteFile(fp, []byte(tt.yaml), 0o600); err != nil {
 				t.Fatalf("failed to write temp yaml: %v", err)
 			}
-			cf, err := ParseCastFile(fp)
+			cf, err := ParseCastFile(fp, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseCastFile() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -277,7 +277,7 @@ service:
 	}
 
 	// Test parsing the file
-	cf, err := ParseCastFile(tmpFile)
+	cf, err := ParseCastFile(tmpFile, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile() error = %v", err)
 	}
@@ -374,7 +374,7 @@ service:
 	}
 
 	// Test parsing a non-existent file
-	_, err = ParseCastFile(filepath.Join(tmpDir, "non-existent.yaml"))
+	_, err = ParseCastFile(filepath.Join(tmpDir, "non-existent.yaml"), "")
 	if err == nil {
 		t.Error("Expected error when parsing non-existent file, got nil")
 	}
@@ -400,7 +400,7 @@ secrets:
 	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -433,7 +433,7 @@ configMaps:
 	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -463,7 +463,7 @@ services:
 	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -495,7 +495,7 @@ services:
 	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -526,7 +526,7 @@ services:
 	if err := os.WriteFile(fp, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
@@ -798,7 +798,7 @@ service:
 				t.Fatalf("failed to write temp yaml: %v", err)
 			}
 
-			cf, err := ParseCastFile(fp)
+			cf, err := ParseCastFile(fp, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseCastFile() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -834,7 +834,7 @@ service:
 		t.Fatalf("failed to write temp yaml: %v", err)
 	}
 
-	cf, err := ParseCastFile(fp)
+	cf, err := ParseCastFile(fp, "")
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}

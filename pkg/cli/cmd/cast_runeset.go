@@ -37,7 +37,7 @@ func runRunesetCast(root string, opts *castOptions) error {
 	ctx := buildContextFromManifest(mf, opts)
 
 	// Merge runeset values (collect first, resolve later)
-	mergedValues, err := mergeRunesetValuesTemplated(mf, root, ctx, opts)
+	mergedValues, err := mergeRunesetValuesTemplated(mf, root, ctx.GetValues(), opts)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func runRunesetCast(root string, opts *castOptions) error {
 	}
 
 	// Render casts
-	rendered, err := renderRunesetCasts(root, castFiles, mergedValues, ctx)
+	rendered, err := renderRunesetCasts(root, castFiles, mergedValues, ctx.GetValues())
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func runRunesetCast(root string, opts *castOptions) error {
 		fmt.Print(strings.Repeat(".", dotsNeeded))
 		fmt.Print(" ")
 
-		cf, err := types.ParseCastFileFromBytes(b)
+		cf, err := types.ParseCastFileFromBytes(b, ctx.Namespace)
 		if err != nil {
 			fmt.Println("❌")
 			return fmt.Errorf("failed to parse rendered YAML %s: %w", fileName, err)
@@ -340,15 +340,10 @@ func mergeValuesFromDir(dir string, target map[string]interface{}) error {
 }
 
 // buildContextFromManifest constructs the context map used by renderer from manifest and flags.
-func buildContextFromManifest(mf types.RunesetManifest, opts *castOptions) map[string]interface{} {
+func buildContextFromManifest(mf types.RunesetManifest, opts *castOptions) types.RunesetContext {
 	// effective namespace
-	effectiveNS := ""
-	if opts.namespace != "" {
-		effectiveNS = opts.namespace
-	}
-	if mf.Namespace != "" {
-		effectiveNS = mf.Namespace
-	}
+	effectiveNS := utils.PickFirstNonEmpty(opts.namespace, mf.Namespace)
+	release := utils.PickFirstNonEmpty(opts.releaseName, mf.Name)
 
 	// Build execution context map (read-only)
 	mode := "apply"
@@ -357,22 +352,13 @@ func buildContextFromManifest(mf types.RunesetManifest, opts *castOptions) map[s
 	} else if opts.dryRun {
 		mode = "dry-run"
 	}
-	release := mf.Name
-	if opts.releaseName != "" {
-		release = opts.releaseName
-	}
 
 	// Build context map
-	return map[string]interface{}{
-		"namespace":   effectiveNS,
-		"mode":        mode,
-		"releaseName": release,
-		"runeset": map[string]interface{}{
-			"name":        mf.Name,
-			"version":     mf.Version,
-			"description": mf.Description,
-			"namespace":   mf.Namespace,
-		},
+	return types.RunesetContext{
+		Namespace:   effectiveNS,
+		Mode:        mode,
+		ReleaseName: release,
+		Runeset:     mf,
 	}
 }
 
@@ -560,9 +546,14 @@ func resolveGitHubRuneset(ref string) (string, error) {
 // getRunesetSourceType checks args for runeset sources (dir, archive, https, GitHub shorthand)
 // and returns the source type.
 func getRunesetSourceType(args []string) types.RunesetSourceType {
-	if len(args) != 1 {
+	if len(args) == 0 && utils.FileExists("runeset.yaml") {
+		return types.RunesetSourceTypeDirectory
+	}
+
+	if len(args) > 1 {
 		return types.RunesetSourceTypeUnknown
 	}
+
 	arg := args[0]
 	// Remote URL (.runeset.tgz)
 	if strings.HasPrefix(arg, "https://") {
@@ -590,10 +581,10 @@ func getRunesetSourceType(args []string) types.RunesetSourceType {
 
 // handleRunesetCastSource handles a runeset source and runs the runeset cast.
 func handleRunesetCastSource(args []string, sourceType types.RunesetSourceType, opts *castOptions) error {
-	if len(args) != 1 {
-		return fmt.Errorf("runeset source requires exactly one argument")
-	}
 	arg := args[0]
+	if len(args) == 0 && sourceType == types.RunesetSourceTypeDirectory {
+		arg = "."
+	}
 	fmt.Printf("- Runeset source: %s (%s)\n", sourceType, arg)
 	// switch remains
 	switch sourceType {

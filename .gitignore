@@ -29,6 +29,7 @@ vendor/
 *.swo
 .project/
 .cursor/
+.github/copilot-instructions.md
 
 # OS-specific files
 .DS_Store

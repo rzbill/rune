@@ -64,9 +64,9 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 	// Set default headers if not provided
 	if len(t.Headers) == 0 {
 		if t.AllNamespaces {
-			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "EXTERNAL", "GENERATION", "AGE"}
+			t.Headers = []string{"NAMESPACE", "NAME", "TYPE", "STATUS", "INSTANCES", "EXTERNAL", "GENERATION", "AGE"}
 		} else {
-			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "IMAGE/COMMAND", "EXTERNAL", "GENERATION", "AGE"}
+			t.Headers = []string{"NAME", "TYPE", "STATUS", "INSTANCES", "EXTERNAL", "GENERATION", "AGE"}
 		}
 	}
 
@@ -90,20 +90,6 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 			running = service.Scale
 		}
 		instances := fmt.Sprintf("%d/%d", running, service.Scale)
-
-		// Determine image or command
-		imageOrCommand := service.Image
-		if service.Runtime == "process" && service.Process != nil {
-			imageOrCommand = service.Process.Command
-			if len(service.Process.Args) > 0 {
-				imageOrCommand += " " + strings.Join(service.Process.Args, " ")
-			}
-		}
-
-		// Truncate very long image/command strings
-		if len(imageOrCommand) > 60 {
-			imageOrCommand = imageOrCommand[:57] + "..."
-		}
 
 		// External endpoint (best-effort)
 		external := "-"
@@ -155,7 +141,6 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				serviceType,
 				status,
 				instances,
-				imageOrCommand,
 				external,
 				generation,
 				age,
@@ -166,7 +151,6 @@ func (t *ResourceTable) RenderServices(services []*types.Service) error {
 				serviceType,
 				status,
 				instances,
-				imageOrCommand,
 				external,
 				generation,
 				age,

@@ -121,7 +121,7 @@ service:
   image: repo/api
   envFrom: {{secret:env-secret}}
 `
-	cf, err := ParseCastFileFromBytes([]byte(yamlData))
+	cf, err := ParseCastFileFromBytes([]byte(yamlData), "")
 	if err != nil {
 		t.Fatalf("parse cast file error: %v", err)
 	}
@@ -153,7 +153,7 @@ service:
   env:
     APP_MODE: production
 `
-	cf, err := ParseCastFileFromBytes([]byte(yamlData))
+	cf, err := ParseCastFileFromBytes([]byte(yamlData), "")
 	if err != nil {
 		t.Fatalf("parse cast file error: %v", err)
 	}

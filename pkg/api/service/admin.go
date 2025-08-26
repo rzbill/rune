@@ -174,7 +174,7 @@ func (s *AdminService) TokenList(ctx context.Context, _ *generated.TokenListRequ
 // PolicyAttachToSubject attaches a policy to a user subject (MVP: users only)
 func (s *AdminService) PolicyAttachToSubject(ctx context.Context, req *generated.PolicyAttachToSubjectRequest) (*generated.PolicyAttachToSubjectResponse, error) {
 	ur := repos.NewUserRepo(s.st)
-	u, err := ur.GetByNameOrID(ctx, utils.PickNonEmpty(req.SubjectId, req.SubjectName))
+	u, err := ur.GetByNameOrID(ctx, utils.PickFirstNonEmpty(req.SubjectId, req.SubjectName))
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (s *AdminService) PolicyAttachToSubject(ctx context.Context, req *generated
 // PolicyDetachFromSubject detaches a policy from a user subject (MVP: users only)
 func (s *AdminService) PolicyDetachFromSubject(ctx context.Context, req *generated.PolicyDetachFromSubjectRequest) (*generated.PolicyDetachFromSubjectResponse, error) {
 	ur := repos.NewUserRepo(s.st)
-	u, err := ur.GetByNameOrID(ctx, utils.PickNonEmpty(req.SubjectId, req.SubjectName))
+	u, err := ur.GetByNameOrID(ctx, utils.PickFirstNonEmpty(req.SubjectId, req.SubjectName))
 	if err != nil {
 		return nil, err
 	}

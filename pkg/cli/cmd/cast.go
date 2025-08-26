@@ -220,7 +220,7 @@ func parseCastFilesResources(filePaths []string, sourceArgs []string, opts *cast
 		fmt.Print(" ") // Space before validation result
 
 		// Parse as CastFile to extract all resources
-		castFile, err := types.ParseCastFile(filePath)
+		castFile, err := types.ParseCastFile(filePath, opts.namespace)
 		if err != nil {
 			fmt.Println("❌") // Show failure
 			return nil, fmt.Errorf("failed to parse file %s: %w", filePath, err)
@@ -370,11 +370,6 @@ func deployServices(apiClient *client.Client, info *ResourceInfo, results *Deplo
 		for _, service := range services {
 			resourceIndex++
 
-			// Override namespace if specified in command line options
-			if opts.namespace != "" {
-				service.Namespace = opts.namespace
-			}
-
 			// Determine resource type for display
 			resourceType := "Service"
 
@@ -433,11 +428,6 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 		for _, secret := range secrets {
 			resourceIndex++
 
-			// Override namespace if specified in command line options
-			if opts.namespace != "" {
-				secret.Namespace = opts.namespace
-			}
-
 			fmt.Printf("  [%d/%d] Creating Secret \"%s\" ", resourceIndex, resourceCount, format.Highlight(secret.Name))
 			fmt.Print(strings.Repeat(".", 25-len(secret.Name)))
 
@@ -473,11 +463,6 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 	for _, configMaps := range info.ConfigMapsByFile {
 		for _, configMap := range configMaps {
 			resourceIndex++
-
-			// Override namespace if specified in command line options
-			if opts.namespace != "" {
-				configMap.Namespace = opts.namespace
-			}
 
 			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
 			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))

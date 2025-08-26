@@ -86,7 +86,7 @@ func (s *AuthService) CreateToken(ctx context.Context, req *generated.CreateToke
 	}
 
 	// Resolve identifier for subject: prefer SubjectId, else use subject name or token name
-	nameOrID := utils.PickNonEmpty(req.SubjectId, req.SubjectName, req.Name)
+	nameOrID := utils.PickFirstNonEmpty(req.SubjectId, req.SubjectName, req.Name)
 	if nameOrID == "" {
 		return nil, fmt.Errorf("either subject_name or subject_id must be provided to derive subject")
 	}
@@ -95,7 +95,7 @@ func (s *AuthService) CreateToken(ctx context.Context, req *generated.CreateToke
 	u, err := s.userRepo.GetByNameOrID(ctx, nameOrID)
 	if store.IsNotFoundError(err) {
 		// Resolve subject name: prefer SubjectId (treated as user name), else use token Name
-		subjectName := utils.PickNonEmpty(req.SubjectName, req.Name)
+		subjectName := utils.PickFirstNonEmpty(req.SubjectName, req.Name)
 		if subjectName == "" {
 			return nil, fmt.Errorf("either subject_name or name must be provided to create subject")
 		}

@@ -21,10 +21,13 @@ type CastFile struct {
 	templateMap map[string]string `json:"-" yaml:"-"`
 	// Collection of parsing errors (not serialized)
 	parseErrors []error `json:"-" yaml:"-"`
+
+	// Namespace for the cast file
+	overrideNamespace string `json:"-" yaml:"-"`
 }
 
 // ParseCastFile reads and parses a cast file, handling template syntax
-func ParseCastFile(filename string) (*CastFile, error) {
+func ParseCastFile(filename string, overrideNamespace string) (*CastFile, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -40,6 +43,7 @@ func ParseCastFile(filename string) (*CastFile, error) {
 	var cf CastFile
 	cf.lineInfo = make(map[string]int)
 	cf.templateMap = templateMap // Store the template map
+	cf.overrideNamespace = overrideNamespace
 
 	// Parse the preprocessed YAML
 	var node yaml.Node
@@ -58,7 +62,7 @@ func ParseCastFile(filename string) (*CastFile, error) {
 }
 
 // ParseCastFileFromBytes is a helper used in tests to parse cast YAML content from memory.
-func ParseCastFileFromBytes(data []byte) (*CastFile, error) {
+func ParseCastFileFromBytes(data []byte, overrideNamespace string) (*CastFile, error) {
 	// Preprocess templates to handle {{...}} syntax
 	processedData, templateMap, err := preprocessTemplates(data)
 	if err != nil {
@@ -69,6 +73,7 @@ func ParseCastFileFromBytes(data []byte) (*CastFile, error) {
 	var cf CastFile
 	cf.lineInfo = make(map[string]int)
 	cf.templateMap = templateMap
+	cf.overrideNamespace = overrideNamespace
 
 	// Parse the preprocessed YAML
 	var node yaml.Node
@@ -145,6 +150,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				spec.RestoreTemplateReferences(cf.templateMap)
 				spec.RestoreEnvFrom(cf.templateMap)
 			}
+			// If overrideNamespace is set, use it for the namespace
+			if cf.overrideNamespace != "" {
+				spec.Namespace = cf.overrideNamespace
+			}
 			if !spec.Skip {
 				cf.Services = append(cf.Services, spec)
 				cf.Specs = append(cf.Specs, &spec)
@@ -165,6 +174,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				continue
 			}
 			spec.rawNode = val
+			// If overrideNamespace is set, use it for the namespace
+			if cf.overrideNamespace != "" {
+				spec.Namespace = cf.overrideNamespace
+			}
 			if !spec.Skip {
 				cf.Secrets = append(cf.Secrets, spec)
 				cf.Specs = append(cf.Specs, &spec)
@@ -185,6 +198,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				continue
 			}
 			spec.rawNode = val
+			// If overrideNamespace is set, use it for the namespace
+			if cf.overrideNamespace != "" {
+				spec.Namespace = cf.overrideNamespace
+			}
 			if !spec.Skip {
 				cf.ConfigMaps = append(cf.ConfigMaps, spec)
 				cf.Specs = append(cf.Specs, &spec)
@@ -215,6 +232,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 						spec.RestoreTemplateReferences(cf.templateMap)
 						spec.RestoreEnvFrom(cf.templateMap)
 					}
+					// If overrideNamespace is set, use it for the namespace
+					if cf.overrideNamespace != "" {
+						spec.Namespace = cf.overrideNamespace
+					}
 					if !spec.Skip {
 						cf.Services = append(cf.Services, spec)
 						cf.Specs = append(cf.Specs, &spec)
@@ -238,6 +259,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 						continue
 					}
 					spec.rawNode = item
+					// If overrideNamespace is set, use it for the namespace
+					if cf.overrideNamespace != "" {
+						spec.Namespace = cf.overrideNamespace
+					}
 					if !spec.Skip {
 						cf.Secrets = append(cf.Secrets, spec)
 						cf.Specs = append(cf.Specs, &spec)
@@ -262,6 +287,10 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 						continue
 					}
 					spec.rawNode = item
+					// If overrideNamespace is set, use it for the namespace
+					if cf.overrideNamespace != "" {
+						spec.Namespace = cf.overrideNamespace
+					}
 					if !spec.Skip {
 						cf.ConfigMaps = append(cf.ConfigMaps, spec)
 						cf.Specs = append(cf.Specs, &spec)

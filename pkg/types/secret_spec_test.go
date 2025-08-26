@@ -27,7 +27,7 @@ secret:
     b: ${TEST_SECRET_B64}
 `)
 
-	cf, err := ParseCastFileFromBytes(yamlContent)
+	cf, err := ParseCastFileFromBytes(yamlContent, "")
 	if err != nil {
 		t.Fatalf("parse castfile: %v", err)
 	}

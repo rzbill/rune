@@ -17,6 +17,28 @@ const (
 	RunesetSourceTypeUnknown        RunesetSourceType = "unknown"
 )
 
+type RunesetContext struct {
+	Namespace   string
+	Mode        string
+	ReleaseName string
+	Runeset     RunesetManifest
+}
+
+func (ctx RunesetContext) GetValues() map[string]interface{} {
+	return map[string]interface{}{
+		"namespace":   ctx.Namespace,
+		"mode":        ctx.Mode,
+		"releaseName": ctx.ReleaseName,
+		"runeset": map[string]interface{}{
+			"name":        ctx.Runeset.Name,
+			"version":     ctx.Runeset.Version,
+			"description": ctx.Runeset.Description,
+			"namespace":   ctx.Runeset.Namespace,
+			"defaults":    ctx.Runeset.Defaults,
+		},
+	}
+}
+
 type RunesetManifest struct {
 	Name        string                 `yaml:"name"`
 	Version     string                 `yaml:"version"`

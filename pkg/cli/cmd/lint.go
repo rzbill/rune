@@ -192,7 +192,7 @@ func lintFile(filePath string, data []byte) (*format.ErrorFormatter, int) {
 		}
 
 		// Try parsing as cast file directly (AST-based, tolerant of duplicate keys)
-		if cf, err := types.ParseCastFile(filePath); err == nil {
+		if cf, err := types.ParseCastFile(filePath, ""); err == nil {
 			if errs := cf.Lint(); len(errs) > 0 {
 				for _, e := range errs {
 					ln := formatter.ExtractLineNumber(e.Error())
