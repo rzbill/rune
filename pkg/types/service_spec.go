@@ -198,7 +198,7 @@ func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 			switch rr.Type {
 			case ResourceTypeSecret:
 				e.Secret = rr.Name
-			case ResourceTypeConfigMap:
+			case ResourceTypeConfigmap:
 				e.Configmap = rr.Name
 			default:
 				return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
@@ -215,7 +215,7 @@ func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 		switch rr.Type {
 		case ResourceTypeSecret:
 			e.Secret = rr.Name
-		case ResourceTypeConfigMap:
+		case ResourceTypeConfigmap:
 			e.Configmap = rr.Name
 		default:
 			return fmt.Errorf("envFrom shorthand must reference secret or configmap, got %s", rr.Type)
@@ -652,7 +652,7 @@ func (d *ServiceDependency) UnmarshalYAML(value *yaml.Node) error {
 				d.Service = rr.Name
 			case ResourceTypeSecret:
 				d.Secret = rr.Name
-			case ResourceTypeConfigMap:
+			case ResourceTypeConfigmap:
 				d.Configmap = rr.Name
 			default:
 				// unknown - treat as raw FQDN service
@@ -764,7 +764,7 @@ func (s *ServiceSpec) RestoreEnvFrom(templateMap map[string]string) {
 		switch rr.Type {
 		case ResourceTypeSecret:
 			src.Secret = rr.Name
-		case ResourceTypeConfigMap:
+		case ResourceTypeConfigmap:
 			src.Configmap = rr.Name
 		default:
 			// ignore unsupported

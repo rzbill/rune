@@ -11,16 +11,16 @@ import (
 	"github.com/rzbill/rune/pkg/utils"
 )
 
-type ConfigRepo struct {
-	base         *BaseRepo[types.ConfigMap]
+type ConfigmapRepo struct {
+	base         *BaseRepo[types.Configmap]
 	configLimits store.Limits
 }
 
-type ConfigOption func(*ConfigRepo)
+type ConfigOption func(*ConfigmapRepo)
 
-func NewConfigRepo(core store.Store, opts ...ConfigOption) *ConfigRepo {
-	repo := &ConfigRepo{
-		base: NewBaseRepo[types.ConfigMap](core, types.ResourceTypeConfigMap),
+func NewConfigRepo(core store.Store, opts ...ConfigOption) *ConfigmapRepo {
+	repo := &ConfigmapRepo{
+		base: NewBaseRepo[types.Configmap](core, types.ResourceTypeConfigmap),
 	}
 	repo.configLimits = core.GetOpts().ConfigLimits
 	for _, opt := range opts {
@@ -30,17 +30,17 @@ func NewConfigRepo(core store.Store, opts ...ConfigOption) *ConfigRepo {
 }
 
 func WithConfigLimits(limits store.Limits) ConfigOption {
-	return func(r *ConfigRepo) {
+	return func(r *ConfigmapRepo) {
 		r.configLimits = limits
 	}
 }
 
 // List returns configs in a namespace
-func (r *ConfigRepo) List(ctx context.Context, namespace string) ([]*types.ConfigMap, error) {
+func (r *ConfigmapRepo) List(ctx context.Context, namespace string) ([]*types.Configmap, error) {
 	return r.base.List(ctx, namespace)
 }
 
-func (r *ConfigRepo) Create(ctx context.Context, ref string, c *types.ConfigMap) error {
+func (r *ConfigmapRepo) Create(ctx context.Context, ref string, c *types.Configmap) error {
 	pr, err := types.ParseResourceRef(ref)
 	if err != nil {
 		return err
@@ -70,11 +70,11 @@ func (r *ConfigRepo) Create(ctx context.Context, ref string, c *types.ConfigMap)
 	return r.base.Create(ctx, pr.Namespace, name, c)
 }
 
-func (r *ConfigRepo) Get(ctx context.Context, namespace, name string) (*types.ConfigMap, error) {
+func (r *ConfigmapRepo) Get(ctx context.Context, namespace, name string) (*types.Configmap, error) {
 	return r.base.Get(ctx, namespace, name)
 }
 
-func (r *ConfigRepo) Update(ctx context.Context, namespace, name string, c *types.ConfigMap, opts ...store.UpdateOption) error {
+func (r *ConfigmapRepo) Update(ctx context.Context, namespace, name string, c *types.Configmap, opts ...store.UpdateOption) error {
 	if err := r.validateConfigData(c.Data); err != nil {
 		return err
 	}
@@ -91,11 +91,11 @@ func (r *ConfigRepo) Update(ctx context.Context, namespace, name string, c *type
 	return r.base.Update(ctx, namespace, name, c, opts...)
 }
 
-func (r *ConfigRepo) Delete(ctx context.Context, namespace, name string) error {
+func (r *ConfigmapRepo) Delete(ctx context.Context, namespace, name string) error {
 	return r.base.Delete(ctx, namespace, name)
 }
 
-func (r *ConfigRepo) validateConfigData(data map[string]string) error {
+func (r *ConfigmapRepo) validateConfigData(data map[string]string) error {
 	var total int
 	for k, v := range data {
 		if len(k) > r.configLimits.MaxKeyNameLength {

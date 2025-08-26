@@ -38,7 +38,7 @@ type ResourceInfo struct {
 	FilesByType      map[string][]string
 	ServicesByFile   map[string][]*types.Service
 	SecretsByFile    map[string][]*types.Secret
-	ConfigMapsByFile map[string][]*types.ConfigMap
+	ConfigMapsByFile map[string][]*types.Configmap
 	TotalResources   int
 	SourceArguments  []string
 }
@@ -190,7 +190,7 @@ func parseCastFilesResources(filePaths []string, sourceArgs []string, opts *cast
 		FilesByType:      make(map[string][]string),
 		ServicesByFile:   make(map[string][]*types.Service),
 		SecretsByFile:    make(map[string][]*types.Secret),
-		ConfigMapsByFile: make(map[string][]*types.ConfigMap),
+		ConfigMapsByFile: make(map[string][]*types.Configmap),
 		TotalResources:   0,
 		SourceArguments:  sourceArgs,
 	}
@@ -446,7 +446,7 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 }
 
 func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, opts *castOptions) error {
-	configClient := client.NewConfigMapClient(apiClient)
+	configClient := client.NewConfigmapClient(apiClient)
 	// Calculate actual resource count safely
 	resourceCount := 0
 	for _, configMaps := range info.ConfigMapsByFile {
@@ -466,8 +466,8 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 
 			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
 			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))
-			if err := configClient.CreateConfigMap(configMap, opts.createNamespace); err != nil {
-				if uerr := configClient.UpdateConfigMap(configMap); uerr != nil {
+			if err := configClient.CreateConfigmap(configMap, opts.createNamespace); err != nil {
+				if uerr := configClient.UpdateConfigmap(configMap); uerr != nil {
 					fmt.Println(" ❌")
 					results.FailedResources[configMap.Name] = uerr.Error()
 					return fmt.Errorf("failed to apply config %s: %w", configMap.Name, uerr)

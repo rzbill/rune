@@ -83,7 +83,7 @@ type instanceController struct {
 	runnerManager manager.IRunnerManager
 	logger        log.Logger
 	secretRepo    *repos.SecretRepo
-	configRepo    *repos.ConfigRepo
+	configRepo    *repos.ConfigmapRepo
 }
 
 // NewInstanceController creates a new instance controller
@@ -1041,7 +1041,7 @@ func (c *instanceController) resolveTemplateVariable(ctx context.Context, templa
 	switch resourceRef.Type {
 	case types.ResourceTypeSecret:
 		return c.resolveSecretValue(ctx, resourceRef)
-	case types.ResourceTypeConfigMap:
+	case types.ResourceTypeConfigmap:
 		return c.resolveConfigMapValue(ctx, resourceRef)
 	default:
 		return "", fmt.Errorf("unsupported resource type %s in template variable: %s", resourceRef.Type, templateVar)

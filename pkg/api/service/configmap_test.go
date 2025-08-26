@@ -15,11 +15,11 @@ func TestConfigServiceCRUD(t *testing.T) {
 	st := store.NewTestStoreWithOptions(store.StoreOptions{
 		ConfigLimits: store.Limits{MaxObjectBytes: 1 << 20, MaxKeyNameLength: 256},
 	})
-	svc := NewConfigMapService(st, log.GetDefaultLogger())
+	svc := NewConfigmapService(st, log.GetDefaultLogger())
 
 	// Create
-	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigMapRequest{
-		ConfigMap: &generated.ConfigMap{
+	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigmapRequest{
+		Configmap: &generated.Configmap{
 			Name:      "app-config",
 			Namespace: "prod",
 			Data:      map[string]string{"logLevel": "info"},
@@ -31,25 +31,25 @@ func TestConfigServiceCRUD(t *testing.T) {
 	}
 
 	// Get
-	getResp, err := svc.GetConfigMap(ctx, &generated.GetConfigMapRequest{Name: "app-config", Namespace: "prod"})
+	getResp, err := svc.GetConfigMap(ctx, &generated.GetConfigmapRequest{Name: "app-config", Namespace: "prod"})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if getResp.ConfigMap.Name != "app-config" {
+	if getResp.Configmap.Name != "app-config" {
 		t.Fatalf("bad get name")
 	}
 
 	// List
-	listResp, err := svc.ListConfigMaps(ctx, &generated.ListConfigMapsRequest{Namespace: "prod"})
+	listResp, err := svc.ListConfigmaps(ctx, &generated.ListConfigmapsRequest{Namespace: "prod"})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(listResp.ConfigMaps) != 1 {
-		t.Fatalf("expected 1 config, got %d", len(listResp.ConfigMaps))
+	if len(listResp.Configmaps) != 1 {
+		t.Fatalf("expected 1 config, got %d", len(listResp.Configmaps))
 	}
 
 	// Update
-	_, err = svc.UpdateConfigMap(ctx, &generated.UpdateConfigMapRequest{ConfigMap: &generated.ConfigMap{
+	_, err = svc.UpdateConfigMap(ctx, &generated.UpdateConfigmapRequest{Configmap: &generated.Configmap{
 		Name:      "app-config",
 		Namespace: "prod",
 		Data:      map[string]string{"logLevel": "debug"},
@@ -59,7 +59,7 @@ func TestConfigServiceCRUD(t *testing.T) {
 	}
 
 	// Delete
-	_, err = svc.DeleteConfigMap(ctx, &generated.DeleteConfigMapRequest{Name: "app-config", Namespace: "prod"})
+	_, err = svc.DeleteConfigmap(ctx, &generated.DeleteConfigmapRequest{Name: "app-config", Namespace: "prod"})
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -70,11 +70,11 @@ func TestConfigServiceNoEnsureNamespace(t *testing.T) {
 	st := store.NewTestStoreWithOptions(store.StoreOptions{
 		ConfigLimits: store.Limits{MaxObjectBytes: 1 << 20, MaxKeyNameLength: 256},
 	})
-	svc := NewConfigMapService(st, log.GetDefaultLogger())
+	svc := NewConfigmapService(st, log.GetDefaultLogger())
 
 	// Try to create configmap in non-existent namespace without EnsureNamespace
-	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigMapRequest{
-		ConfigMap: &generated.ConfigMap{
+	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigmapRequest{
+		Configmap: &generated.Configmap{
 			Name:      "test-config",
 			Namespace: "non-existent",
 			Data:      map[string]string{"key": "value"},

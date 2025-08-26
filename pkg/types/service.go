@@ -194,7 +194,7 @@ func (d *DependencyRef) GetDependencyResourceType() ResourceType {
 		return ResourceTypeSecret
 	}
 	if d.Configmap != "" {
-		return ResourceTypeConfigMap
+		return ResourceTypeConfigmap
 	}
 	return ResourceTypeService
 }
@@ -668,7 +668,7 @@ func (s *Service) CalculateHash() string {
 					switch rt {
 					case ResourceTypeService:
 						return 0
-					case ResourceTypeConfigMap:
+					case ResourceTypeConfigmap:
 						return 1
 					case ResourceTypeSecret:
 						return 2

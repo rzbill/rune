@@ -66,8 +66,8 @@ func TestReconciler_DependencyReadiness_NonService(t *testing.T) {
 	rec := newReconciler(testStore, instCtrl, healthCtrl, logger)
 
 	// Create required non-service dependencies
-	cfg := &types.ConfigMap{Name: "cfg", Namespace: "default", Data: map[string]string{"k": "v"}}
-	if err := testStore.Create(ctx, types.ResourceTypeConfigMap, cfg.Namespace, cfg.Name, cfg); err != nil {
+	cfg := &types.Configmap{Name: "cfg", Namespace: "default", Data: map[string]string{"k": "v"}}
+	if err := testStore.Create(ctx, types.ResourceTypeConfigmap, cfg.Namespace, cfg.Name, cfg); err != nil {
 		t.Fatalf("store create configmap: %v", err)
 	}
 	sec := &types.Secret{Name: "sec", Namespace: "default", Type: "static", Data: map[string]string{"p": "x"}}

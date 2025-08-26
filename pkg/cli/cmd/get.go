@@ -322,21 +322,21 @@ func handleSecretGet(ctx context.Context, cmd *cobra.Command, apiClient *client.
 
 // handleConfigMapGet handles get operations for configs
 func handleConfigMapGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
-	configMapClient := client.NewConfigMapClient(apiClient)
+	configMapClient := client.NewConfigmapClient(apiClient)
 
 	// If a specific config name is provided, get that config
 	if resourceName != "" {
 		namespace := getNamespace
-		config, err := configMapClient.GetConfigMap(namespace, resourceName)
+		config, err := configMapClient.GetConfigmap(namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get config %s: %w", resourceName, err)
 		}
 
-		return outputResource([]*types.ConfigMap{config}, cmd)
+		return outputResource([]*types.Configmap{config}, cmd)
 	}
 
 	// Otherwise, list configmaps based on the namespace flag
-	var configmaps []*types.ConfigMap
+	var configmaps []*types.Configmap
 	var err error
 
 	if allNamespaces {
@@ -524,7 +524,7 @@ func outputSecretsTable(secrets []*types.Secret) error {
 }
 
 // outputConfigmapsTable outputs configmaps in a formatted table
-func outputConfigmapsTable(configmaps []*types.ConfigMap) error {
+func outputConfigmapsTable(configmaps []*types.Configmap) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
 	table.ShowHeaders = !noHeaders

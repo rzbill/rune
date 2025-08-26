@@ -528,8 +528,8 @@ func (r *reconciler) fetchDependencyResource(ctx context.Context, dep *types.Dep
 			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, name, err)
 		}
 		return svc, nil
-	case types.ResourceTypeConfigMap:
-		var cfg types.ConfigMap
+	case types.ResourceTypeConfigmap:
+		var cfg types.Configmap
 		if err := r.store.Get(ctx, depResourceType, depNS, depResourceName, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to get dependency %s/%s: %w", depNS, depResourceName, err)
 		}

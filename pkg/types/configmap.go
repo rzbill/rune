@@ -2,8 +2,8 @@ package types
 
 import "time"
 
-// ConfigMap represents a piece of non-sensitive configuration data.
-type ConfigMap struct {
+// Configmap represents a piece of non-sensitive configuration data.
+type Configmap struct {
 	// Unique identifier for the config
 	ID string `json:"id" yaml:"id"`
 

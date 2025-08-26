@@ -101,7 +101,7 @@ Examples:
 				}
 
 				// Try deleting as a service first
-				if err := runDelete(cmd.Context(), target, opts); err != nil {
+				if err := runServiceDelete(cmd.Context(), target, opts); err != nil {
 					// Only fall back to secret/config when the service truly doesn't exist
 					if strings.Contains(strings.ToLower(err.Error()), "not found") {
 						// Secret path
@@ -109,7 +109,7 @@ Examples:
 							return nil
 						}
 						// Config path
-						if err := runDeleteConfig(cmd.Context(), target, opts); err == nil {
+						if err := runDeleteConfigmap(cmd.Context(), target, opts); err == nil {
 							return nil
 						}
 						return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, shorthandNamespace)
@@ -195,7 +195,7 @@ Examples:
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDelete(cmd.Context(), args[0], opts)
+			return runServiceDelete(cmd.Context(), args[0], opts)
 		},
 	}
 
@@ -307,8 +307,8 @@ Examples:
 	return cmd
 }
 
-// runDelete executes the delete command
-func runDelete(ctx context.Context, serviceName string, opts *deleteOptions) error {
+// runServiceDelete executes the delete command
+func runServiceDelete(ctx context.Context, serviceName string, opts *deleteOptions) error {
 	// Validate flags
 	if err := validateDeleteFlags(opts); err != nil {
 		return err
@@ -835,15 +835,15 @@ func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) erro
 	return nil
 }
 
-// runDeleteConfig deletes a config by name using the ConfigClient
-func runDeleteConfig(ctx context.Context, name string, opts *deleteOptions) error {
+// runDeleteConfigmap deletes a config by name using the ConfigClient
+func runDeleteConfigmap(ctx context.Context, name string, opts *deleteOptions) error {
 	apiClient, err := newAPIClient("", "")
 	if err != nil {
 		return err
 	}
 	defer apiClient.Close()
-	cc := client.NewConfigMapClient(apiClient)
-	if err := cc.DeleteConfigMap(opts.namespace, name); err != nil {
+	cc := client.NewConfigmapClient(apiClient)
+	if err := cc.DeleteConfigmap(opts.namespace, name); err != nil {
 		return err
 	}
 	fmt.Printf("Config %s/%s deleted\n", opts.namespace, name)

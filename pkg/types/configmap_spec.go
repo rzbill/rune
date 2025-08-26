@@ -56,7 +56,7 @@ func (c *ConfigMapSpec) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // ToConfigMap converts a ConfigMapSpec to a ConfigMap.
-func (c *ConfigMapSpec) ToConfigMap() (*ConfigMap, error) {
+func (c *ConfigMapSpec) ToConfigMap() (*Configmap, error) {
 	// Validate
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (c *ConfigMapSpec) ToConfigMap() (*ConfigMap, error) {
 
 	now := time.Now()
 
-	return &ConfigMap{
+	return &Configmap{
 		ID:        uuid.New().String(),
 		Name:      c.Name,
 		Namespace: namespace,

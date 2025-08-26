@@ -598,11 +598,11 @@ func (cf *CastFile) GetSecrets() ([]*Secret, error) {
 }
 
 // GetConfigMaps converts inline configmap entries to concrete ConfigMap objects.
-func (cf *CastFile) GetConfigMaps() ([]*ConfigMap, error) {
+func (cf *CastFile) GetConfigMaps() ([]*Configmap, error) {
 	if len(cf.ConfigMaps) == 0 {
 		return nil, nil
 	}
-	var result []*ConfigMap
+	var result []*Configmap
 	for _, spec := range cf.ConfigMaps {
 		c := spec
 		if c.Namespace == "" {

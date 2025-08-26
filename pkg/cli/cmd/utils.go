@@ -86,7 +86,7 @@ func outputTable(resources interface{}) error {
 		return outputDeleteTable(r)
 	case []*types.Secret:
 		return outputSecretsTable(r)
-	case []*types.ConfigMap:
+	case []*types.Configmap:
 		return outputConfigmapsTable(r)
 	// TODO: Add more resource types here
 	default:

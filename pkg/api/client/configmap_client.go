@@ -11,16 +11,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ConfigMapClient provides methods for interacting with configs on the Rune API server.
-type ConfigMapClient struct {
+// ConfigmapClient provides methods for interacting with configs on the Rune API server.
+type ConfigmapClient struct {
 	client *Client
 	logger log.Logger
 	svc    generated.ConfigMapServiceClient
 }
 
-// NewConfigMapClient creates a new configmap client.
-func NewConfigMapClient(client *Client) *ConfigMapClient {
-	return &ConfigMapClient{
+// NewConfigmapClient creates a new configmap client.
+func NewConfigmapClient(client *Client) *ConfigmapClient {
+	return &ConfigmapClient{
 		client: client,
 		logger: client.logger.WithComponent("configmap-client"),
 		svc:    generated.NewConfigMapServiceClient(client.conn),
@@ -28,21 +28,21 @@ func NewConfigMapClient(client *Client) *ConfigMapClient {
 }
 
 // GetLogger returns the logger for this client
-func (c *ConfigMapClient) GetLogger() log.Logger { return c.logger }
+func (c *ConfigmapClient) GetLogger() log.Logger { return c.logger }
 
 // CreateConfig creates a new configmap on the API server.
-func (c *ConfigMapClient) CreateConfigMap(configmap *types.ConfigMap, ensureNamespace bool) error {
+func (c *ConfigmapClient) CreateConfigmap(configmap *types.Configmap, ensureNamespace bool) error {
 	c.logger.Debug("Creating configmap", log.Str("name", configmap.Name), log.Str("namespace", configmap.Namespace))
 
-	req := &generated.CreateConfigMapRequest{
-		ConfigMap:       c.configToProto(configmap),
+	req := &generated.CreateConfigmapRequest{
+		Configmap:       c.configToProto(configmap),
 		EnsureNamespace: ensureNamespace,
 	}
 
 	ctx, cancel := c.client.Context()
 	defer cancel()
 
-	resp, err := c.svc.CreateConfigMap(ctx, req)
+	resp, err := c.svc.CreateConfigmap(ctx, req)
 	if err != nil {
 		c.logger.Error("Failed to create configmap", log.Err(err), log.Str("name", configmap.Name))
 		return convertGRPCError("create configmap", err)
@@ -56,15 +56,15 @@ func (c *ConfigMapClient) CreateConfigMap(configmap *types.ConfigMap, ensureName
 }
 
 // GetConfigMap retrieves a configmap by name.
-func (c *ConfigMapClient) GetConfigMap(namespace, name string) (*types.ConfigMap, error) {
+func (c *ConfigmapClient) GetConfigmap(namespace, name string) (*types.Configmap, error) {
 	c.logger.Debug("Getting configmap", log.Str("name", name), log.Str("namespace", namespace))
 
-	req := &generated.GetConfigMapRequest{Name: name, Namespace: namespace}
+	req := &generated.GetConfigmapRequest{Name: name, Namespace: namespace}
 
 	ctx, cancel := c.client.Context()
 	defer cancel()
 
-	resp, err := c.svc.GetConfigMap(ctx, req)
+	resp, err := c.svc.GetConfigmap(ctx, req)
 	if err != nil {
 		statusErr, ok := status.FromError(err)
 		if ok && statusErr.Code() == codes.NotFound {
@@ -79,7 +79,7 @@ func (c *ConfigMapClient) GetConfigMap(namespace, name string) (*types.ConfigMap
 		return nil, err
 	}
 
-	cfg, err := c.protoToConfigMap(resp.ConfigMap)
+	cfg, err := c.protoToConfigMap(resp.Configmap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert configmap: %w", err)
 	}
@@ -87,15 +87,15 @@ func (c *ConfigMapClient) GetConfigMap(namespace, name string) (*types.ConfigMap
 }
 
 // UpdateConfigMap updates an existing configmap.
-func (c *ConfigMapClient) UpdateConfigMap(configmap *types.ConfigMap) error {
+func (c *ConfigmapClient) UpdateConfigmap(configmap *types.Configmap) error {
 	c.logger.Debug("Updating configmap", log.Str("name", configmap.Name), log.Str("namespace", configmap.Namespace))
 
-	req := &generated.UpdateConfigMapRequest{ConfigMap: c.configToProto(configmap)}
+	req := &generated.UpdateConfigmapRequest{Configmap: c.configToProto(configmap)}
 
 	ctx, cancel := c.client.Context()
 	defer cancel()
 
-	resp, err := c.svc.UpdateConfigMap(ctx, req)
+	resp, err := c.svc.UpdateConfigmap(ctx, req)
 	if err != nil {
 		c.logger.Error("Failed to update configmap", log.Err(err), log.Str("name", configmap.Name))
 		return convertGRPCError("update configmap", err)
@@ -109,15 +109,15 @@ func (c *ConfigMapClient) UpdateConfigMap(configmap *types.ConfigMap) error {
 }
 
 // DeleteConfigMap deletes a configmap.
-func (c *ConfigMapClient) DeleteConfigMap(namespace, name string) error {
+func (c *ConfigmapClient) DeleteConfigmap(namespace, name string) error {
 	c.logger.Debug("Deleting configmap", log.Str("name", name), log.Str("namespace", namespace))
 
-	req := &generated.DeleteConfigMapRequest{Name: name, Namespace: namespace}
+	req := &generated.DeleteConfigmapRequest{Name: name, Namespace: namespace}
 
 	ctx, cancel := c.client.Context()
 	defer cancel()
 
-	resp, err := c.svc.DeleteConfigMap(ctx, req)
+	resp, err := c.svc.DeleteConfigmap(ctx, req)
 	if err != nil {
 		c.logger.Error("Failed to delete configmap", log.Err(err), log.Str("name", name))
 		return convertGRPCError("delete configmap", err)
@@ -129,15 +129,15 @@ func (c *ConfigMapClient) DeleteConfigMap(namespace, name string) error {
 }
 
 // ListConfigMaps lists configmaps in a namespace.
-func (c *ConfigMapClient) ListConfigMaps(namespace string, labelSelector string, fieldSelector string) ([]*types.ConfigMap, error) {
+func (c *ConfigmapClient) ListConfigMaps(namespace string, labelSelector string, fieldSelector string) ([]*types.Configmap, error) {
 	c.logger.Debug("Listing configmaps", log.Str("namespace", namespace))
 
-	req := &generated.ListConfigMapsRequest{Namespace: namespace}
+	req := &generated.ListConfigmapsRequest{Namespace: namespace}
 
 	ctx, cancel := c.client.Context()
 	defer cancel()
 
-	resp, err := c.svc.ListConfigMaps(ctx, req)
+	resp, err := c.svc.ListConfigmaps(ctx, req)
 	if err != nil {
 		c.logger.Error("Failed to list configs", log.Err(err), log.Str("namespace", namespace))
 		return nil, convertGRPCError("list configs", err)
@@ -148,8 +148,8 @@ func (c *ConfigMapClient) ListConfigMaps(namespace string, labelSelector string,
 		return nil, err
 	}
 
-	configs := make([]*types.ConfigMap, 0, len(resp.ConfigMaps))
-	for _, pc := range resp.ConfigMaps {
+	configs := make([]*types.Configmap, 0, len(resp.Configmaps))
+	for _, pc := range resp.Configmaps {
 		cfg, err := c.protoToConfigMap(pc)
 		if err != nil {
 			c.logger.Warn("Failed to convert configmap", log.Err(err))
@@ -166,18 +166,18 @@ func (c *ConfigMapClient) ListConfigMaps(namespace string, labelSelector string,
 }
 
 // Converters
-func (c *ConfigMapClient) configToProto(cfg *types.ConfigMap) *generated.ConfigMap {
+func (c *ConfigmapClient) configToProto(cfg *types.Configmap) *generated.Configmap {
 	if cfg == nil {
 		return nil
 	}
-	return &generated.ConfigMap{
+	return &generated.Configmap{
 		Name:      cfg.Name,
 		Namespace: cfg.Namespace,
 		Data:      cfg.Data,
 	}
 }
 
-func (c *ConfigMapClient) protoToConfigMap(proto *generated.ConfigMap) (*types.ConfigMap, error) {
+func (c *ConfigmapClient) protoToConfigMap(proto *generated.Configmap) (*types.Configmap, error) {
 	if proto == nil {
 		return nil, nil
 	}
@@ -190,7 +190,7 @@ func (c *ConfigMapClient) protoToConfigMap(proto *generated.ConfigMap) (*types.C
 		return nil, fmt.Errorf("failed to parse updatedAt: %w", err)
 	}
 
-	return &types.ConfigMap{
+	return &types.Configmap{
 		Name:      proto.Name,
 		Namespace: proto.Namespace,
 		Data:      proto.Data,
@@ -202,7 +202,7 @@ func (c *ConfigMapClient) protoToConfigMap(proto *generated.ConfigMap) (*types.C
 
 // filterConfigsBySelectors applies client-side filtering for configs.
 // Supported field selectors: name. Label selectors are not supported for configs in this build.
-func (c *ConfigMapClient) filterConfigsBySelectors(configs []*types.ConfigMap, labelSelector, fieldSelector string) ([]*types.ConfigMap, error) {
+func (c *ConfigmapClient) filterConfigsBySelectors(configs []*types.Configmap, labelSelector, fieldSelector string) ([]*types.Configmap, error) {
 	if labelSelector != "" {
 		return nil, fmt.Errorf("label selector is not supported for configs")
 	}
@@ -221,7 +221,7 @@ func (c *ConfigMapClient) filterConfigsBySelectors(configs []*types.ConfigMap, l
 	if nameFilter == "" {
 		return configs, nil
 	}
-	result := make([]*types.ConfigMap, 0, len(configs))
+	result := make([]*types.Configmap, 0, len(configs))
 	for _, cfg := range configs {
 		if cfg != nil && cfg.Name == nameFilter {
 			result = append(result, cfg)

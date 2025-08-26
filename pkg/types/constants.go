@@ -30,8 +30,8 @@ const (
 	// ResourceTypeSecret represents secrets (encrypted at rest)
 	ResourceTypeSecret ResourceType = "secret"
 
-	// ResourceTypeConfigMap represents non-sensitive configs
-	ResourceTypeConfigMap ResourceType = "configmap"
+	// ResourceTypeConfigmap represents non-sensitive configs
+	ResourceTypeConfigmap ResourceType = "configmap"
 
 	// ResourceTypeUser represents user identities
 	ResourceTypeUser ResourceType = "user"

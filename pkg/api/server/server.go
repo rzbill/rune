@@ -44,7 +44,7 @@ type APIServer struct {
 	execService      *service.ExecService
 	healthService    *service.HealthService
 	secretService    *service.SecretService
-	configService    *service.ConfigMapService
+	configService    *service.ConfigmapService
 	authService      *service.AuthService
 	adminService     *service.AdminService
 
@@ -150,7 +150,7 @@ func (s *APIServer) Start() error {
 	s.execService = service.NewExecService(s.logger, s.orchestrator)
 	s.healthService = service.NewHealthService(s.store, s.logger)
 	s.secretService = service.NewSecretService(s.store, s.logger)
-	s.configService = service.NewConfigMapService(s.store, s.logger)
+	s.configService = service.NewConfigmapService(s.store, s.logger)
 	s.authService = service.NewAuthService(s.store, s.logger)
 	s.adminService = service.NewAdminService(s.store, s.logger)
 

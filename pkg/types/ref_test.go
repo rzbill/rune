@@ -17,7 +17,7 @@ func TestParseResourceRef_Table(t *testing.T) {
 		},
 		{
 			in:   "rune://configmap/default/app-config/value",
-			want: ResourceRef{Type: ResourceTypeConfigMap, Namespace: "default", Name: "app-config", Key: "value"},
+			want: ResourceRef{Type: ResourceTypeConfigmap, Namespace: "default", Name: "app-config", Key: "value"},
 		},
 		{
 			in:   "rune://service/prod/id/svc-123",
@@ -33,7 +33,7 @@ func TestParseResourceRef_Table(t *testing.T) {
 		},
 		{
 			in:   "configmap:app.default.rune/value",
-			want: ResourceRef{Type: ResourceTypeConfigMap, Namespace: "default", Name: "app", Key: "value"},
+			want: ResourceRef{Type: ResourceTypeConfigmap, Namespace: "default", Name: "app", Key: "value"},
 		},
 		{
 			in:   "secret:db-credentials",

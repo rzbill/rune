@@ -6,7 +6,7 @@ import "pkg/api/proto/common.proto";
 
 option go_package = "github.com/rzbill/rune/pkg/api/generated";
 
-message ConfigMap {
+message Configmap {
   string name = 1;
   string namespace = 2;
   map<string, string> data = 3;
@@ -15,29 +15,29 @@ message ConfigMap {
   string updated_at = 6;
 }
 
-message CreateConfigMapRequest { 
-  ConfigMap configMap = 1;
+message CreateConfigmapRequest { 
+  Configmap configmap = 1;
   bool ensure_namespace = 2;
 }
-message GetConfigMapRequest { string name = 1; string namespace = 2; }
-message UpdateConfigMapRequest { ConfigMap configMap = 1; }
-message DeleteConfigMapRequest { string name = 1; string namespace = 2; }
-message ListConfigMapsRequest { 
+message GetConfigmapRequest { string name = 1; string namespace = 2; }
+message UpdateConfigmapRequest { Configmap configmap = 1; }
+message DeleteConfigmapRequest { string name = 1; string namespace = 2; }
+message ListConfigmapsRequest { 
   string namespace = 1;
   map<string, string> label_selector = 2;
   map<string, string> field_selector = 3;
   PagingParams paging = 4;
 }
 
-message ConfigMapResponse { ConfigMap configMap = 1; Status status = 2; }
-message ListConfigMapsResponse { repeated ConfigMap configMaps = 1; Status status = 2; }
+message ConfigmapResponse { Configmap configmap = 1; Status status = 2; }
+message ListConfigmapsResponse { repeated Configmap configmaps = 1; Status status = 2; }
 
 service ConfigMapService {
-  rpc CreateConfigMap(CreateConfigMapRequest) returns (ConfigMapResponse);
-  rpc GetConfigMap(GetConfigMapRequest) returns (ConfigMapResponse);
-  rpc UpdateConfigMap(UpdateConfigMapRequest) returns (ConfigMapResponse);
-  rpc DeleteConfigMap(DeleteConfigMapRequest) returns (Status);
-  rpc ListConfigMaps(ListConfigMapsRequest) returns (ListConfigMapsResponse);
+  rpc CreateConfigmap(CreateConfigmapRequest) returns (ConfigmapResponse);
+  rpc GetConfigmap(GetConfigmapRequest) returns (ConfigmapResponse);
+  rpc UpdateConfigmap(UpdateConfigmapRequest) returns (ConfigmapResponse);
+  rpc DeleteConfigmap(DeleteConfigmapRequest) returns (Status);
+  rpc ListConfigmaps(ListConfigmapsRequest) returns (ListConfigmapsResponse);
 }
 
 

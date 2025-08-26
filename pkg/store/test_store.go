@@ -265,14 +265,14 @@ func (s *TestStore) Get(ctx context.Context, resourceType types.ResourceType, na
 				return nil
 			}
 
-		case *types.ConfigMap:
-			if targetCfg, ok := resource.(*types.ConfigMap); ok && storedData != nil {
+		case *types.Configmap:
+			if targetCfg, ok := resource.(*types.Configmap); ok && storedData != nil {
 				*targetCfg = *storedData
 				return nil
 			}
 
-		case types.ConfigMap:
-			if targetCfg, ok := resource.(*types.ConfigMap); ok {
+		case types.Configmap:
+			if targetCfg, ok := resource.(*types.Configmap); ok {
 				*targetCfg = storedData
 				return nil
 			}

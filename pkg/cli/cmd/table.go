@@ -349,7 +349,7 @@ func (t *ResourceTable) RenderSecrets(secrets []*types.Secret) error {
 }
 
 // RenderConfigmaps renders a table of configmaps
-func (t *ResourceTable) RenderConfigmaps(configmaps []*types.ConfigMap) error {
+func (t *ResourceTable) RenderConfigmaps(configmaps []*types.Configmap) error {
 	if len(configmaps) == 0 {
 		fmt.Println("No configmaps found")
 		return nil

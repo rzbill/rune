@@ -67,7 +67,7 @@ func runRunesetCast(root string, opts *castOptions) error {
 		FilesByType:      make(map[string][]string),
 		ServicesByFile:   make(map[string][]*types.Service),
 		SecretsByFile:    make(map[string][]*types.Secret),
-		ConfigMapsByFile: make(map[string][]*types.ConfigMap),
+		ConfigMapsByFile: make(map[string][]*types.Configmap),
 		TotalResources:   0,
 		SourceArguments:  []string{root},
 	}

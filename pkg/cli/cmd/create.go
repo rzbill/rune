@@ -122,9 +122,9 @@ func newCreateConfigCmd() *cobra.Command {
 				return err
 			}
 			defer api.Close()
-			cc := client.NewConfigMapClient(api)
-			cfg := &types.ConfigMap{Name: name, Namespace: namespace, Data: data}
-			if err := cc.CreateConfigMap(cfg, createNamespace); err != nil {
+			cc := client.NewConfigmapClient(api)
+			cfg := &types.Configmap{Name: name, Namespace: namespace, Data: data}
+			if err := cc.CreateConfigmap(cfg, createNamespace); err != nil {
 				return err
 			}
 			fmt.Printf("Config %s/%s created with %d data entries\n", namespace, name, len(data))

@@ -31,8 +31,8 @@ var _ = runtime.String
 var _ = utilities.NewDoubleArray
 var _ = metadata.Join
 
-func request_ConfigMapService_CreateConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq CreateConfigMapRequest
+func request_ConfigMapService_CreateConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq CreateConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -43,13 +43,13 @@ func request_ConfigMapService_CreateConfigMap_0(ctx context.Context, marshaler r
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.CreateConfigMap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.CreateConfigmap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_ConfigMapService_CreateConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq CreateConfigMapRequest
+func local_request_ConfigMapService_CreateConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq CreateConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -60,13 +60,13 @@ func local_request_ConfigMapService_CreateConfigMap_0(ctx context.Context, marsh
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.CreateConfigMap(ctx, &protoReq)
+	msg, err := server.CreateConfigmap(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_ConfigMapService_GetConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetConfigMapRequest
+func request_ConfigMapService_GetConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -77,13 +77,13 @@ func request_ConfigMapService_GetConfigMap_0(ctx context.Context, marshaler runt
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.GetConfigMap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.GetConfigmap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_ConfigMapService_GetConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq GetConfigMapRequest
+func local_request_ConfigMapService_GetConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq GetConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -94,13 +94,13 @@ func local_request_ConfigMapService_GetConfigMap_0(ctx context.Context, marshale
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.GetConfigMap(ctx, &protoReq)
+	msg, err := server.GetConfigmap(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_ConfigMapService_UpdateConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UpdateConfigMapRequest
+func request_ConfigMapService_UpdateConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq UpdateConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -111,13 +111,13 @@ func request_ConfigMapService_UpdateConfigMap_0(ctx context.Context, marshaler r
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.UpdateConfigMap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.UpdateConfigmap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_ConfigMapService_UpdateConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq UpdateConfigMapRequest
+func local_request_ConfigMapService_UpdateConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq UpdateConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -128,13 +128,13 @@ func local_request_ConfigMapService_UpdateConfigMap_0(ctx context.Context, marsh
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.UpdateConfigMap(ctx, &protoReq)
+	msg, err := server.UpdateConfigmap(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_ConfigMapService_DeleteConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteConfigMapRequest
+func request_ConfigMapService_DeleteConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq DeleteConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -145,13 +145,13 @@ func request_ConfigMapService_DeleteConfigMap_0(ctx context.Context, marshaler r
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.DeleteConfigMap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.DeleteConfigmap(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_ConfigMapService_DeleteConfigMap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq DeleteConfigMapRequest
+func local_request_ConfigMapService_DeleteConfigmap_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq DeleteConfigmapRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -162,13 +162,13 @@ func local_request_ConfigMapService_DeleteConfigMap_0(ctx context.Context, marsh
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.DeleteConfigMap(ctx, &protoReq)
+	msg, err := server.DeleteConfigmap(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_ConfigMapService_ListConfigMaps_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListConfigMapsRequest
+func request_ConfigMapService_ListConfigmaps_0(ctx context.Context, marshaler runtime.Marshaler, client ConfigMapServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListConfigmapsRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -179,13 +179,13 @@ func request_ConfigMapService_ListConfigMaps_0(ctx context.Context, marshaler ru
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := client.ListConfigMaps(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.ListConfigmaps(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_ConfigMapService_ListConfigMaps_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListConfigMapsRequest
+func local_request_ConfigMapService_ListConfigmaps_0(ctx context.Context, marshaler runtime.Marshaler, server ConfigMapServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListConfigmapsRequest
 	var metadata runtime.ServerMetadata
 
 	newReader, berr := utilities.IOReaderFactory(req.Body)
@@ -196,7 +196,7 @@ func local_request_ConfigMapService_ListConfigMaps_0(ctx context.Context, marsha
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	msg, err := server.ListConfigMaps(ctx, &protoReq)
+	msg, err := server.ListConfigmaps(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -207,7 +207,7 @@ func local_request_ConfigMapService_ListConfigMaps_0(ctx context.Context, marsha
 // Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterConfigMapServiceHandlerFromEndpoint instead.
 func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server ConfigMapServiceServer) error {
 
-	mux.Handle("POST", pattern_ConfigMapService_CreateConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_CreateConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -215,12 +215,12 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/CreateConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/CreateConfigMap"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/CreateConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/CreateConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_ConfigMapService_CreateConfigMap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_ConfigMapService_CreateConfigmap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -228,11 +228,11 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 
-		forward_ConfigMapService_CreateConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_CreateConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_GetConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_GetConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -240,12 +240,12 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/GetConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/GetConfigMap"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/GetConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/GetConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_ConfigMapService_GetConfigMap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_ConfigMapService_GetConfigmap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -253,11 +253,11 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 
-		forward_ConfigMapService_GetConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_GetConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_UpdateConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_UpdateConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -265,12 +265,12 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/UpdateConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/UpdateConfigMap"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/UpdateConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/UpdateConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_ConfigMapService_UpdateConfigMap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_ConfigMapService_UpdateConfigmap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -278,11 +278,11 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 
-		forward_ConfigMapService_UpdateConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_UpdateConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_DeleteConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_DeleteConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -290,12 +290,12 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/DeleteConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/DeleteConfigMap"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/DeleteConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/DeleteConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_ConfigMapService_DeleteConfigMap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_ConfigMapService_DeleteConfigmap_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -303,11 +303,11 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 
-		forward_ConfigMapService_DeleteConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_DeleteConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_ListConfigMaps_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_ListConfigmaps_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -315,12 +315,12 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/ListConfigMaps", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/ListConfigMaps"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rune.api.ConfigMapService/ListConfigmaps", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/ListConfigmaps"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_ConfigMapService_ListConfigMaps_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_ConfigMapService_ListConfigmaps_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -328,7 +328,7 @@ func RegisterConfigMapServiceHandlerServer(ctx context.Context, mux *runtime.Ser
 			return
 		}
 
-		forward_ConfigMapService_ListConfigMaps_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_ListConfigmaps_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -373,113 +373,113 @@ func RegisterConfigMapServiceHandler(ctx context.Context, mux *runtime.ServeMux,
 // "ConfigMapServiceClient" to call the correct interceptors.
 func RegisterConfigMapServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client ConfigMapServiceClient) error {
 
-	mux.Handle("POST", pattern_ConfigMapService_CreateConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_CreateConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/CreateConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/CreateConfigMap"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/CreateConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/CreateConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_ConfigMapService_CreateConfigMap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_ConfigMapService_CreateConfigmap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_ConfigMapService_CreateConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_CreateConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_GetConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_GetConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/GetConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/GetConfigMap"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/GetConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/GetConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_ConfigMapService_GetConfigMap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_ConfigMapService_GetConfigmap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_ConfigMapService_GetConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_GetConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_UpdateConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_UpdateConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/UpdateConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/UpdateConfigMap"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/UpdateConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/UpdateConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_ConfigMapService_UpdateConfigMap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_ConfigMapService_UpdateConfigmap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_ConfigMapService_UpdateConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_UpdateConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_DeleteConfigMap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_DeleteConfigmap_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/DeleteConfigMap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/DeleteConfigMap"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/DeleteConfigmap", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/DeleteConfigmap"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_ConfigMapService_DeleteConfigMap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_ConfigMapService_DeleteConfigmap_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_ConfigMapService_DeleteConfigMap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_DeleteConfigmap_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("POST", pattern_ConfigMapService_ListConfigMaps_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("POST", pattern_ConfigMapService_ListConfigmaps_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/ListConfigMaps", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/ListConfigMaps"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rune.api.ConfigMapService/ListConfigmaps", runtime.WithHTTPPathPattern("/rune.api.ConfigMapService/ListConfigmaps"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_ConfigMapService_ListConfigMaps_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_ConfigMapService_ListConfigmaps_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_ConfigMapService_ListConfigMaps_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_ConfigMapService_ListConfigmaps_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -487,25 +487,25 @@ func RegisterConfigMapServiceHandlerClient(ctx context.Context, mux *runtime.Ser
 }
 
 var (
-	pattern_ConfigMapService_CreateConfigMap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "CreateConfigMap"}, ""))
+	pattern_ConfigMapService_CreateConfigmap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "CreateConfigmap"}, ""))
 
-	pattern_ConfigMapService_GetConfigMap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "GetConfigMap"}, ""))
+	pattern_ConfigMapService_GetConfigmap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "GetConfigmap"}, ""))
 
-	pattern_ConfigMapService_UpdateConfigMap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "UpdateConfigMap"}, ""))
+	pattern_ConfigMapService_UpdateConfigmap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "UpdateConfigmap"}, ""))
 
-	pattern_ConfigMapService_DeleteConfigMap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "DeleteConfigMap"}, ""))
+	pattern_ConfigMapService_DeleteConfigmap_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "DeleteConfigmap"}, ""))
 
-	pattern_ConfigMapService_ListConfigMaps_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "ListConfigMaps"}, ""))
+	pattern_ConfigMapService_ListConfigmaps_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"rune.api.ConfigMapService", "ListConfigmaps"}, ""))
 )
 
 var (
-	forward_ConfigMapService_CreateConfigMap_0 = runtime.ForwardResponseMessage
+	forward_ConfigMapService_CreateConfigmap_0 = runtime.ForwardResponseMessage
 
-	forward_ConfigMapService_GetConfigMap_0 = runtime.ForwardResponseMessage
+	forward_ConfigMapService_GetConfigmap_0 = runtime.ForwardResponseMessage
 
-	forward_ConfigMapService_UpdateConfigMap_0 = runtime.ForwardResponseMessage
+	forward_ConfigMapService_UpdateConfigmap_0 = runtime.ForwardResponseMessage
 
-	forward_ConfigMapService_DeleteConfigMap_0 = runtime.ForwardResponseMessage
+	forward_ConfigMapService_DeleteConfigmap_0 = runtime.ForwardResponseMessage
 
-	forward_ConfigMapService_ListConfigMaps_0 = runtime.ForwardResponseMessage
+	forward_ConfigMapService_ListConfigmaps_0 = runtime.ForwardResponseMessage
 )
