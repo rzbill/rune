@@ -90,6 +90,70 @@ message TokenInfo {
 message TokenListRequest {}
 message TokenListResponse { repeated TokenInfo tokens = 1; }
 
+// Registry admin messages (moved under AdminService)
+message RegistryAuthConfig {
+  string type = 1;                 // basic | token | ecr | dockerconfigjson (optional; may be inferred)
+  string username = 2;             // for basic
+  string password = 3;             // for basic
+  string token = 4;                // for token
+  string region = 5;               // for ecr
+  // from_secret is a string reference supporting ResourceRef formats (URI/FQDN/minimal)
+  string from_secret = 6;
+  bool bootstrap = 7;              // create/update secret from data/env if missing
+  string manage = 8;               // create | update | ignore
+  bool immutable = 9;              // if true, never overwrite existing secret
+  map<string, string> data = 10;   // inline source (typically env-expanded server-side)
+}
+
+message RegistryConfig {
+  string name = 1;                 // unique registry config name (e.g., ecr-prod)
+  string registry = 2;             // registry host or wildcard (e.g., *.dkr.ecr.us-east-1.amazonaws.com)
+  RegistryAuthConfig auth = 3;     // authentication settings
+}
+
+message ListRegistriesRequest {}
+message ListRegistriesResponse { repeated RegistryConfig registries = 1; }
+
+message GetRegistryRequest { string name = 1; }
+message GetRegistryResponse { RegistryConfig registry = 1; }
+
+message AddRegistryRequest { RegistryConfig registry = 1; }
+message AddRegistryResponse { RegistryConfig registry = 1; }
+
+message UpdateRegistryRequest { RegistryConfig registry = 1; }
+message UpdateRegistryResponse { RegistryConfig registry = 1; }
+
+message RemoveRegistryRequest { string name = 1; }
+message RemoveRegistryResponse { bool deleted = 1; }
+
+message BootstrapAuthRequest {
+  string name = 1;                 // bootstrap a specific registry by name
+  string type = 2;                 // bootstrap all registries of this type (e.g., ecr, ghcr)
+  bool all = 3;                    // bootstrap all registries
+}
+message BootstrapAuthResponse { int32 updated = 1; }
+
+message TestRegistryRequest {
+  string name = 1;                 // registry name to test
+  string image_ref = 2;            // optional image to attempt auth against
+}
+message TestRegistryResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message RegistryRuntimeStatus {
+  string name = 1;
+  string registry = 2;
+  string type = 3;                 // derived type (ecr/basic/token/dockerconfigjson)
+  bool auth_configured = 4;        // whether auth config is present
+  string last_bootstrap_at = 5;    // RFC3339 or empty
+  string last_error = 6;           // last error (if any)
+}
+
+message RegistriesStatusRequest {}
+message RegistriesStatusResponse { repeated RegistryRuntimeStatus registries = 1; }
+
 service AdminService {
   rpc AdminBootstrap(AdminBootstrapRequest) returns (AdminBootstrapResponse);
 
@@ -106,6 +170,16 @@ service AdminService {
 
   // List tokens (no secrets)
   rpc TokenList(TokenListRequest) returns (TokenListResponse);
+
+  // Registry admin RPCs
+  rpc ListRegistries(ListRegistriesRequest) returns (ListRegistriesResponse);
+  rpc GetRegistry(GetRegistryRequest) returns (GetRegistryResponse);
+  rpc AddRegistry(AddRegistryRequest) returns (AddRegistryResponse);
+  rpc UpdateRegistry(UpdateRegistryRequest) returns (UpdateRegistryResponse);
+  rpc RemoveRegistry(RemoveRegistryRequest) returns (RemoveRegistryResponse);
+  rpc BootstrapAuth(BootstrapAuthRequest) returns (BootstrapAuthResponse);
+  rpc TestRegistry(TestRegistryRequest) returns (TestRegistryResponse);
+  rpc RegistriesStatus(RegistriesStatusRequest) returns (RegistriesStatusResponse);
 }
 
 

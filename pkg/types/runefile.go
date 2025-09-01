@@ -46,6 +46,10 @@ type RuneFile struct {
 	rawNode  *yaml.Node     `json:"-" yaml:"-"`
 }
 
+func (rf *RuneFile) GetName() string {
+	return "rune"
+}
+
 // ServerConfig represents server endpoint configuration
 type ServerConfig struct {
 	GRPCAddress string     `yaml:"grpc_address,omitempty"`

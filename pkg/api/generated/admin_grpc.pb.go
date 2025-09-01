@@ -34,6 +34,15 @@ type AdminServiceClient interface {
 	UserList(ctx context.Context, in *UserListRequest, opts ...grpc.CallOption) (*UserListResponse, error)
 	// List tokens (no secrets)
 	TokenList(ctx context.Context, in *TokenListRequest, opts ...grpc.CallOption) (*TokenListResponse, error)
+	// Registry admin RPCs
+	ListRegistries(ctx context.Context, in *ListRegistriesRequest, opts ...grpc.CallOption) (*ListRegistriesResponse, error)
+	GetRegistry(ctx context.Context, in *GetRegistryRequest, opts ...grpc.CallOption) (*GetRegistryResponse, error)
+	AddRegistry(ctx context.Context, in *AddRegistryRequest, opts ...grpc.CallOption) (*AddRegistryResponse, error)
+	UpdateRegistry(ctx context.Context, in *UpdateRegistryRequest, opts ...grpc.CallOption) (*UpdateRegistryResponse, error)
+	RemoveRegistry(ctx context.Context, in *RemoveRegistryRequest, opts ...grpc.CallOption) (*RemoveRegistryResponse, error)
+	BootstrapAuth(ctx context.Context, in *BootstrapAuthRequest, opts ...grpc.CallOption) (*BootstrapAuthResponse, error)
+	TestRegistry(ctx context.Context, in *TestRegistryRequest, opts ...grpc.CallOption) (*TestRegistryResponse, error)
+	RegistriesStatus(ctx context.Context, in *RegistriesStatusRequest, opts ...grpc.CallOption) (*RegistriesStatusResponse, error)
 }
 
 type adminServiceClient struct {
@@ -143,6 +152,78 @@ func (c *adminServiceClient) TokenList(ctx context.Context, in *TokenListRequest
 	return out, nil
 }
 
+func (c *adminServiceClient) ListRegistries(ctx context.Context, in *ListRegistriesRequest, opts ...grpc.CallOption) (*ListRegistriesResponse, error) {
+	out := new(ListRegistriesResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/ListRegistries", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetRegistry(ctx context.Context, in *GetRegistryRequest, opts ...grpc.CallOption) (*GetRegistryResponse, error) {
+	out := new(GetRegistryResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/GetRegistry", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) AddRegistry(ctx context.Context, in *AddRegistryRequest, opts ...grpc.CallOption) (*AddRegistryResponse, error) {
+	out := new(AddRegistryResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/AddRegistry", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) UpdateRegistry(ctx context.Context, in *UpdateRegistryRequest, opts ...grpc.CallOption) (*UpdateRegistryResponse, error) {
+	out := new(UpdateRegistryResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/UpdateRegistry", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RemoveRegistry(ctx context.Context, in *RemoveRegistryRequest, opts ...grpc.CallOption) (*RemoveRegistryResponse, error) {
+	out := new(RemoveRegistryResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/RemoveRegistry", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) BootstrapAuth(ctx context.Context, in *BootstrapAuthRequest, opts ...grpc.CallOption) (*BootstrapAuthResponse, error) {
+	out := new(BootstrapAuthResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/BootstrapAuth", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) TestRegistry(ctx context.Context, in *TestRegistryRequest, opts ...grpc.CallOption) (*TestRegistryResponse, error) {
+	out := new(TestRegistryResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/TestRegistry", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RegistriesStatus(ctx context.Context, in *RegistriesStatusRequest, opts ...grpc.CallOption) (*RegistriesStatusResponse, error) {
+	out := new(RegistriesStatusResponse)
+	err := c.cc.Invoke(ctx, "/rune.api.AdminService/RegistriesStatus", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility
@@ -159,6 +240,15 @@ type AdminServiceServer interface {
 	UserList(context.Context, *UserListRequest) (*UserListResponse, error)
 	// List tokens (no secrets)
 	TokenList(context.Context, *TokenListRequest) (*TokenListResponse, error)
+	// Registry admin RPCs
+	ListRegistries(context.Context, *ListRegistriesRequest) (*ListRegistriesResponse, error)
+	GetRegistry(context.Context, *GetRegistryRequest) (*GetRegistryResponse, error)
+	AddRegistry(context.Context, *AddRegistryRequest) (*AddRegistryResponse, error)
+	UpdateRegistry(context.Context, *UpdateRegistryRequest) (*UpdateRegistryResponse, error)
+	RemoveRegistry(context.Context, *RemoveRegistryRequest) (*RemoveRegistryResponse, error)
+	BootstrapAuth(context.Context, *BootstrapAuthRequest) (*BootstrapAuthResponse, error)
+	TestRegistry(context.Context, *TestRegistryRequest) (*TestRegistryResponse, error)
+	RegistriesStatus(context.Context, *RegistriesStatusRequest) (*RegistriesStatusResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -198,6 +288,30 @@ func (UnimplementedAdminServiceServer) UserList(context.Context, *UserListReques
 }
 func (UnimplementedAdminServiceServer) TokenList(context.Context, *TokenListRequest) (*TokenListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TokenList not implemented")
+}
+func (UnimplementedAdminServiceServer) ListRegistries(context.Context, *ListRegistriesRequest) (*ListRegistriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRegistries not implemented")
+}
+func (UnimplementedAdminServiceServer) GetRegistry(context.Context, *GetRegistryRequest) (*GetRegistryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRegistry not implemented")
+}
+func (UnimplementedAdminServiceServer) AddRegistry(context.Context, *AddRegistryRequest) (*AddRegistryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddRegistry not implemented")
+}
+func (UnimplementedAdminServiceServer) UpdateRegistry(context.Context, *UpdateRegistryRequest) (*UpdateRegistryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateRegistry not implemented")
+}
+func (UnimplementedAdminServiceServer) RemoveRegistry(context.Context, *RemoveRegistryRequest) (*RemoveRegistryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveRegistry not implemented")
+}
+func (UnimplementedAdminServiceServer) BootstrapAuth(context.Context, *BootstrapAuthRequest) (*BootstrapAuthResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BootstrapAuth not implemented")
+}
+func (UnimplementedAdminServiceServer) TestRegistry(context.Context, *TestRegistryRequest) (*TestRegistryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TestRegistry not implemented")
+}
+func (UnimplementedAdminServiceServer) RegistriesStatus(context.Context, *RegistriesStatusRequest) (*RegistriesStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegistriesStatus not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 
@@ -410,6 +524,150 @@ func _AdminService_TokenList_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListRegistries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRegistriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListRegistries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/ListRegistries",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListRegistries(ctx, req.(*ListRegistriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetRegistry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRegistryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetRegistry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/GetRegistry",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetRegistry(ctx, req.(*GetRegistryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_AddRegistry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddRegistryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).AddRegistry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/AddRegistry",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).AddRegistry(ctx, req.(*AddRegistryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_UpdateRegistry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRegistryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).UpdateRegistry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/UpdateRegistry",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).UpdateRegistry(ctx, req.(*UpdateRegistryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RemoveRegistry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveRegistryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RemoveRegistry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/RemoveRegistry",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RemoveRegistry(ctx, req.(*RemoveRegistryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_BootstrapAuth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BootstrapAuthRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).BootstrapAuth(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/BootstrapAuth",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).BootstrapAuth(ctx, req.(*BootstrapAuthRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_TestRegistry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestRegistryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).TestRegistry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/TestRegistry",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).TestRegistry(ctx, req.(*TestRegistryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RegistriesStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegistriesStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RegistriesStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rune.api.AdminService/RegistriesStatus",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RegistriesStatus(ctx, req.(*RegistriesStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -460,6 +718,38 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TokenList",
 			Handler:    _AdminService_TokenList_Handler,
+		},
+		{
+			MethodName: "ListRegistries",
+			Handler:    _AdminService_ListRegistries_Handler,
+		},
+		{
+			MethodName: "GetRegistry",
+			Handler:    _AdminService_GetRegistry_Handler,
+		},
+		{
+			MethodName: "AddRegistry",
+			Handler:    _AdminService_AddRegistry_Handler,
+		},
+		{
+			MethodName: "UpdateRegistry",
+			Handler:    _AdminService_UpdateRegistry_Handler,
+		},
+		{
+			MethodName: "RemoveRegistry",
+			Handler:    _AdminService_RemoveRegistry_Handler,
+		},
+		{
+			MethodName: "BootstrapAuth",
+			Handler:    _AdminService_BootstrapAuth_Handler,
+		},
+		{
+			MethodName: "TestRegistry",
+			Handler:    _AdminService_TestRegistry_Handler,
+		},
+		{
+			MethodName: "RegistriesStatus",
+			Handler:    _AdminService_RegistriesStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

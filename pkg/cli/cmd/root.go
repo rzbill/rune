@@ -8,6 +8,7 @@ import (
 	"github.com/rzbill/rune/pkg/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -38,7 +39,11 @@ without unnecessary complexity.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		if st, ok := status.FromError(err); ok {
+			fmt.Printf("Error: %s\n", st.Message())
+		} else {
+			fmt.Println(err)
+		}
 		os.Exit(1)
 	}
 }
@@ -69,6 +74,10 @@ func init() {
 	rootCmd.AddCommand(newConfigCmd())
 	// Register convenient context switching alias
 	rootCmd.AddCommand(newUseContextCmd())
+
+	// Cleaner error UX: avoid usage dump and duplicate error printing
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 }
 
 // initConfig reads in config file and ENV variables if set.
