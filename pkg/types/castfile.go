@@ -14,7 +14,7 @@ type CastFile struct {
 	Specs      []Spec          `yaml:"specs,omitempty"`
 	Services   []ServiceSpec   `yaml:"services,omitempty"`
 	Secrets    []SecretSpec    `yaml:"secrets,omitempty"`
-	ConfigMaps []ConfigMapSpec `yaml:"configMaps,omitempty"`
+	Configmaps []ConfigmapSpec `yaml:"configmaps,omitempty"`
 	// Internal tracking for line numbers (not serialized)
 	lineInfo map[string]int `json:"-" yaml:"-"`
 	// Template references extracted during preprocessing
@@ -187,7 +187,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 			}
 		}
 		if key.Value == "configMap" && val.Kind == yaml.MappingNode {
-			var spec ConfigMapSpec
+			var spec ConfigmapSpec
 			b, err := yaml.Marshal(val)
 			if err != nil {
 				cf.AddParseError(fmt.Errorf("failed to marshal configMap at line %d: %w", val.Line, err))
@@ -203,7 +203,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				spec.Namespace = cf.overrideNamespace
 			}
 			if !spec.Skip {
-				cf.ConfigMaps = append(cf.ConfigMaps, spec)
+				cf.Configmaps = append(cf.Configmaps, spec)
 				cf.Specs = append(cf.Specs, &spec)
 				// record line info
 				name, ns := extractNameNamespace(val)
@@ -276,7 +276,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 		if key.Value == "configMaps" && val.Kind == yaml.SequenceNode {
 			for _, item := range val.Content {
 				if item.Kind == yaml.MappingNode {
-					var spec ConfigMapSpec
+					var spec ConfigmapSpec
 					b, err := yaml.Marshal(item)
 					if err != nil {
 						cf.AddParseError(fmt.Errorf("failed to marshal configMap in configMaps array at line %d: %w", item.Line, err))
@@ -292,7 +292,7 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 						spec.Namespace = cf.overrideNamespace
 					}
 					if !spec.Skip {
-						cf.ConfigMaps = append(cf.ConfigMaps, spec)
+						cf.Configmaps = append(cf.Configmaps, spec)
 						cf.Specs = append(cf.Specs, &spec)
 					}
 					name, ns := extractNameNamespace(item)
@@ -420,9 +420,9 @@ func (cf *CastFile) Lint() []error {
 		}
 	}
 
-	// ConfigMaps
-	for i := range cf.ConfigMaps {
-		spec := &cf.ConfigMaps[i]
+	// Configmaps
+	for i := range cf.Configmaps {
+		spec := &cf.Configmaps[i]
 		if err := spec.Validate(); err != nil {
 			if line, ok := cf.GetLineInfo("Config", spec.GetNamespace(), spec.GetName()); ok {
 				errs = append(errs, fmt.Errorf("Config %q (ns=%q) at line %d: %w", spec.GetName(), NS(spec.GetNamespace()), line, err))
@@ -560,12 +560,12 @@ func (cf *CastFile) GetSecretSpecs() []*SecretSpec {
 	return result
 }
 
-// GetConfigMapSpecs returns all configmap specs defined in the cast file.
-func (cf *CastFile) GetConfigMapSpecs() []*ConfigMapSpec {
-	var result []*ConfigMapSpec
-	if len(cf.ConfigMaps) > 0 {
-		for i := range cf.ConfigMaps {
-			result = append(result, &cf.ConfigMaps[i])
+// GetConfigmapSpecs returns all configmap specs defined in the cast file.
+func (cf *CastFile) GetConfigmapSpecs() []*ConfigmapSpec {
+	var result []*ConfigmapSpec
+	if len(cf.Configmaps) > 0 {
+		for i := range cf.Configmaps {
+			result = append(result, &cf.Configmaps[i])
 		}
 	}
 	return result
@@ -597,13 +597,13 @@ func (cf *CastFile) GetSecrets() ([]*Secret, error) {
 	return result, nil
 }
 
-// GetConfigMaps converts inline configmap entries to concrete ConfigMap objects.
-func (cf *CastFile) GetConfigMaps() ([]*Configmap, error) {
-	if len(cf.ConfigMaps) == 0 {
+// GetConfigmaps converts inline configmap entries to concrete Configmap objects.
+func (cf *CastFile) GetConfigmaps() ([]*Configmap, error) {
+	if len(cf.Configmaps) == 0 {
 		return nil, nil
 	}
 	var result []*Configmap
-	for _, spec := range cf.ConfigMaps {
+	for _, spec := range cf.Configmaps {
 		c := spec
 		if c.Namespace == "" {
 			c.Namespace = "default"
@@ -611,7 +611,7 @@ func (cf *CastFile) GetConfigMaps() ([]*Configmap, error) {
 		if err := c.Validate(); err != nil {
 			return nil, err
 		}
-		cfg, err := c.ToConfigMap()
+		cfg, err := c.ToConfigmap()
 		if err != nil {
 			return nil, err
 		}

@@ -736,7 +736,7 @@ func (s *ServiceSpec) GetEnvWithTemplates(templateMap map[string]string) map[str
 }
 
 // RestoreEnvFrom resolves any template placeholders captured in EnvFrom.Raw
-// using the provided templateMap, and populates Secret/ConfigMap/Namespace accordingly.
+// using the provided templateMap, and populates Secret/Configmap/Namespace accordingly.
 func (s *ServiceSpec) RestoreEnvFrom(templateMap map[string]string) {
 	if len(s.EnvFrom) == 0 {
 		return

@@ -109,12 +109,12 @@ func TestParseCastFile_MixedForms(t *testing.T) {
 		}
 	}
 
-	// ConfigMaps parsed from 'configMaps' list
-	if len(cf.ConfigMaps) != 3 {
-		t.Fatalf("expected 3 configmap specs, got %d", len(cf.ConfigMaps))
+	// Configmaps parsed from 'configMaps' list
+	if len(cf.Configmaps) != 3 {
+		t.Fatalf("expected 3 configmap specs, got %d", len(cf.Configmaps))
 	}
 	cmNames := map[string]bool{}
-	for _, c := range cf.ConfigMaps {
+	for _, c := range cf.Configmaps {
 		cmNames[c.Name] = true
 	}
 	for _, want := range []string{"app-config", "web-config", "api-config"} {
@@ -132,9 +132,9 @@ func TestParseCastFile_MixedForms(t *testing.T) {
 		t.Fatalf("expected 3 concrete secrets, got %d", len(secrets))
 	}
 
-	configs, err := cf.GetConfigMaps()
+	configs, err := cf.GetConfigmaps()
 	if err != nil {
-		t.Fatalf("GetConfigMaps returned error: %v", err)
+		t.Fatalf("GetConfigmaps returned error: %v", err)
 	}
 	if len(configs) != 3 {
 		t.Fatalf("expected 3 concrete configmaps, got %d", len(configs))
@@ -417,7 +417,7 @@ secrets:
 	}
 }
 
-func TestParseCastFile_FullConfigMap(t *testing.T) {
+func TestParseCastFile_FullConfigmap(t *testing.T) {
 	t.Parallel()
 	yamlContent := `
 configMaps:
@@ -437,13 +437,13 @@ configMaps:
 	if err != nil {
 		t.Fatalf("ParseCastFile returned error: %v", err)
 	}
-	if len(cf.ConfigMaps) != 2 {
-		t.Fatalf("expected 2 configmaps, got %d", len(cf.ConfigMaps))
+	if len(cf.Configmaps) != 2 {
+		t.Fatalf("expected 2 configmaps, got %d", len(cf.Configmaps))
 	}
 	// Validate conversion
-	cfgs, err := cf.GetConfigMaps()
+	cfgs, err := cf.GetConfigmaps()
 	if err != nil {
-		t.Fatalf("GetConfigMaps error: %v", err)
+		t.Fatalf("GetConfigmaps error: %v", err)
 	}
 	if len(cfgs) != 2 {
 		t.Fatalf("expected 2 concrete configmaps, got %d", len(cfgs))

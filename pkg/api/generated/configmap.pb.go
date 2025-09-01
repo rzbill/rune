@@ -586,7 +586,7 @@ var file_pkg_api_proto_configmap_proto_rawDesc = []byte{
 	0x69, 0x67, 0x6d, 0x61, 0x70, 0x73, 0x12, 0x28, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73,
 	0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x10, 0x2e, 0x72, 0x75, 0x6e, 0x65, 0x2e, 0x61, 0x70,
 	0x69, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73,
-	0x32, 0x9e, 0x03, 0x0a, 0x10, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x4d, 0x61, 0x70, 0x53, 0x65,
+	0x32, 0x9e, 0x03, 0x0a, 0x10, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x6d, 0x61, 0x70, 0x53, 0x65,
 	0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x50, 0x0a, 0x0f, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x43,
 	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x6d, 0x61, 0x70, 0x12, 0x20, 0x2e, 0x72, 0x75, 0x6e, 0x65, 0x2e,
 	0x61, 0x70, 0x69, 0x2e, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67,
@@ -657,16 +657,16 @@ var file_pkg_api_proto_configmap_proto_depIdxs = []int32{
 	12, // 7: rune.api.ConfigmapResponse.status:type_name -> rune.api.Status
 	0,  // 8: rune.api.ListConfigmapsResponse.configmaps:type_name -> rune.api.Configmap
 	12, // 9: rune.api.ListConfigmapsResponse.status:type_name -> rune.api.Status
-	1,  // 10: rune.api.ConfigMapService.CreateConfigmap:input_type -> rune.api.CreateConfigmapRequest
-	2,  // 11: rune.api.ConfigMapService.GetConfigmap:input_type -> rune.api.GetConfigmapRequest
-	3,  // 12: rune.api.ConfigMapService.UpdateConfigmap:input_type -> rune.api.UpdateConfigmapRequest
-	4,  // 13: rune.api.ConfigMapService.DeleteConfigmap:input_type -> rune.api.DeleteConfigmapRequest
-	5,  // 14: rune.api.ConfigMapService.ListConfigmaps:input_type -> rune.api.ListConfigmapsRequest
-	6,  // 15: rune.api.ConfigMapService.CreateConfigmap:output_type -> rune.api.ConfigmapResponse
-	6,  // 16: rune.api.ConfigMapService.GetConfigmap:output_type -> rune.api.ConfigmapResponse
-	6,  // 17: rune.api.ConfigMapService.UpdateConfigmap:output_type -> rune.api.ConfigmapResponse
-	12, // 18: rune.api.ConfigMapService.DeleteConfigmap:output_type -> rune.api.Status
-	7,  // 19: rune.api.ConfigMapService.ListConfigmaps:output_type -> rune.api.ListConfigmapsResponse
+	1,  // 10: rune.api.ConfigmapService.CreateConfigmap:input_type -> rune.api.CreateConfigmapRequest
+	2,  // 11: rune.api.ConfigmapService.GetConfigmap:input_type -> rune.api.GetConfigmapRequest
+	3,  // 12: rune.api.ConfigmapService.UpdateConfigmap:input_type -> rune.api.UpdateConfigmapRequest
+	4,  // 13: rune.api.ConfigmapService.DeleteConfigmap:input_type -> rune.api.DeleteConfigmapRequest
+	5,  // 14: rune.api.ConfigmapService.ListConfigmaps:input_type -> rune.api.ListConfigmapsRequest
+	6,  // 15: rune.api.ConfigmapService.CreateConfigmap:output_type -> rune.api.ConfigmapResponse
+	6,  // 16: rune.api.ConfigmapService.GetConfigmap:output_type -> rune.api.ConfigmapResponse
+	6,  // 17: rune.api.ConfigmapService.UpdateConfigmap:output_type -> rune.api.ConfigmapResponse
+	12, // 18: rune.api.ConfigmapService.DeleteConfigmap:output_type -> rune.api.Status
+	7,  // 19: rune.api.ConfigmapService.ListConfigmaps:output_type -> rune.api.ListConfigmapsResponse
 	15, // [15:20] is the sub-list for method output_type
 	10, // [10:15] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name

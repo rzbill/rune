@@ -213,7 +213,7 @@ func (s *APIServer) startGRPCServer() error {
 	generated.RegisterExecServiceServer(s.grpcServer, s.execService)
 	generated.RegisterHealthServiceServer(s.grpcServer, s.healthService)
 	generated.RegisterSecretServiceServer(s.grpcServer, s.secretService)
-	generated.RegisterConfigMapServiceServer(s.grpcServer, s.configService)
+	generated.RegisterConfigmapServiceServer(s.grpcServer, s.configService)
 	generated.RegisterAuthServiceServer(s.grpcServer, s.authService)
 	generated.RegisterAdminServiceServer(s.grpcServer, s.adminService)
 	generated.RegisterNamespaceServiceServer(s.grpcServer, s.namespaceService)

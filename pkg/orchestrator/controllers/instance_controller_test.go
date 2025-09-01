@@ -1052,7 +1052,7 @@ func TestPrepareEnvVars_EnvFrom(t *testing.T) {
 
 	// Imported with prefix
 	assert.Equal(t, "s3cr3t", env["APP_PASSWORD"])
-	// ConfigMap imported without prefix
+	// Configmap imported without prefix
 	assert.Equal(t, "debug", env["LOG_LEVEL"])
 	// Explicit env overrides imported key
 	assert.Equal(t, "override", env["APP_USER"])

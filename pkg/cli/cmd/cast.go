@@ -38,7 +38,7 @@ type ResourceInfo struct {
 	FilesByType      map[string][]string
 	ServicesByFile   map[string][]*types.Service
 	SecretsByFile    map[string][]*types.Secret
-	ConfigMapsByFile map[string][]*types.Configmap
+	ConfigmapsByFile map[string][]*types.Configmap
 	TotalResources   int
 	SourceArguments  []string
 }
@@ -190,7 +190,7 @@ func parseCastFilesResources(filePaths []string, sourceArgs []string, opts *cast
 		FilesByType:      make(map[string][]string),
 		ServicesByFile:   make(map[string][]*types.Service),
 		SecretsByFile:    make(map[string][]*types.Secret),
-		ConfigMapsByFile: make(map[string][]*types.Configmap),
+		ConfigmapsByFile: make(map[string][]*types.Configmap),
 		TotalResources:   0,
 		SourceArguments:  sourceArgs,
 	}
@@ -281,19 +281,19 @@ func parseCastFilesResources(filePaths []string, sourceArgs []string, opts *cast
 		}
 
 		// Extract config maps from the cast file with proper error handling
-		configMaps, err := castFile.GetConfigMaps()
+		configMaps, err := castFile.GetConfigmaps()
 		if err != nil {
 			fileErrors = append(fileErrors, fmt.Sprintf("failed to extract config maps: %v", err))
 		} else if len(configMaps) > 0 {
-			info.ConfigMapsByFile[filePath] = configMaps
+			info.ConfigmapsByFile[filePath] = configMaps
 			info.TotalResources += len(configMaps)
 
 			// Fix FilesByType logic
-			if _, exists := info.FilesByType["ConfigMap"]; !exists {
-				info.FilesByType["ConfigMap"] = []string{}
+			if _, exists := info.FilesByType["Configmap"]; !exists {
+				info.FilesByType["Configmap"] = []string{}
 			}
-			if !stringSliceContains(info.FilesByType["ConfigMap"], fileName) {
-				info.FilesByType["ConfigMap"] = append(info.FilesByType["ConfigMap"], fileName)
+			if !stringSliceContains(info.FilesByType["Configmap"], fileName) {
+				info.FilesByType["Configmap"] = append(info.FilesByType["Configmap"], fileName)
 			}
 		}
 
@@ -330,15 +330,15 @@ func deployResources(apiClient *client.Client, info *ResourceInfo, timeout time.
 	// Initialize resource type maps
 	results.SuccessfulResources["Service"] = []string{}
 	results.SuccessfulResources["Secret"] = []string{}
-	results.SuccessfulResources["ConfigMap"] = []string{}
+	results.SuccessfulResources["Configmap"] = []string{}
 
 	// Safety check: ensure we have resources to deploy
 	if info.TotalResources == 0 {
 		return results, fmt.Errorf("no resources found to deploy")
 	}
 
-	// Deploy ConfigMaps and Secrets first, then Services
-	if err := deployConfigMaps(apiClient, info, results, opts); err != nil {
+	// Deploy Configmaps and Secrets first, then Services
+	if err := deployConfigmaps(apiClient, info, results, opts); err != nil {
 		return results, err
 	}
 	if err := deploySecrets(apiClient, info, results, opts); err != nil {
@@ -445,11 +445,11 @@ func deploySecrets(apiClient *client.Client, info *ResourceInfo, results *Deploy
 	return nil
 }
 
-func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, opts *castOptions) error {
+func deployConfigmaps(apiClient *client.Client, info *ResourceInfo, results *DeploymentResult, opts *castOptions) error {
 	configClient := client.NewConfigmapClient(apiClient)
 	// Calculate actual resource count safely
 	resourceCount := 0
-	for _, configMaps := range info.ConfigMapsByFile {
+	for _, configMaps := range info.ConfigmapsByFile {
 		resourceCount += len(configMaps)
 	}
 
@@ -460,7 +460,7 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 
 	resourceIndex := 0
 
-	for _, configMaps := range info.ConfigMapsByFile {
+	for _, configMaps := range info.ConfigmapsByFile {
 		for _, configMap := range configMaps {
 			resourceIndex++
 
@@ -474,7 +474,7 @@ func deployConfigMaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 				}
 			}
 			fmt.Println(" ✓")
-			results.SuccessfulResources["ConfigMap"] = append(results.SuccessfulResources["ConfigMap"], configMap.Name)
+			results.SuccessfulResources["Configmap"] = append(results.SuccessfulResources["Configmap"], configMap.Name)
 		}
 	}
 	return nil

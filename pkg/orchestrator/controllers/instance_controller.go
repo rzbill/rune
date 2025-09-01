@@ -1042,7 +1042,7 @@ func (c *instanceController) resolveTemplateVariable(ctx context.Context, templa
 	case types.ResourceTypeSecret:
 		return c.resolveSecretValue(ctx, resourceRef)
 	case types.ResourceTypeConfigmap:
-		return c.resolveConfigMapValue(ctx, resourceRef)
+		return c.resolveConfigmapValue(ctx, resourceRef)
 	default:
 		return "", fmt.Errorf("unsupported resource type %s in template variable: %s", resourceRef.Type, templateVar)
 	}
@@ -1064,8 +1064,8 @@ func (c *instanceController) resolveSecretValue(ctx context.Context, resourceRef
 	return v, nil
 }
 
-// resolveConfigMapValue fetches and extracts a value from a configmap
-func (c *instanceController) resolveConfigMapValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
+// resolveConfigmapValue fetches and extracts a value from a configmap
+func (c *instanceController) resolveConfigmapValue(ctx context.Context, resourceRef types.ResourceRef) (string, error) {
 	cfg, err := c.configRepo.Get(ctx, resourceRef.Namespace, resourceRef.Name)
 	if err != nil {
 		return "", fmt.Errorf("get configmap %s.%s: %w", resourceRef.Namespace, resourceRef.Name, err)

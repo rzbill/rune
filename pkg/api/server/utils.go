@@ -41,15 +41,15 @@ func methodToAction(method string) (string, string) {
 	case strings.HasPrefix(method, "/rune.api.HealthService/GetHealth"):
 		return "health", "get"
 
-	case strings.HasPrefix(method, "/rune.api.ConfigMapService/Get"):
+	case strings.HasPrefix(method, "/rune.api.ConfigmapService/Get"):
 		return "configmaps", "get"
-	case strings.HasPrefix(method, "/rune.api.ConfigMapService/List"):
+	case strings.HasPrefix(method, "/rune.api.ConfigmapService/List"):
 		return "configmaps", "list"
-	case strings.HasPrefix(method, "/rune.api.ConfigMapService/Create"):
+	case strings.HasPrefix(method, "/rune.api.ConfigmapService/Create"):
 		return "configmaps", "create"
-	case strings.HasPrefix(method, "/rune.api.ConfigMapService/Update"):
+	case strings.HasPrefix(method, "/rune.api.ConfigmapService/Update"):
 		return "configmaps", "update"
-	case strings.HasPrefix(method, "/rune.api.ConfigMapService/Delete"):
+	case strings.HasPrefix(method, "/rune.api.ConfigmapService/Delete"):
 		return "configmaps", "delete"
 
 	case strings.HasPrefix(method, "/rune.api.SecretService/Get"):

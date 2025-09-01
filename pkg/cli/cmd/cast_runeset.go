@@ -67,7 +67,7 @@ func runRunesetCast(root string, opts *castOptions) error {
 		FilesByType:      make(map[string][]string),
 		ServicesByFile:   make(map[string][]*types.Service),
 		SecretsByFile:    make(map[string][]*types.Secret),
-		ConfigMapsByFile: make(map[string][]*types.Configmap),
+		ConfigmapsByFile: make(map[string][]*types.Configmap),
 		TotalResources:   0,
 		SourceArguments:  []string{root},
 	}
@@ -112,12 +112,12 @@ func runRunesetCast(root string, opts *castOptions) error {
 			info.TotalResources += len(secs)
 			info.FilesByType["Secret"] = append(info.FilesByType["Secret"], fileName)
 		}
-		if cfgs, err := cf.GetConfigMaps(); err != nil {
+		if cfgs, err := cf.GetConfigmaps(); err != nil {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s: failed to extract configmaps: %v", fileName, err))
 		} else if len(cfgs) > 0 {
-			info.ConfigMapsByFile[fileName] = cfgs
+			info.ConfigmapsByFile[fileName] = cfgs
 			info.TotalResources += len(cfgs)
-			info.FilesByType["ConfigMap"] = append(info.FilesByType["ConfigMap"], fileName)
+			info.FilesByType["Configmap"] = append(info.FilesByType["Configmap"], fileName)
 		}
 	}
 	if len(errorMessages) > 0 {

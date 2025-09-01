@@ -9,8 +9,8 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-// ConfigMapSpec represents the YAML specification for a config (flat form).
-type ConfigMapSpec struct {
+// ConfigmapSpec represents the YAML specification for a config (flat form).
+type ConfigmapSpec struct {
 	// Human-readable name for the config (required)
 	Name string `json:"name" yaml:"name"`
 
@@ -29,7 +29,7 @@ type ConfigMapSpec struct {
 
 // UnmarshalYAML implements custom unmarshalling so `data` can be provided
 // either as a mapping (key: value) or as a sequence of {key, value} objects.
-func (c *ConfigMapSpec) UnmarshalYAML(value *yaml.Node) error {
+func (c *ConfigmapSpec) UnmarshalYAML(value *yaml.Node) error {
 	// Preserve original node for structural validation
 	c.rawNode = value
 
@@ -55,8 +55,8 @@ func (c *ConfigMapSpec) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-// ToConfigMap converts a ConfigMapSpec to a ConfigMap.
-func (c *ConfigMapSpec) ToConfigMap() (*Configmap, error) {
+// ToConfigmap converts a ConfigmapSpec to a Configmap.
+func (c *ConfigmapSpec) ToConfigmap() (*Configmap, error) {
 	// Validate
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (c *ConfigMapSpec) ToConfigMap() (*Configmap, error) {
 }
 
 // Validate checks if a config specification is valid.
-func (c *ConfigMapSpec) Validate() error {
+func (c *ConfigmapSpec) Validate() error {
 	// Structural validation against original YAML node when available
 	if err := c.validateStructureFromNode(); err != nil {
 		return err
@@ -100,7 +100,7 @@ func (c *ConfigMapSpec) Validate() error {
 
 // validateStructureFromNode validates unknown fields using the captured raw YAML node.
 // If no raw node is available (e.g., constructed programmatically), it is a no-op.
-func (c *ConfigMapSpec) validateStructureFromNode() error {
+func (c *ConfigmapSpec) validateStructureFromNode() error {
 	if c.rawNode == nil {
 		return nil
 	}
@@ -125,7 +125,7 @@ func (c *ConfigMapSpec) validateStructureFromNode() error {
 	return nil
 }
 
-// Implement Spec interface for ConfigMapSpec
-func (c *ConfigMapSpec) GetName() string      { return c.Name }
-func (c *ConfigMapSpec) GetNamespace() string { return c.Namespace }
-func (c *ConfigMapSpec) Kind() string         { return "Config" }
+// Implement Spec interface for ConfigmapSpec
+func (c *ConfigmapSpec) GetName() string      { return c.Name }
+func (c *ConfigmapSpec) GetNamespace() string { return c.Namespace }
+func (c *ConfigmapSpec) Kind() string         { return "Config" }

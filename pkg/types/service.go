@@ -180,8 +180,8 @@ type ServiceDiscovery struct {
 }
 
 // DependencyRef is the normalized internal representation of a dependency
-// It can represent Service, Secret, or ConfigMap dependencies.
-// Exactly one of Service/Secret/ConfigMap should be set.
+// It can represent Service, Secret, or Configmap dependencies.
+// Exactly one of Service/Secret/Configmap should be set.
 type DependencyRef struct {
 	Service   string `json:"service,omitempty" yaml:"service,omitempty"`
 	Secret    string `json:"secret,omitempty" yaml:"secret,omitempty"`

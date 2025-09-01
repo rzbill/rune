@@ -18,10 +18,10 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-// ConfigMapServiceClient is the client API for ConfigMapService service.
+// ConfigmapServiceClient is the client API for ConfigmapService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ConfigMapServiceClient interface {
+type ConfigmapServiceClient interface {
 	CreateConfigmap(ctx context.Context, in *CreateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error)
 	GetConfigmap(ctx context.Context, in *GetConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error)
 	UpdateConfigmap(ctx context.Context, in *UpdateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error)
@@ -29,219 +29,219 @@ type ConfigMapServiceClient interface {
 	ListConfigmaps(ctx context.Context, in *ListConfigmapsRequest, opts ...grpc.CallOption) (*ListConfigmapsResponse, error)
 }
 
-type configMapServiceClient struct {
+type configmapServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewConfigMapServiceClient(cc grpc.ClientConnInterface) ConfigMapServiceClient {
-	return &configMapServiceClient{cc}
+func NewConfigmapServiceClient(cc grpc.ClientConnInterface) ConfigmapServiceClient {
+	return &configmapServiceClient{cc}
 }
 
-func (c *configMapServiceClient) CreateConfigmap(ctx context.Context, in *CreateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
+func (c *configmapServiceClient) CreateConfigmap(ctx context.Context, in *CreateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
 	out := new(ConfigmapResponse)
-	err := c.cc.Invoke(ctx, "/rune.api.ConfigMapService/CreateConfigmap", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/rune.api.ConfigmapService/CreateConfigmap", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *configMapServiceClient) GetConfigmap(ctx context.Context, in *GetConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
+func (c *configmapServiceClient) GetConfigmap(ctx context.Context, in *GetConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
 	out := new(ConfigmapResponse)
-	err := c.cc.Invoke(ctx, "/rune.api.ConfigMapService/GetConfigmap", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/rune.api.ConfigmapService/GetConfigmap", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *configMapServiceClient) UpdateConfigmap(ctx context.Context, in *UpdateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
+func (c *configmapServiceClient) UpdateConfigmap(ctx context.Context, in *UpdateConfigmapRequest, opts ...grpc.CallOption) (*ConfigmapResponse, error) {
 	out := new(ConfigmapResponse)
-	err := c.cc.Invoke(ctx, "/rune.api.ConfigMapService/UpdateConfigmap", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/rune.api.ConfigmapService/UpdateConfigmap", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *configMapServiceClient) DeleteConfigmap(ctx context.Context, in *DeleteConfigmapRequest, opts ...grpc.CallOption) (*Status, error) {
+func (c *configmapServiceClient) DeleteConfigmap(ctx context.Context, in *DeleteConfigmapRequest, opts ...grpc.CallOption) (*Status, error) {
 	out := new(Status)
-	err := c.cc.Invoke(ctx, "/rune.api.ConfigMapService/DeleteConfigmap", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/rune.api.ConfigmapService/DeleteConfigmap", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *configMapServiceClient) ListConfigmaps(ctx context.Context, in *ListConfigmapsRequest, opts ...grpc.CallOption) (*ListConfigmapsResponse, error) {
+func (c *configmapServiceClient) ListConfigmaps(ctx context.Context, in *ListConfigmapsRequest, opts ...grpc.CallOption) (*ListConfigmapsResponse, error) {
 	out := new(ListConfigmapsResponse)
-	err := c.cc.Invoke(ctx, "/rune.api.ConfigMapService/ListConfigmaps", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/rune.api.ConfigmapService/ListConfigmaps", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// ConfigMapServiceServer is the server API for ConfigMapService service.
-// All implementations must embed UnimplementedConfigMapServiceServer
+// ConfigmapServiceServer is the server API for ConfigmapService service.
+// All implementations must embed UnimplementedConfigmapServiceServer
 // for forward compatibility
-type ConfigMapServiceServer interface {
+type ConfigmapServiceServer interface {
 	CreateConfigmap(context.Context, *CreateConfigmapRequest) (*ConfigmapResponse, error)
 	GetConfigmap(context.Context, *GetConfigmapRequest) (*ConfigmapResponse, error)
 	UpdateConfigmap(context.Context, *UpdateConfigmapRequest) (*ConfigmapResponse, error)
 	DeleteConfigmap(context.Context, *DeleteConfigmapRequest) (*Status, error)
 	ListConfigmaps(context.Context, *ListConfigmapsRequest) (*ListConfigmapsResponse, error)
-	mustEmbedUnimplementedConfigMapServiceServer()
+	mustEmbedUnimplementedConfigmapServiceServer()
 }
 
-// UnimplementedConfigMapServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedConfigMapServiceServer struct {
+// UnimplementedConfigmapServiceServer must be embedded to have forward compatible implementations.
+type UnimplementedConfigmapServiceServer struct {
 }
 
-func (UnimplementedConfigMapServiceServer) CreateConfigmap(context.Context, *CreateConfigmapRequest) (*ConfigmapResponse, error) {
+func (UnimplementedConfigmapServiceServer) CreateConfigmap(context.Context, *CreateConfigmapRequest) (*ConfigmapResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConfigmap not implemented")
 }
-func (UnimplementedConfigMapServiceServer) GetConfigmap(context.Context, *GetConfigmapRequest) (*ConfigmapResponse, error) {
+func (UnimplementedConfigmapServiceServer) GetConfigmap(context.Context, *GetConfigmapRequest) (*ConfigmapResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfigmap not implemented")
 }
-func (UnimplementedConfigMapServiceServer) UpdateConfigmap(context.Context, *UpdateConfigmapRequest) (*ConfigmapResponse, error) {
+func (UnimplementedConfigmapServiceServer) UpdateConfigmap(context.Context, *UpdateConfigmapRequest) (*ConfigmapResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConfigmap not implemented")
 }
-func (UnimplementedConfigMapServiceServer) DeleteConfigmap(context.Context, *DeleteConfigmapRequest) (*Status, error) {
+func (UnimplementedConfigmapServiceServer) DeleteConfigmap(context.Context, *DeleteConfigmapRequest) (*Status, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteConfigmap not implemented")
 }
-func (UnimplementedConfigMapServiceServer) ListConfigmaps(context.Context, *ListConfigmapsRequest) (*ListConfigmapsResponse, error) {
+func (UnimplementedConfigmapServiceServer) ListConfigmaps(context.Context, *ListConfigmapsRequest) (*ListConfigmapsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListConfigmaps not implemented")
 }
-func (UnimplementedConfigMapServiceServer) mustEmbedUnimplementedConfigMapServiceServer() {}
+func (UnimplementedConfigmapServiceServer) mustEmbedUnimplementedConfigmapServiceServer() {}
 
-// UnsafeConfigMapServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ConfigMapServiceServer will
+// UnsafeConfigmapServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ConfigmapServiceServer will
 // result in compilation errors.
-type UnsafeConfigMapServiceServer interface {
-	mustEmbedUnimplementedConfigMapServiceServer()
+type UnsafeConfigmapServiceServer interface {
+	mustEmbedUnimplementedConfigmapServiceServer()
 }
 
-func RegisterConfigMapServiceServer(s grpc.ServiceRegistrar, srv ConfigMapServiceServer) {
-	s.RegisterService(&ConfigMapService_ServiceDesc, srv)
+func RegisterConfigmapServiceServer(s grpc.ServiceRegistrar, srv ConfigmapServiceServer) {
+	s.RegisterService(&ConfigmapService_ServiceDesc, srv)
 }
 
-func _ConfigMapService_CreateConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigmapService_CreateConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateConfigmapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigMapServiceServer).CreateConfigmap(ctx, in)
+		return srv.(ConfigmapServiceServer).CreateConfigmap(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/rune.api.ConfigMapService/CreateConfigmap",
+		FullMethod: "/rune.api.ConfigmapService/CreateConfigmap",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigMapServiceServer).CreateConfigmap(ctx, req.(*CreateConfigmapRequest))
+		return srv.(ConfigmapServiceServer).CreateConfigmap(ctx, req.(*CreateConfigmapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigMapService_GetConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigmapService_GetConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetConfigmapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigMapServiceServer).GetConfigmap(ctx, in)
+		return srv.(ConfigmapServiceServer).GetConfigmap(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/rune.api.ConfigMapService/GetConfigmap",
+		FullMethod: "/rune.api.ConfigmapService/GetConfigmap",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigMapServiceServer).GetConfigmap(ctx, req.(*GetConfigmapRequest))
+		return srv.(ConfigmapServiceServer).GetConfigmap(ctx, req.(*GetConfigmapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigMapService_UpdateConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigmapService_UpdateConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateConfigmapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigMapServiceServer).UpdateConfigmap(ctx, in)
+		return srv.(ConfigmapServiceServer).UpdateConfigmap(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/rune.api.ConfigMapService/UpdateConfigmap",
+		FullMethod: "/rune.api.ConfigmapService/UpdateConfigmap",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigMapServiceServer).UpdateConfigmap(ctx, req.(*UpdateConfigmapRequest))
+		return srv.(ConfigmapServiceServer).UpdateConfigmap(ctx, req.(*UpdateConfigmapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigMapService_DeleteConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigmapService_DeleteConfigmap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteConfigmapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigMapServiceServer).DeleteConfigmap(ctx, in)
+		return srv.(ConfigmapServiceServer).DeleteConfigmap(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/rune.api.ConfigMapService/DeleteConfigmap",
+		FullMethod: "/rune.api.ConfigmapService/DeleteConfigmap",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigMapServiceServer).DeleteConfigmap(ctx, req.(*DeleteConfigmapRequest))
+		return srv.(ConfigmapServiceServer).DeleteConfigmap(ctx, req.(*DeleteConfigmapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigMapService_ListConfigmaps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigmapService_ListConfigmaps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListConfigmapsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigMapServiceServer).ListConfigmaps(ctx, in)
+		return srv.(ConfigmapServiceServer).ListConfigmaps(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/rune.api.ConfigMapService/ListConfigmaps",
+		FullMethod: "/rune.api.ConfigmapService/ListConfigmaps",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigMapServiceServer).ListConfigmaps(ctx, req.(*ListConfigmapsRequest))
+		return srv.(ConfigmapServiceServer).ListConfigmaps(ctx, req.(*ListConfigmapsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// ConfigMapService_ServiceDesc is the grpc.ServiceDesc for ConfigMapService service.
+// ConfigmapService_ServiceDesc is the grpc.ServiceDesc for ConfigmapService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ConfigMapService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "rune.api.ConfigMapService",
-	HandlerType: (*ConfigMapServiceServer)(nil),
+var ConfigmapService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "rune.api.ConfigmapService",
+	HandlerType: (*ConfigmapServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "CreateConfigmap",
-			Handler:    _ConfigMapService_CreateConfigmap_Handler,
+			Handler:    _ConfigmapService_CreateConfigmap_Handler,
 		},
 		{
 			MethodName: "GetConfigmap",
-			Handler:    _ConfigMapService_GetConfigmap_Handler,
+			Handler:    _ConfigmapService_GetConfigmap_Handler,
 		},
 		{
 			MethodName: "UpdateConfigmap",
-			Handler:    _ConfigMapService_UpdateConfigmap_Handler,
+			Handler:    _ConfigmapService_UpdateConfigmap_Handler,
 		},
 		{
 			MethodName: "DeleteConfigmap",
-			Handler:    _ConfigMapService_DeleteConfigmap_Handler,
+			Handler:    _ConfigmapService_DeleteConfigmap_Handler,
 		},
 		{
 			MethodName: "ListConfigmaps",
-			Handler:    _ConfigMapService_ListConfigmaps_Handler,
+			Handler:    _ConfigmapService_ListConfigmaps_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -19,7 +19,7 @@ import (
 )
 
 type ConfigmapService struct {
-	generated.UnimplementedConfigMapServiceServer
+	generated.UnimplementedConfigmapServiceServer
 	repo   *repos.ConfigmapRepo
 	nsRepo *repos.NamespaceRepo
 	logger log.Logger
@@ -33,7 +33,7 @@ func NewConfigmapService(st store.Store, logger log.Logger) *ConfigmapService {
 	}
 }
 
-func (s *ConfigmapService) CreateConfigMap(ctx context.Context, req *generated.CreateConfigmapRequest) (*generated.ConfigmapResponse, error) {
+func (s *ConfigmapService) CreateConfigmap(ctx context.Context, req *generated.CreateConfigmapRequest) (*generated.ConfigmapResponse, error) {
 	if req.Configmap == nil {
 		return nil, status.Error(codes.InvalidArgument, "config map is required")
 	}
@@ -54,22 +54,22 @@ func (s *ConfigmapService) CreateConfigMap(ctx context.Context, req *generated.C
 			s.logger.Info("Config already exists, updating instead",
 				log.Str("name", req.Configmap.Name),
 				log.Str("namespace", namespace))
-			return s.UpdateConfigMap(ctx, &generated.UpdateConfigmapRequest{Configmap: req.Configmap})
+			return s.UpdateConfigmap(ctx, &generated.UpdateConfigmapRequest{Configmap: req.Configmap})
 		}
 		return nil, status.Errorf(codes.Internal, "create: %v", err)
 	}
-	return &generated.ConfigmapResponse{Configmap: toProtoConfigMap(c), Status: &generated.Status{Code: int32(codes.OK)}}, nil
+	return &generated.ConfigmapResponse{Configmap: toProtoConfigmap(c), Status: &generated.Status{Code: int32(codes.OK)}}, nil
 }
 
-func (s *ConfigmapService) GetConfigMap(ctx context.Context, req *generated.GetConfigmapRequest) (*generated.ConfigmapResponse, error) {
+func (s *ConfigmapService) GetConfigmap(ctx context.Context, req *generated.GetConfigmapRequest) (*generated.ConfigmapResponse, error) {
 	c, err := s.repo.Get(ctx, types.NS(req.Namespace), req.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "get: %v", err)
 	}
-	return &generated.ConfigmapResponse{Configmap: toProtoConfigMap(c), Status: &generated.Status{Code: int32(codes.OK)}}, nil
+	return &generated.ConfigmapResponse{Configmap: toProtoConfigmap(c), Status: &generated.Status{Code: int32(codes.OK)}}, nil
 }
 
-func (s *ConfigmapService) UpdateConfigMap(ctx context.Context, req *generated.UpdateConfigmapRequest) (*generated.ConfigmapResponse, error) {
+func (s *ConfigmapService) UpdateConfigmap(ctx context.Context, req *generated.UpdateConfigmapRequest) (*generated.ConfigmapResponse, error) {
 	if req.Configmap == nil {
 		return nil, status.Error(codes.InvalidArgument, "config map is required")
 	}
@@ -86,7 +86,7 @@ func (s *ConfigmapService) UpdateConfigMap(ctx context.Context, req *generated.U
 	// If unchanged, no-op
 	if reflect.DeepEqual(current.Data, desired.Data) {
 		s.logger.Info("Config unchanged; no update", log.Str("name", desired.Name), log.Str("namespace", desired.Namespace))
-		return &generated.ConfigmapResponse{Configmap: toProtoConfigMap(current), Status: &generated.Status{Code: int32(codes.OK)}}, nil
+		return &generated.ConfigmapResponse{Configmap: toProtoConfigmap(current), Status: &generated.Status{Code: int32(codes.OK)}}, nil
 	}
 
 	// For observability, compute hashes
@@ -100,7 +100,7 @@ func (s *ConfigmapService) UpdateConfigMap(ctx context.Context, req *generated.U
 		return nil, status.Errorf(codes.Internal, "update: %v", err)
 	}
 	got, _ := s.repo.Get(ctx, namespace, req.Configmap.Name)
-	return &generated.ConfigmapResponse{Configmap: toProtoConfigMap(got), Status: &generated.Status{Code: int32(codes.OK)}}, nil
+	return &generated.ConfigmapResponse{Configmap: toProtoConfigmap(got), Status: &generated.Status{Code: int32(codes.OK)}}, nil
 }
 
 func (s *ConfigmapService) DeleteConfigmap(ctx context.Context, req *generated.DeleteConfigmapRequest) (*generated.Status, error) {
@@ -111,19 +111,19 @@ func (s *ConfigmapService) DeleteConfigmap(ctx context.Context, req *generated.D
 }
 
 func (s *ConfigmapService) ListConfigmaps(ctx context.Context, req *generated.ListConfigmapsRequest) (*generated.ListConfigmapsResponse, error) {
-	// BaseRepo exposes List; ConfigMapRepo does not add a wrapper, so call through base
+	// BaseRepo exposes List; ConfigmapRepo does not add a wrapper, so call through base
 	configs, err := s.repo.List(ctx, types.NS(req.Namespace))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list: %v", err)
 	}
 	out := make([]*generated.Configmap, 0, len(configs))
 	for _, c := range configs {
-		out = append(out, toProtoConfigMap(c))
+		out = append(out, toProtoConfigmap(c))
 	}
 	return &generated.ListConfigmapsResponse{Configmaps: out, Status: &generated.Status{Code: int32(codes.OK)}}, nil
 }
 
-func toProtoConfigMap(c *types.Configmap) *generated.Configmap {
+func toProtoConfigmap(c *types.Configmap) *generated.Configmap {
 	return &generated.Configmap{
 		Name:      c.Name,
 		Namespace: c.Namespace,

@@ -141,7 +141,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	case "secret":
 		return handleSecretGet(ctx, cmd, apiClient, resourceName)
 	case "configmap":
-		return handleConfigMapGet(ctx, cmd, apiClient, resourceName)
+		return handleConfigmapGet(ctx, cmd, apiClient, resourceName)
 	default:
 		return fmt.Errorf("unsupported resource type: %s", args[0])
 	}
@@ -320,14 +320,14 @@ func handleSecretGet(ctx context.Context, cmd *cobra.Command, apiClient *client.
 	return outputResource(secrets, cmd)
 }
 
-// handleConfigMapGet handles get operations for configs
-func handleConfigMapGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
-	configMapClient := client.NewConfigmapClient(apiClient)
+// handleConfigmapGet handles get operations for configs
+func handleConfigmapGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+	configmapClient := client.NewConfigmapClient(apiClient)
 
 	// If a specific config name is provided, get that config
 	if resourceName != "" {
 		namespace := getNamespace
-		config, err := configMapClient.GetConfigmap(namespace, resourceName)
+		config, err := configmapClient.GetConfigmap(namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get config %s: %w", resourceName, err)
 		}
@@ -341,12 +341,12 @@ func handleConfigMapGet(ctx context.Context, cmd *cobra.Command, apiClient *clie
 
 	if allNamespaces {
 		// List configs across all namespaces using the asterisk wildcard
-		configmaps, err = configMapClient.ListConfigMaps("*", labelSelector, fieldSelector)
+		configmaps, err = configmapClient.ListConfigmaps("*", labelSelector, fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list configs across all namespaces: %w", err)
 		}
 	} else {
-		configmaps, err = configMapClient.ListConfigMaps(getNamespace, labelSelector, fieldSelector)
+		configmaps, err = configmapClient.ListConfigmaps(getNamespace, labelSelector, fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list configs: %w", err)
 		}

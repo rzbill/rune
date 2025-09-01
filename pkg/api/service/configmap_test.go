@@ -18,7 +18,7 @@ func TestConfigServiceCRUD(t *testing.T) {
 	svc := NewConfigmapService(st, log.GetDefaultLogger())
 
 	// Create
-	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigmapRequest{
+	_, err := svc.CreateConfigmap(ctx, &generated.CreateConfigmapRequest{
 		Configmap: &generated.Configmap{
 			Name:      "app-config",
 			Namespace: "prod",
@@ -31,7 +31,7 @@ func TestConfigServiceCRUD(t *testing.T) {
 	}
 
 	// Get
-	getResp, err := svc.GetConfigMap(ctx, &generated.GetConfigmapRequest{Name: "app-config", Namespace: "prod"})
+	getResp, err := svc.GetConfigmap(ctx, &generated.GetConfigmapRequest{Name: "app-config", Namespace: "prod"})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestConfigServiceCRUD(t *testing.T) {
 	}
 
 	// Update
-	_, err = svc.UpdateConfigMap(ctx, &generated.UpdateConfigmapRequest{Configmap: &generated.Configmap{
+	_, err = svc.UpdateConfigmap(ctx, &generated.UpdateConfigmapRequest{Configmap: &generated.Configmap{
 		Name:      "app-config",
 		Namespace: "prod",
 		Data:      map[string]string{"logLevel": "debug"},
@@ -73,7 +73,7 @@ func TestConfigServiceNoEnsureNamespace(t *testing.T) {
 	svc := NewConfigmapService(st, log.GetDefaultLogger())
 
 	// Try to create configmap in non-existent namespace without EnsureNamespace
-	_, err := svc.CreateConfigMap(ctx, &generated.CreateConfigmapRequest{
+	_, err := svc.CreateConfigmap(ctx, &generated.CreateConfigmapRequest{
 		Configmap: &generated.Configmap{
 			Name:      "test-config",
 			Namespace: "non-existent",

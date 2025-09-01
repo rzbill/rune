@@ -15,7 +15,7 @@ import (
 type ConfigmapClient struct {
 	client *Client
 	logger log.Logger
-	svc    generated.ConfigMapServiceClient
+	svc    generated.ConfigmapServiceClient
 }
 
 // NewConfigmapClient creates a new configmap client.
@@ -23,7 +23,7 @@ func NewConfigmapClient(client *Client) *ConfigmapClient {
 	return &ConfigmapClient{
 		client: client,
 		logger: client.logger.WithComponent("configmap-client"),
-		svc:    generated.NewConfigMapServiceClient(client.conn),
+		svc:    generated.NewConfigmapServiceClient(client.conn),
 	}
 }
 
@@ -55,7 +55,7 @@ func (c *ConfigmapClient) CreateConfigmap(configmap *types.Configmap, ensureName
 	return nil
 }
 
-// GetConfigMap retrieves a configmap by name.
+// GetConfigmap retrieves a configmap by name.
 func (c *ConfigmapClient) GetConfigmap(namespace, name string) (*types.Configmap, error) {
 	c.logger.Debug("Getting configmap", log.Str("name", name), log.Str("namespace", namespace))
 
@@ -79,14 +79,14 @@ func (c *ConfigmapClient) GetConfigmap(namespace, name string) (*types.Configmap
 		return nil, err
 	}
 
-	cfg, err := c.protoToConfigMap(resp.Configmap)
+	cfg, err := c.protoToConfigmap(resp.Configmap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert configmap: %w", err)
 	}
 	return cfg, nil
 }
 
-// UpdateConfigMap updates an existing configmap.
+// UpdateConfigmap updates an existing configmap.
 func (c *ConfigmapClient) UpdateConfigmap(configmap *types.Configmap) error {
 	c.logger.Debug("Updating configmap", log.Str("name", configmap.Name), log.Str("namespace", configmap.Namespace))
 
@@ -108,7 +108,7 @@ func (c *ConfigmapClient) UpdateConfigmap(configmap *types.Configmap) error {
 	return nil
 }
 
-// DeleteConfigMap deletes a configmap.
+// DeleteConfigmap deletes a configmap.
 func (c *ConfigmapClient) DeleteConfigmap(namespace, name string) error {
 	c.logger.Debug("Deleting configmap", log.Str("name", name), log.Str("namespace", namespace))
 
@@ -128,8 +128,8 @@ func (c *ConfigmapClient) DeleteConfigmap(namespace, name string) error {
 	return nil
 }
 
-// ListConfigMaps lists configmaps in a namespace.
-func (c *ConfigmapClient) ListConfigMaps(namespace string, labelSelector string, fieldSelector string) ([]*types.Configmap, error) {
+// ListConfigmaps lists configmaps in a namespace.
+func (c *ConfigmapClient) ListConfigmaps(namespace string, labelSelector string, fieldSelector string) ([]*types.Configmap, error) {
 	c.logger.Debug("Listing configmaps", log.Str("namespace", namespace))
 
 	req := &generated.ListConfigmapsRequest{Namespace: namespace}
@@ -150,7 +150,7 @@ func (c *ConfigmapClient) ListConfigMaps(namespace string, labelSelector string,
 
 	configs := make([]*types.Configmap, 0, len(resp.Configmaps))
 	for _, pc := range resp.Configmaps {
-		cfg, err := c.protoToConfigMap(pc)
+		cfg, err := c.protoToConfigmap(pc)
 		if err != nil {
 			c.logger.Warn("Failed to convert configmap", log.Err(err))
 			continue
@@ -177,7 +177,7 @@ func (c *ConfigmapClient) configToProto(cfg *types.Configmap) *generated.Configm
 	}
 }
 
-func (c *ConfigmapClient) protoToConfigMap(proto *generated.Configmap) (*types.Configmap, error) {
+func (c *ConfigmapClient) protoToConfigmap(proto *generated.Configmap) (*types.Configmap, error) {
 	if proto == nil {
 		return nil, nil
 	}

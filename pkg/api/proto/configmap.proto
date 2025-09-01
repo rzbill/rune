@@ -32,7 +32,7 @@ message ListConfigmapsRequest {
 message ConfigmapResponse { Configmap configmap = 1; Status status = 2; }
 message ListConfigmapsResponse { repeated Configmap configmaps = 1; Status status = 2; }
 
-service ConfigMapService {
+service ConfigmapService {
   rpc CreateConfigmap(CreateConfigmapRequest) returns (ConfigmapResponse);
   rpc GetConfigmap(GetConfigmapRequest) returns (ConfigmapResponse);
   rpc UpdateConfigmap(UpdateConfigmapRequest) returns (ConfigmapResponse);
