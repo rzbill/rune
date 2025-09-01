@@ -134,6 +134,21 @@ func (m *RunnerManager) Initialize() error {
 	// Get Docker configuration via Viper (which already handles env vars and config files)
 	dockerConfig := getDockerConfig()
 
+	// Debug: show loaded registry auth entries (no secrets)
+	if len(dockerConfig.Registries) > 0 {
+		m.logger.Debug("Loaded Docker registries from config",
+			log.Int("count", len(dockerConfig.Registries)))
+		for _, rc := range dockerConfig.Registries {
+			m.logger.Debug("Registry entry",
+				log.Str("name", rc.Name),
+				log.Str("registry", rc.Registry),
+				log.Str("type", rc.Auth.Type),
+				log.Str("region", rc.Auth.Region))
+		}
+	} else {
+		m.logger.Debug("No Docker registries configured")
+	}
+
 	// Create Docker runner with configuration
 	dockerRunner, err := docker.NewDockerRunnerWithConfig(
 		m.logger.WithComponent("docker-runner"),

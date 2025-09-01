@@ -607,7 +607,17 @@ func (r *DockerRunner) pullImage(ctx context.Context, image string) error {
 	r.logger.Info("Pulling Docker image", log.Str("image", image))
 
 	// Resolve registry auth for this image if configured
+	host := parseImageHost(image)
 	registryAuth := r.resolveRegistryAuth(image)
+	if registryAuth == "" {
+		r.logger.Debug("No registry auth resolved for image",
+			log.Str("image", image),
+			log.Str("host", host))
+	} else {
+		r.logger.Debug("Resolved registry auth for image",
+			log.Str("image", image),
+			log.Str("host", host))
+	}
 
 	// Pull the image
 	reader, err := r.client.ImagePull(ctx, image, imageTypes.PullOptions{RegistryAuth: registryAuth})

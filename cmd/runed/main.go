@@ -262,6 +262,14 @@ func main() {
 		// Don't fail startup, just warn
 	}
 
+	// Ensure global viper is bound to the same config file so runtime writes persist
+	configPath := *configFile
+	if configPath == "" {
+		configPath = filepath.Join(*dataDir, "runefile.yaml")
+	}
+	viper.SetConfigFile(configPath)
+	_ = viper.ReadInConfig()
+
 	// Open state store via helper
 	stateStore, appCfg, _, err := openStateStore(logger, *configFile, *dataDir)
 	if err != nil {

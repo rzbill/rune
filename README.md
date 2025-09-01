@@ -59,6 +59,32 @@ go install github.com/rzbill/rune/cmd/rune@latest
 rune version
 ```
 
+### Upgrade runed
+
+#### Scripted upgrade (recommended)
+```bash
+# Upgrade runed on the server to v0.0.1-dev.10 (keeps config/data)
+curl -fsSL https://raw.githubusercontent.com/rzbill/rune/master/scripts/install-server.sh \
+| sudo bash -s -- --version v0.0.1-dev.10 --skip-docker
+```
+
+#### Manual binary swap
+```bash
+VER=v0.0.1-dev.10
+ARCH=$(uname -m); case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "Unsupported arch"; exit 1 ;; esac
+
+sudo systemctl stop runed
+curl -L -o /tmp/rune.tgz "https://github.com/rzbill/rune/releases/download/$VER/rune_linux_${ARCH}.tar.gz"
+sudo tar -C /usr/local/bin -xzf /tmp/rune.tgz rune runed
+sudo systemctl start runed
+```
+
+#### Verify
+```bash
+runed --version
+sudo systemctl status runed --no-pager | cat
+```
+
 ## First Run & Bootstrap
 
 After installing the Rune server (`runed`), you need to bootstrap the system and create your first user. Here are the essential steps:
