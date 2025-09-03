@@ -66,32 +66,52 @@ func (e *ExecClient) NewExecSession(ctx context.Context) (*ExecSession, error) {
 	}, nil
 }
 
-// Initialize initializes the exec session with the given options.
-func (s *ExecSession) Initialize(target string, namespace string, options *ExecOptions) error {
-	// Determine if target is an instance ID or service name
-	var initReq *generated.ExecInitRequest
-	if strings.Contains(target, "-instance-") {
-		initReq = &generated.ExecInitRequest{
-			Target: &generated.ExecInitRequest_InstanceId{
-				InstanceId: target,
-			},
-			Namespace:  namespace,
-			Command:    options.Command,
-			Env:        options.Env,
-			WorkingDir: options.WorkingDir,
-			Tty:        options.TTY,
+// InitializeInstanceTarget initializes the exec session with the given options.
+func (s *ExecSession) InitializeInstanceTarget(target string, namespace string, options *ExecOptions) error {
+	initReq := &generated.ExecInitRequest{
+		Target: &generated.ExecInitRequest_InstanceId{
+			InstanceId: target,
+		},
+		Namespace:  namespace,
+		Command:    options.Command,
+		Env:        options.Env,
+		WorkingDir: options.WorkingDir,
+		Tty:        options.TTY,
+	}
+
+	// Set terminal size if TTY is enabled
+	if options.TTY && (options.TerminalWidth > 0 || options.TerminalHeight > 0) {
+		initReq.TerminalSize = &generated.TerminalSize{
+			Width:  options.TerminalWidth,
+			Height: options.TerminalHeight,
 		}
-	} else {
-		initReq = &generated.ExecInitRequest{
-			Target: &generated.ExecInitRequest_ServiceName{
-				ServiceName: target,
-			},
-			Namespace:  namespace,
-			Command:    options.Command,
-			Env:        options.Env,
-			WorkingDir: options.WorkingDir,
-			Tty:        options.TTY,
-		}
+	}
+
+	// Send initialization request
+	req := &generated.ExecRequest{
+		Request: &generated.ExecRequest_Init{
+			Init: initReq,
+		},
+	}
+
+	if err := s.stream.Send(req); err != nil {
+		return fmt.Errorf("failed to send exec init request: %w", err)
+	}
+
+	return nil
+}
+
+// InitializeServiceTarget initializes the exec session with the given options.
+func (s *ExecSession) InitializeServiceTarget(target string, namespace string, options *ExecOptions) error {
+	initReq := &generated.ExecInitRequest{
+		Target: &generated.ExecInitRequest_ServiceName{
+			ServiceName: target,
+		},
+		Namespace:  namespace,
+		Command:    options.Command,
+		Env:        options.Env,
+		WorkingDir: options.WorkingDir,
+		Tty:        options.TTY,
 	}
 
 	// Set terminal size if TTY is enabled

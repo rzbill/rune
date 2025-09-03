@@ -149,12 +149,13 @@ You must provide --server and --token (or --token-file) to configure the context
 	cmd.Flags().StringVar(&server, "server", "", "Rune API server URL (required)")
 	cmd.Flags().StringVar(&token, "token", "", "Bearer token value")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "Path to file containing the bearer token")
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Optional default namespace")
+	cmd.Flags().StringVar(&namespace, "default-namespace", "", "Optional default namespace")
 
 	return cmd
 }
 
 func newConfigUseContextCmd() *cobra.Command {
+	var defaultNamespace string
 	cmd := &cobra.Command{
 		Use:   "use-context [context-name]",
 		Short: "Switch to a different context",
@@ -175,6 +176,13 @@ The context must already exist in your configuration.`,
 				return fmt.Errorf("context '%s' does not exist. Use 'rune config set-context %s' to create it first", contextName, contextName)
 			}
 
+			// Optionally update default namespace on the selected context
+			if strings.TrimSpace(defaultNamespace) != "" {
+				ctx := config.Contexts[contextName]
+				ctx.DefaultNamespace = defaultNamespace
+				config.Contexts[contextName] = ctx
+			}
+
 			config.CurrentContext = contextName
 
 			if err := saveContextConfig(config); err != nil {
@@ -186,6 +194,7 @@ The context must already exist in your configuration.`,
 		},
 	}
 
+	cmd.Flags().StringVar(&defaultNamespace, "default-namespace", "", "Set default namespace for this context")
 	return cmd
 }
 

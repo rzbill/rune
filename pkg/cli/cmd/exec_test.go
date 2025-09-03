@@ -5,6 +5,28 @@ import (
 	"time"
 )
 
+// containsSubstring checks if a string contains a substring.
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) && (s[:len(substr)] == substr ||
+			s[len(s)-len(substr):] == substr ||
+			func() bool {
+				for i := 0; i <= len(s)-len(substr); i++ {
+					if s[i:i+len(substr)] == substr {
+						return true
+					}
+				}
+				return false
+			}())))
+}
+
+// isInstanceID checks if the target string is an instance ID.
+func isInstanceID(target string) bool {
+	// Simple heuristic: instance IDs typically contain hyphens and follow a pattern
+	// like "service-instance-123"
+	return len(target) > 0 && containsSubstring(target, "-instance-")
+}
+
 func TestParseExecOptions(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -51,15 +73,17 @@ func TestParseExecOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set global variables
-			execNamespace = tt.namespace
-			execWorkdir = tt.workdir
-			execEnv = tt.env
-			execTTY = tt.tty
-			execNoTTY = tt.noTTY
-			execTimeout = tt.timeout
-			execAPIServer = tt.apiServer
+			execOptions := &execOptions{
+				workdir: tt.workdir,
+				env:     tt.env,
+				tty:     tt.tty,
+				noTTY:   tt.noTTY,
+				timeout: tt.timeout,
+			}
+			execOptions.namespace = tt.namespace
+			execOptions.addressOverride = tt.apiServer
 
-			options, err := parseExecOptions()
+			parsedOpts, err := parseExecOptions(execOptions)
 
 			if tt.expectError {
 				if err == nil {
@@ -74,22 +98,22 @@ func TestParseExecOptions(t *testing.T) {
 			}
 
 			// Verify parsed options
-			if options.Namespace != tt.namespace {
-				t.Errorf("expected namespace %s, got %s", tt.namespace, options.Namespace)
+			if execOptions.namespace != tt.namespace {
+				t.Errorf("expected namespace %s, got %s", tt.namespace, execOptions.namespace)
 			}
 
-			if options.Workdir != tt.workdir {
-				t.Errorf("expected workdir %s, got %s", tt.workdir, options.Workdir)
+			if parsedOpts.workdir != tt.workdir {
+				t.Errorf("expected workdir %s, got %s", tt.workdir, parsedOpts.workdir)
 			}
 
-			if options.TTY != tt.tty {
-				t.Errorf("expected TTY %v, got %v", tt.tty, options.TTY)
+			if parsedOpts.tty != tt.tty {
+				t.Errorf("expected TTY %v, got %v", tt.tty, parsedOpts.tty)
 			}
 
 			if tt.timeout != "invalid" {
 				expectedTimeout, _ := time.ParseDuration(tt.timeout)
-				if options.Timeout != expectedTimeout {
-					t.Errorf("expected timeout %v, got %v", expectedTimeout, options.Timeout)
+				if parsedOpts.timeout != expectedTimeout {
+					t.Errorf("expected timeout %v, got %v", expectedTimeout, parsedOpts.timeout)
 				}
 			}
 
@@ -98,8 +122,8 @@ func TestParseExecOptions(t *testing.T) {
 				for _, env := range tt.env {
 					parts := []string{env}
 					if len(parts) == 2 {
-						if options.Env[parts[0]] != parts[1] {
-							t.Errorf("expected env %s=%s, got %s", parts[0], parts[1], options.Env[parts[0]])
+						if parsedOpts.env[parts[0]] != parts[1] {
+							t.Errorf("expected env %s=%s, got %s", parts[0], parts[1], parsedOpts.env[parts[0]])
 						}
 					}
 				}

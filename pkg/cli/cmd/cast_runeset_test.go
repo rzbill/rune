@@ -40,8 +40,8 @@ func TestRuneset_RenderOnly_ExampleApp(t *testing.T) {
 		valuesFiles: []string{vals},
 		renderOnly:  true,
 		dryRun:      false,
-		namespace:   "demo",
 	}
+	opts.namespace = "demo"
 
 	// Act
 	out := captureOutput(func() {
@@ -66,8 +66,8 @@ func TestRuneset_DryRun_ExampleApp(t *testing.T) {
 		valuesFiles: []string{vals},
 		renderOnly:  false,
 		dryRun:      true,
-		namespace:   "demo",
 	}
+	opts.namespace = "demo"
 
 	// Act
 	out := captureOutput(func() {

@@ -17,7 +17,8 @@ import (
 
 // Cast command flags
 type castOptions struct {
-	namespace       string
+	cmdOptions
+
 	tag             string
 	dryRun          bool
 	detach          bool
@@ -72,6 +73,7 @@ func newCastCmd() *cobra.Command {
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
 			return runCast(cmd.Context(), args, opts)
 		},
 	}

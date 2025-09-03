@@ -9,89 +9,89 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rzbill/rune/internal/config"
 	"github.com/rzbill/rune/pkg/api/client"
-	"github.com/rzbill/rune/pkg/log"
 	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
 
-var (
-	// Exec command flags
-	execNamespace string
-	execWorkdir   string
-	execEnv       []string
-	execTTY       bool
-	execNoTTY     bool
-	execTimeout   string
-	execAPIServer string
-	// removed api key
-)
+// parsedExecOptions defines the configuration for the exec command
+type parsedExecOptions struct {
+	workdir string
+	env     map[string]string
+	tty     bool
+	timeout time.Duration
+}
 
-// ExecOptions defines the configuration for the exec command
-type ExecOptions struct {
-	Namespace string
-	Workdir   string
-	Env       map[string]string
-	TTY       bool
-	Timeout   time.Duration
-	APIServer string
+type execOptions struct {
+	cmdOptions
+
+	workdir string
+	env     []string
+	tty     bool
+	noTTY   bool
+	timeout string
 }
 
 // execCmd represents the exec command
-var execCmd = &cobra.Command{
-	Use:   "exec TARGET COMMAND [args...]",
-	Short: "Execute a command in a running service or instance",
-	Long: `Execute commands directly within running service instances.
 
-This command provides interactive access to containers and processes,
-allowing for real-time debugging, configuration verification, and
-emergency maintenance tasks.
-
-Examples:
-  # Start an interactive bash session in a service
-  rune exec api bash
-
-  # Execute a one-off command
-  rune exec api ls -la /app
-
-  # Execute in a specific instance
-  rune exec api-instance-123 ps aux
-
-  # Set working directory and environment variables
-  rune exec api --workdir=/app --env=DEBUG=true python debug.py
-
-  # Disable TTY for non-interactive commands
-  rune exec api --no-tty python script.py
-
-  # Set a timeout for the exec session
-  rune exec api --timeout=30s python long-running-script.py`,
-	Aliases:       []string{"e"},
-	Args:          cobra.MinimumNArgs(2),
-	RunE:          runExec,
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
-
-func init() {
-	rootCmd.AddCommand(execCmd)
+func newExecCmd() *cobra.Command {
+	opts := &execOptions{}
+	cmd := &cobra.Command{
+		Use:   "exec TARGET COMMAND [args...]",
+		Short: "Execute a command in a running service or instance",
+		Long: `Execute commands directly within running service instances.
+	
+	This command provides interactive access to containers and processes,
+	allowing for real-time debugging, configuration verification, and
+	emergency maintenance tasks.
+	
+	Examples:
+	  # Start an interactive bash session in a service
+	  rune exec api bash
+	
+	  # Execute a one-off command
+	  rune exec api ls -la /app
+	
+	  # Execute in a specific instance
+	  rune exec api-instance-123 ps aux
+	
+	  # Set working directory and environment variables
+	  rune exec api --workdir=/app --env=DEBUG=true python debug.py
+	
+	  # Disable TTY for non-interactive commands
+	  rune exec api --no-tty python script.py
+	
+	  # Set a timeout for the exec session
+	  rune exec api --timeout=30s python long-running-script.py`,
+		Aliases: []string{"e"},
+		Args:    cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
+			return runExec(cmd, args, opts)
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
 
 	// Add flags
-	execCmd.Flags().StringVarP(&execNamespace, "namespace", "n", "default", "namespace of the service/instance")
-	execCmd.Flags().StringVar(&execWorkdir, "workdir", "", "working directory for the command")
-	execCmd.Flags().StringArrayVar(&execEnv, "env", []string{}, "environment variables to set (key=value format)")
-	execCmd.Flags().BoolVarP(&execTTY, "tty", "t", false, "allocate a pseudo-TTY (defaults to true for interactive commands)")
-	execCmd.Flags().BoolVar(&execNoTTY, "no-tty", false, "disable TTY allocation for non-interactive commands")
-	execCmd.Flags().StringVar(&execTimeout, "timeout", "5m", "timeout for the exec session")
-	execCmd.Flags().StringVar(&execAPIServer, "api-server", "", "address of the API server")
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "namespace of the service/instance")
+	cmd.Flags().StringVar(&opts.workdir, "workdir", "", "working directory for the command")
+	cmd.Flags().StringArrayVar(&opts.env, "env", []string{}, "environment variables to set (key=value format)")
+	cmd.Flags().BoolVarP(&opts.tty, "tty", "t", false, "allocate a pseudo-TTY (defaults to true for interactive commands)")
+	cmd.Flags().BoolVar(&opts.noTTY, "no-tty", false, "disable TTY allocation for non-interactive commands")
+	cmd.Flags().StringVar(&opts.timeout, "timeout", "5m", "timeout for the exec session")
+	cmd.Flags().StringVar(&opts.addressOverride, "api-server", "", "address of the API server")
 
 	// After the first positional arg (TARGET), stop parsing flags so command args like '-c' are passed through
-	execCmd.Flags().SetInterspersed(false)
+	cmd.Flags().SetInterspersed(false)
+
+	return cmd
 }
 
-func runExec(cmd *cobra.Command, args []string) error {
+func init() { rootCmd.AddCommand(newExecCmd()) }
+
+func runExec(cmd *cobra.Command, args []string, opts *execOptions) error {
 	// Parse arguments
 	target := args[0]
 	command := args[1:]
@@ -100,24 +100,30 @@ func runExec(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("command cannot be empty")
 	}
 
-	// Parse options
-	options, err := parseExecOptions()
+	// Parse parsedOpts
+	parsedOpts, err := parseExecOptions(opts)
 	if err != nil {
 		return fmt.Errorf("failed to parse options: %w", err)
 	}
 
 	// Create API client
-	apiClient, err := createExecAPIClient(options)
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
-		return fmt.Errorf("failed to create API client: %w", err)
+		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
 	defer apiClient.Close()
+
+	// Resolve target
+	resolvedTarget, err := resolveResourceTarget(apiClient, target, opts.namespace)
+	if err != nil {
+		return fmt.Errorf("failed to resolve target: %w", err)
+	}
 
 	// Create exec client
 	execClient := client.NewExecClient(apiClient)
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), parsedOpts.timeout)
 	defer cancel()
 
 	// Create exec session
@@ -128,28 +134,28 @@ func runExec(cmd *cobra.Command, args []string) error {
 	defer session.Close()
 
 	// If neither --tty nor --no-tty explicitly set, auto-detect based on the command
-	if !execNoTTY && !execTTY {
-		options.TTY = shouldAllocateTTY(command)
+	if !opts.noTTY && !opts.tty {
+		parsedOpts.tty = shouldAllocateTTY(command)
 	}
 
 	// Initialize the session
 	execOptions := &client.ExecOptions{
 		Command:    command,
-		Env:        options.Env,
-		WorkingDir: options.Workdir,
-		TTY:        options.TTY,
-		Timeout:    options.Timeout,
+		Env:        parsedOpts.env,
+		WorkingDir: parsedOpts.workdir,
+		TTY:        parsedOpts.tty,
+		Timeout:    parsedOpts.timeout,
 	}
 
 	// Set terminal size if TTY is enabled
-	if options.TTY {
+	if parsedOpts.tty {
 		if width, height, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
 			execOptions.TerminalWidth = utils.ToUint32NonNegative(width)
 			execOptions.TerminalHeight = utils.ToUint32NonNegative(height)
 		}
 	}
 
-	if err := session.Initialize(target, options.Namespace, execOptions); err != nil {
+	if err := initializeExecSession(session, resolvedTarget, execOptions); err != nil {
 		return fmt.Errorf("failed to initialize exec session: %w", err)
 	}
 
@@ -160,7 +166,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 
 	// Run the session
 	var sessionErr error
-	if options.TTY {
+	if parsedOpts.tty {
 		sessionErr = session.RunInteractive()
 	} else {
 		sessionErr = session.RunNonInteractive()
@@ -169,76 +175,52 @@ func runExec(cmd *cobra.Command, args []string) error {
 	// Check for context cancellation
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("exec session timed out after %v", options.Timeout)
+		return fmt.Errorf("exec session timed out after %v", parsedOpts.timeout)
 	default:
 		return sessionErr
 	}
 }
 
-func parseExecOptions() (*ExecOptions, error) {
-	options := &ExecOptions{
-		Namespace: execNamespace,
-		Workdir:   execWorkdir,
-		TTY:       execTTY,
-		APIServer: execAPIServer,
+func initializeExecSession(session *client.ExecSession, resolvedTarget *resolvedResourceTarget, execOptions *client.ExecOptions) error {
+	if resolvedTarget.targetType == resourceTargetTypeInstance {
+		return session.InitializeInstanceTarget(resolvedTarget.target, resolvedTarget.namespace, execOptions)
+	} else {
+		return session.InitializeServiceTarget(resolvedTarget.target, resolvedTarget.namespace, execOptions)
+	}
+}
+
+func parseExecOptions(opts *execOptions) (*parsedExecOptions, error) {
+	parsedOpts := &parsedExecOptions{
+		workdir: opts.workdir,
+		tty:     opts.tty,
 	}
 
 	// Parse timeout
-	timeout, err := time.ParseDuration(execTimeout)
+	timeout, err := time.ParseDuration(opts.timeout)
 	if err != nil {
 		return nil, fmt.Errorf("invalid timeout format: %w", err)
 	}
-	options.Timeout = timeout
+	parsedOpts.timeout = timeout
 
 	// Parse environment variables
-	options.Env = make(map[string]string)
-	for _, env := range execEnv {
+	parsedOpts.env = make(map[string]string)
+	for _, env := range opts.env {
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid environment variable format: %s (expected key=value)", env)
 		}
-		options.Env[parts[0]] = parts[1]
+		parsedOpts.env[parts[0]] = parts[1]
 	}
 
 	// Determine TTY allocation
-	if execNoTTY {
-		options.TTY = false
-	} else if !execTTY {
+	if opts.noTTY {
+		parsedOpts.tty = false
+	} else if !opts.tty {
 		// Auto-detect TTY for interactive commands
-		options.TTY = shouldAllocateTTY(os.Args[2:]) // Skip "rune" and "exec"
+		parsedOpts.tty = shouldAllocateTTY(os.Args[2:]) // Skip "rune" and "exec"
 	}
 
-	return options, nil
-}
-
-func createExecAPIClient(options *ExecOptions) (*client.Client, error) {
-	// Get API server address
-	apiServer := options.APIServer
-	if apiServer == "" {
-		apiServer = fmt.Sprintf("localhost:%d", config.DefaultGRPCPort)
-	}
-
-	// Create client options
-	clientOptions := &client.ClientOptions{
-		Address:     apiServer,
-		DialTimeout: 30 * time.Second,
-		CallTimeout: options.Timeout,
-		Logger:      log.GetDefaultLogger().WithComponent("exec-client"),
-	}
-	// Inject bearer token from config/env
-	if t := viper.GetString("contexts.default.token"); t != "" {
-		clientOptions.Token = t
-	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
-		clientOptions.Token = t
-	}
-
-	// Create client
-	apiClient, err := client.NewClient(clientOptions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create API client: %w", err)
-	}
-
-	return apiClient, nil
+	return parsedOpts, nil
 }
 
 // shouldAllocateTTY determines if TTY allocation is appropriate for the command.
@@ -265,26 +247,4 @@ func shouldAllocateTTY(command []string) bool {
 
 	// For other commands, default to non-TTY for better script compatibility
 	return false
-}
-
-// isInstanceID checks if the target string is an instance ID.
-func isInstanceID(target string) bool {
-	// Simple heuristic: instance IDs typically contain hyphens and follow a pattern
-	// like "service-instance-123"
-	return len(target) > 0 && containsSubstring(target, "-instance-")
-}
-
-// containsSubstring checks if a string contains a substring.
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > len(substr) && (s[:len(substr)] == substr ||
-			s[len(s)-len(substr):] == substr ||
-			func() bool {
-				for i := 0; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())))
 }

@@ -6,28 +6,25 @@ import (
 	"sort"
 
 	"github.com/rzbill/rune/pkg/api/client"
-	"github.com/rzbill/rune/pkg/api/generated"
 	resourceWatcher "github.com/rzbill/rune/pkg/cli/watcher"
 	"github.com/rzbill/rune/pkg/types"
 	"github.com/spf13/cobra"
 )
 
-var (
+type getOptions struct {
+	cmdOptions
+
 	// Get command flags
-	getNamespace    string
-	allNamespaces   bool
-	getOutputFormat string
-	watchResources  bool
-	labelSelector   string
-	fieldSelector   string
-	sortBy          string
-	showLabels      bool
-	noHeaders       bool
-	limit           int
-	getClientAddr   string
-	watchTimeout    string
-	getServiceName  string
-)
+	allNamespaces  bool
+	outputFormat   string
+	watchResources bool
+	labelSelector  string
+	fieldSelector  string
+	sortBy         string
+	limit          int
+	watchTimeout   string
+	serviceName    string
+}
 
 // Resource type abbreviations
 var resourceAliases = map[string]string{
@@ -54,58 +51,64 @@ var resourceAliases = map[string]string{
 }
 
 // getCmd represents the get command
-var getCmd = &cobra.Command{
-	Use:   "get <resource-type> [resource-name] [flags]",
-	Short: "Display one or many resources",
-	Long: `Display one or many resources.
-The resource types include:
-  * services (svc)
-  * instances (inst)
-  * namespaces (ns)
-  * jobs
-  * configs
-  * secrets`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runGet,
-	Example: `  # List all services in the current namespace
-  rune get services
-  
-  # List a specific service in YAML format
-  rune get service my-service --output=yaml
-  
-  # List all services in all namespaces
-  rune get services --all-namespaces
-  
-  # List services with real-time updates
-  rune get services --watch
-  
-  # List services filtered by labels
-  rune get services --selector=app=backend`,
-}
-
-func init() {
-	rootCmd.AddCommand(getCmd)
+func newGetCmd() *cobra.Command {
+	opts := &getOptions{}
+	cmd := &cobra.Command{
+		Use:   "get <resource-type> [resource-name] [flags]",
+		Short: "Display one or many resources",
+		Long: `Display one or many resources.
+	The resource types include:
+	* services (svc)
+	* instances (inst)
+	* namespaces (ns)
+	* jobs
+	* configs
+	* secrets`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
+			return runGet(cmd, args, opts)
+		},
+		Example: `  # List all services in the current namespace
+	rune get services
+	
+	# List a specific service in YAML format
+	rune get service my-service --output=yaml
+	
+	# List all services in all namespaces
+	rune get services --all-namespaces
+	
+	# List services with real-time updates
+	rune get services --watch
+	
+	# List services filtered by labels
+	rune get services --selector=app=backend`,
+	}
 
 	// Local flags for the get command
-	getCmd.Flags().StringVarP(&getNamespace, "namespace", "n", "default", "Namespace to list resources from")
-	getCmd.Flags().BoolVarP(&allNamespaces, "all-namespaces", "A", false, "List resources across all namespaces")
-	getCmd.Flags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
-	getCmd.Flags().BoolVarP(&watchResources, "watch", "w", false, "Watch for changes and update in real-time")
-	getCmd.Flags().StringVarP(&labelSelector, "selector", "l", "", "Filter resources by label selector (e.g., app=frontend)")
-	getCmd.Flags().StringVar(&fieldSelector, "field-selector", "", "Filter resources by field selector (e.g., status=running)")
-	getCmd.Flags().StringVar(&sortBy, "sort-by", "name", "Sort resources by field (name, creationTime, status)")
-	getCmd.Flags().BoolVar(&showLabels, "show-labels", false, "Show labels as the last column (table output only)")
-	getCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Don't print headers for table output")
-	getCmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of resources to list (0 for unlimited)")
-	getCmd.Flags().StringVar(&watchTimeout, "timeout", "", "Timeout for watch operations (e.g., 30s, 5m, 1h) - default is no timeout")
-	getCmd.Flags().StringVar(&getServiceName, "service-name", "", "Filter instances by service name")
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace to list resources from")
+	cmd.Flags().BoolVarP(&opts.allNamespaces, "all-namespaces", "A", false, "List resources across all namespaces")
+	cmd.Flags().StringVarP(&opts.outputFormat, "output", "o", "table", "Output format (table, json, yaml)")
+	cmd.Flags().BoolVarP(&opts.watchResources, "watch", "w", false, "Watch for changes and update in real-time")
+	cmd.Flags().StringVarP(&opts.labelSelector, "selector", "l", "", "Filter resources by label selector (e.g., app=frontend)")
+	cmd.Flags().StringVar(&opts.fieldSelector, "field-selector", "", "Filter resources by field selector (e.g., status=running)")
+	cmd.Flags().StringVar(&opts.sortBy, "sort-by", "name", "Sort resources by field (name, creationTime, status)")
+	cmd.Flags().BoolVar(&opts.showLabels, "show-labels", false, "Show labels as the last column (table output only)")
+	cmd.Flags().BoolVar(&opts.noHeaders, "no-headers", false, "Don't print headers for table output")
+	cmd.Flags().IntVar(&opts.limit, "limit", 0, "Maximum number of resources to list (0 for unlimited)")
+	cmd.Flags().StringVar(&opts.watchTimeout, "timeout", "", "Timeout for watch operations (e.g., 30s, 5m, 1h) - default is no timeout")
+	cmd.Flags().StringVar(&opts.serviceName, "service-name", "", "Filter instances by service name")
 
 	// Remove api-key flag; token comes from config/env
-	getCmd.Flags().StringVar(&getClientAddr, "api-server", "", "Address of the API server")
+	cmd.Flags().StringVar(&opts.addressOverride, "api-server", "", "Address of the API server")
+
+	return cmd
 }
 
+func init() { rootCmd.AddCommand(newGetCmd()) }
+
 // runGet is the main entry point for the get command
-func runGet(cmd *cobra.Command, args []string) error {
+func runGet(cmd *cobra.Command, args []string, opts *getOptions) error {
 	// Resolve resource type from the first argument
 	resourceType, err := resolveResourceType(args[0])
 	if err != nil {
@@ -119,101 +122,109 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create API client
-	apiClient, err := newAPIClient(getClientAddr, "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
 	defer apiClient.Close()
 
-	// Create context
-	ctx := context.Background()
-
 	// Process the request based on resource type
 	switch resourceType {
 	case "service":
-		return handleServiceGet(ctx, cmd, apiClient, resourceName)
+		return handleServiceGet(cmd, opts, resourceName)
 	case "instance":
-		return handleInstanceGet(ctx, cmd, apiClient, resourceName)
+		return handleInstanceGet(cmd, opts, resourceName)
 	case "namespace":
-		return handleNamespaceGet(ctx, cmd, apiClient, resourceName)
+		return handleNamespaceGet(cmd, opts, resourceName)
 	case "ns":
-		return handleNamespaceGet(ctx, cmd, apiClient, resourceName)
+		return handleNamespaceGet(cmd, opts, resourceName)
 	case "secret":
-		return handleSecretGet(ctx, cmd, apiClient, resourceName)
+		return handleSecretGet(cmd, opts, resourceName)
 	case "configmap":
-		return handleConfigmapGet(ctx, cmd, apiClient, resourceName)
+		return handleConfigmapGet(cmd, opts, resourceName)
 	default:
 		return fmt.Errorf("unsupported resource type: %s", args[0])
 	}
 }
 
 // handleServiceGet handles get operations for services
-func handleServiceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+func handleServiceGet(cmd *cobra.Command, opts *getOptions, resourceName string) error {
+	apiClient, cErr := createAPIClient(&opts.cmdOptions)
+	if cErr != nil {
+		return fmt.Errorf("failed to create API client: %w", cErr)
+	}
+	defer apiClient.Close()
+
 	serviceClient := client.NewServiceClient(apiClient)
 
 	// If watch mode is enabled, handle watching
-	if watchResources {
-		return watchServices(ctx, serviceClient, resourceName)
+	if opts.watchResources {
+		return watchServices(cmd.Context(), serviceClient, resourceName, opts)
 	}
 
 	// If a specific service name is provided, get that service
 	if resourceName != "" {
-		namespace := getNamespace
-		service, err := serviceClient.GetService(namespace, resourceName)
+		service, err := serviceClient.GetService(opts.namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get service %s: %w", resourceName, err)
 		}
 
-		return outputResource([]*types.Service{service}, cmd)
+		return outputResource([]*types.Service{service}, opts)
 	}
 
 	// Otherwise, list services based on the namespace flag
 	var services []*types.Service
 	var err error
 
-	if allNamespaces {
+	if opts.allNamespaces {
 		// List services across all namespaces using the asterisk wildcard
-		services, err = serviceClient.ListServices("*", labelSelector, fieldSelector)
+		services, err = serviceClient.ListServices("*", opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list services across all namespaces: %w", err)
 		}
 	} else {
-		services, err = serviceClient.ListServices(getNamespace, labelSelector, fieldSelector)
+		services, err = serviceClient.ListServices(opts.namespace, opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list services: %w", err)
 		}
 	}
 
 	// Sort services (client-side sorting is still fine)
-	sortServices(services, sortBy)
+	sortServices(services, opts.sortBy)
 
 	// Apply limit if specified
-	if limit > 0 && len(services) > limit {
-		services = services[:limit]
+	if opts.limit > 0 && len(services) > opts.limit {
+		services = services[:opts.limit]
 	}
 
-	return outputResource(services, cmd)
+	return outputResource(services, opts)
 }
 
 // handleInstanceGet handles get operations for instances
-func handleInstanceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+func handleInstanceGet(cmd *cobra.Command, opts *getOptions, resourceName string) error {
+	apiClient, cErr := createAPIClient(&opts.cmdOptions)
+	if cErr != nil {
+		return fmt.Errorf("failed to create API client: %w", cErr)
+	}
+	defer apiClient.Close()
+
 	instanceClient := client.NewInstanceClient(apiClient)
 
 	// If watch mode is enabled, handle watching
-	if watchResources {
-		return watchInstances(ctx, instanceClient, resourceName)
+	if opts.watchResources {
+		return watchInstances(cmd.Context(), instanceClient, resourceName, opts)
 	}
 
 	// If a specific instance name is provided, get that instance
 	if resourceName != "" {
-		namespace := getNamespace
+		namespace := opts.namespace
 		instance, err := instanceClient.GetInstance(namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get instance: %w", err)
 		}
 
 		// Render a single instance
-		if getOutputFormat == "" {
+		if opts.outputFormat == "" {
 			// Create table for a single instance
 			table := NewResourceTable()
 			table.RenderInstances([]*types.Instance{instance})
@@ -221,36 +232,42 @@ func handleInstanceGet(ctx context.Context, cmd *cobra.Command, apiClient *clien
 		}
 
 		// Handle JSON/YAML output for a single instance
-		return outputResource([]*types.Instance{instance}, cmd)
+		return outputResource([]*types.Instance{instance}, opts)
 	}
 
 	// Get all instances with optional filtering
-	instances, err := instanceClient.ListInstances(getNamespace, getServiceName, labelSelector, fieldSelector)
+	instances, err := instanceClient.ListInstances(opts.namespace, opts.serviceName, opts.labelSelector, opts.fieldSelector)
 	if err != nil {
 		return fmt.Errorf("failed to list instances: %w", err)
 	}
 
 	// Render the instances
-	if getOutputFormat == "" {
+	if opts.outputFormat == "" {
 		// Create table with configured options
 		table := NewResourceTable()
-		table.AllNamespaces = allNamespaces
-		table.ShowLabels = showLabels
+		table.AllNamespaces = opts.allNamespaces
+		table.ShowLabels = opts.showLabels
 		table.RenderInstances(instances)
 		return nil
 	}
 
 	// Handle JSON/YAML output
-	return outputResource(instances, cmd)
+	return outputResource(instances, opts)
 }
 
 // handleNamespaceGet handles get operations for namespaces
-func handleNamespaceGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+func handleNamespaceGet(cmd *cobra.Command, opts *getOptions, resourceName string) error {
+	apiClient, cErr := createAPIClient(&opts.cmdOptions)
+	if cErr != nil {
+		return fmt.Errorf("failed to create API client: %w", cErr)
+	}
+	defer apiClient.Close()
+
 	namespaceClient := client.NewNamespaceClient(apiClient)
 
 	// If watch mode is enabled, handle watching
-	if watchResources {
-		return watchNamespaces(ctx, namespaceClient, resourceName)
+	if opts.watchResources {
+		return watchNamespaces(cmd.Context(), namespaceClient, resourceName, opts)
 	}
 
 	// If a specific namespace name is provided, get that namespace
@@ -260,7 +277,7 @@ func handleNamespaceGet(ctx context.Context, cmd *cobra.Command, apiClient *clie
 			return fmt.Errorf("failed to get namespace %s: %w", resourceName, err)
 		}
 
-		return outputResource([]*types.Namespace{namespace}, cmd)
+		return outputResource([]*types.Namespace{namespace}, opts)
 	}
 
 	// Otherwise, list all namespaces
@@ -270,110 +287,121 @@ func handleNamespaceGet(ctx context.Context, cmd *cobra.Command, apiClient *clie
 	}
 
 	// Sort namespaces
-	sortNamespaces(namespaces, sortBy)
+	sortNamespaces(namespaces, opts.sortBy)
 
 	// Apply limit if specified
-	if limit > 0 && len(namespaces) > limit {
-		namespaces = namespaces[:limit]
+	if opts.limit > 0 && len(namespaces) > opts.limit {
+		namespaces = namespaces[:opts.limit]
 	}
 
-	return outputResource(namespaces, cmd)
+	return outputResource(namespaces, opts)
 }
 
 // handleSecretGet handles get operations for secrets
-func handleSecretGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+func handleSecretGet(cmd *cobra.Command, opts *getOptions, resourceName string) error {
+	apiClient, cErr := createAPIClient(&opts.cmdOptions)
+	if cErr != nil {
+		return fmt.Errorf("failed to create API client: %w", cErr)
+	}
+	defer apiClient.Close()
+
 	secretClient := client.NewSecretClient(apiClient)
 
 	// If a specific secret name is provided, get that secret
 	if resourceName != "" {
-		namespace := getNamespace
+		namespace := opts.namespace
 		secret, err := secretClient.GetSecret(namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get secret %s: %w", resourceName, err)
 		}
 
-		return outputResource([]*types.Secret{secret}, cmd)
+		return outputResource([]*types.Secret{secret}, opts)
 	}
 
 	// Otherwise, list secrets based on the namespace flag
 	var secrets []*types.Secret
 	var err error
 
-	if allNamespaces {
+	if opts.allNamespaces {
 		// List secrets across all namespaces using the asterisk wildcard
-		secrets, err = secretClient.ListSecrets("*", labelSelector, fieldSelector)
+		secrets, err = secretClient.ListSecrets("*", opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets across all namespaces: %w", err)
 		}
 	} else {
-		secrets, err = secretClient.ListSecrets(getNamespace, labelSelector, fieldSelector)
+		secrets, err = secretClient.ListSecrets(opts.namespace, opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}
 	}
 
 	// Apply limit if specified
-	if limit > 0 && len(secrets) > limit {
-		secrets = secrets[:limit]
+	if opts.limit > 0 && len(secrets) > opts.limit {
+		secrets = secrets[:opts.limit]
 	}
 
-	return outputResource(secrets, cmd)
+	return outputResource(secrets, opts)
 }
 
 // handleConfigmapGet handles get operations for configs
-func handleConfigmapGet(ctx context.Context, cmd *cobra.Command, apiClient *client.Client, resourceName string) error {
+func handleConfigmapGet(cmd *cobra.Command, opts *getOptions, resourceName string) error {
+	apiClient, cErr := createAPIClient(&opts.cmdOptions)
+	if cErr != nil {
+		return fmt.Errorf("failed to create API client: %w", cErr)
+	}
+	defer apiClient.Close()
+
 	configmapClient := client.NewConfigmapClient(apiClient)
 
 	// If a specific config name is provided, get that config
 	if resourceName != "" {
-		namespace := getNamespace
-		config, err := configmapClient.GetConfigmap(namespace, resourceName)
+		config, err := configmapClient.GetConfigmap(opts.namespace, resourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get config %s: %w", resourceName, err)
 		}
 
-		return outputResource([]*types.Configmap{config}, cmd)
+		return outputResource([]*types.Configmap{config}, opts)
 	}
 
 	// Otherwise, list configmaps based on the namespace flag
 	var configmaps []*types.Configmap
 	var err error
 
-	if allNamespaces {
+	if opts.allNamespaces {
 		// List configs across all namespaces using the asterisk wildcard
-		configmaps, err = configmapClient.ListConfigmaps("*", labelSelector, fieldSelector)
+		configmaps, err = configmapClient.ListConfigmaps("*", opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list configs across all namespaces: %w", err)
 		}
 	} else {
-		configmaps, err = configmapClient.ListConfigmaps(getNamespace, labelSelector, fieldSelector)
+		configmaps, err = configmapClient.ListConfigmaps(opts.namespace, opts.labelSelector, opts.fieldSelector)
 		if err != nil {
 			return fmt.Errorf("failed to list configs: %w", err)
 		}
 	}
 
 	// Apply limit if specified
-	if limit > 0 && len(configmaps) > limit {
-		configmaps = configmaps[:limit]
+	if opts.limit > 0 && len(configmaps) > opts.limit {
+		configmaps = configmaps[:opts.limit]
 	}
 
-	return outputResource(configmaps, cmd)
+	return outputResource(configmaps, opts)
 }
 
 // watchServices watches services for changes
-func watchServices(ctx context.Context, serviceClient resourceWatcher.ServiceWatcher, resourceName string) error {
+func watchServices(ctx context.Context, serviceClient resourceWatcher.ServiceWatcher, resourceName string, opts *getOptions) error {
 	// Create and configure the resource watcher
 	watcher := resourceWatcher.NewResourceWatcher()
-	watcher.Namespace = getNamespace
-	watcher.AllNamespaces = allNamespaces
+	watcher.Namespace = opts.namespace
+	watcher.AllNamespaces = opts.allNamespaces
 	watcher.ResourceName = resourceName
-	watcher.LabelSelector = labelSelector
-	watcher.FieldSelector = fieldSelector
-	watcher.ShowHeaders = !noHeaders
+	watcher.LabelSelector = opts.labelSelector
+	watcher.FieldSelector = opts.fieldSelector
+	watcher.ShowHeaders = !opts.noHeaders
 
 	// Set timeout if specified
-	if watchTimeout != "" {
-		if err := watcher.SetTimeout(watchTimeout); err != nil {
+	if opts.watchTimeout != "" {
+		if err := watcher.SetTimeout(opts.watchTimeout); err != nil {
 			return err
 		}
 	}
@@ -390,7 +418,7 @@ func watchServices(ctx context.Context, serviceClient resourceWatcher.ServiceWat
 }
 
 // watchNamespaces watches namespaces for changes
-func watchNamespaces(ctx context.Context, namespaceClient *client.NamespaceClient, resourceName string) error {
+func watchNamespaces(ctx context.Context, namespaceClient *client.NamespaceClient, resourceName string, opts *getOptions) error {
 	// For now, implement basic watching using the client
 	watchCh, err := namespaceClient.WatchNamespaces(nil, nil)
 	if err != nil {
@@ -405,8 +433,8 @@ func watchNamespaces(ctx context.Context, namespaceClient *client.NamespaceClien
 
 	// Create table for display
 	table := NewResourceTable()
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Display initial state
 	if len(namespaces) > 0 {
@@ -438,19 +466,19 @@ func watchNamespaces(ctx context.Context, namespaceClient *client.NamespaceClien
 }
 
 // watchInstances watches instances for changes
-func watchInstances(ctx context.Context, instanceClient resourceWatcher.InstanceWatcher, resourceName string) error {
+func watchInstances(ctx context.Context, instanceClient resourceWatcher.InstanceWatcher, resourceName string, opts *getOptions) error {
 	// Create and configure the resource watcher
 	watcher := resourceWatcher.NewResourceWatcher()
-	watcher.Namespace = getNamespace
-	watcher.AllNamespaces = allNamespaces
+	watcher.Namespace = opts.namespace
+	watcher.AllNamespaces = opts.allNamespaces
 	watcher.ResourceName = resourceName
-	watcher.LabelSelector = labelSelector
-	watcher.FieldSelector = fieldSelector
-	watcher.ShowHeaders = !noHeaders
+	watcher.LabelSelector = opts.labelSelector
+	watcher.FieldSelector = opts.fieldSelector
+	watcher.ShowHeaders = !opts.noHeaders
 
 	// Set timeout if specified
-	if watchTimeout != "" {
-		if err := watcher.SetTimeout(watchTimeout); err != nil {
+	if opts.watchTimeout != "" {
+		if err := watcher.SetTimeout(opts.watchTimeout); err != nil {
 			return err
 		}
 	}
@@ -467,68 +495,57 @@ func watchInstances(ctx context.Context, instanceClient resourceWatcher.Instance
 }
 
 // outputServicesTable outputs services in a formatted table
-func outputServicesTable(services []*types.Service) error {
+func outputServicesTable(services []*types.Service, opts *getOptions) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
-	table.AllNamespaces = allNamespaces
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.AllNamespaces = opts.allNamespaces
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Render the table
 	return table.RenderServices(services)
 }
 
 // outputInstancesTable outputs instances in a formatted table
-func outputInstancesTable(instances []*types.Instance) error {
+func outputInstancesTable(instances []*types.Instance, opts *getOptions) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
-	table.AllNamespaces = allNamespaces
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.AllNamespaces = opts.allNamespaces
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Render the table
 	return table.RenderInstances(instances)
 }
 
 // outputNamespacesTable outputs namespaces in a formatted table
-func outputNamespacesTable(namespaces []*types.Namespace) error {
+func outputNamespacesTable(namespaces []*types.Namespace, opts *getOptions) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Render the table
 	return table.RenderNamespaces(namespaces)
 }
 
-// outputDeleteTable outputs deletion operations in a formatted table
-func outputDeleteTable(operations []*generated.DeletionOperation) error {
-	// Create and configure the table renderer
-	table := NewResourceTable()
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
-
-	// Render the table
-	return table.RenderDeletionOperations(operations)
-}
-
 // outputSecretsTable outputs secrets in a formatted table
-func outputSecretsTable(secrets []*types.Secret) error {
+func outputSecretsTable(secrets []*types.Secret, opts *getOptions) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Render the table
 	return table.RenderSecrets(secrets)
 }
 
 // outputConfigmapsTable outputs configmaps in a formatted table
-func outputConfigmapsTable(configmaps []*types.Configmap) error {
+func outputConfigmapsTable(configmaps []*types.Configmap, opts *getOptions) error {
 	// Create and configure the table renderer
 	table := NewResourceTable()
-	table.ShowHeaders = !noHeaders
-	table.ShowLabels = showLabels
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
 
 	// Render the table
 	return table.RenderConfigmaps(configmaps)

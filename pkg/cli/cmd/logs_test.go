@@ -10,71 +10,61 @@ import (
 
 // TestParseTraceOptions tests the parseTraceOptions function
 func TestParseTraceOptions(t *testing.T) {
-	// Save original flag values
-	origFollow := logsFollow
-	origTail := logsTail
-	origShowTimestamps := logsShowTimestamps
-	origPattern := logsPattern
-	origOutputFormat := logsOutputFormat
-
-	// Restore flag values after test
-	defer func() {
-		logsFollow = origFollow
-		logsTail = origTail
-		logsShowTimestamps = origShowTimestamps
-		logsPattern = origPattern
-		logsOutputFormat = origOutputFormat
-	}()
-
 	// Test case 1: Default options
 	t.Run("DefaultOptions", func(t *testing.T) {
 		// Set flags
-		logsFollow = true
-		logsTail = 100
-		logsShowTimestamps = false
-		logsPattern = ""
-		logsOutputFormat = OutputFormatText
+		logsOptions := &logsOptions{
+			follow:         true,
+			tail:           100,
+			showTimestamps: false,
+			pattern:        "",
+			outputFormat:   OutputFormatJSON,
+		}
 
 		// Parse options
-		options, err := parseLogsOptions()
+		options, err := parseLogsOptions(logsOptions)
 
 		// Verify
 		assert.NoError(t, err)
-		assert.Equal(t, true, options.Follow)
-		assert.Equal(t, 100, options.Tail)
-		assert.Equal(t, false, options.ShowTimestamps)
-		assert.Equal(t, "", options.Pattern)
-		assert.Equal(t, OutputFormatText, options.OutputFormat)
+		assert.Equal(t, true, options.follow)
+		assert.Equal(t, 100, options.tail)
+		assert.Equal(t, false, options.showTimestamps)
+		assert.Equal(t, "", options.pattern)
+		assert.Equal(t, OutputFormatText, options.outputFormat)
 	})
 
 	// Test case 2: Custom options
 	t.Run("CustomOptions", func(t *testing.T) {
 		// Set flags
-		logsFollow = false
-		logsTail = 50
-		logsShowTimestamps = true
-		logsPattern = "error"
-		logsOutputFormat = OutputFormatJSON
+		logsOptions := &logsOptions{
+			follow:         false,
+			tail:           50,
+			showTimestamps: true,
+			pattern:        "error",
+			outputFormat:   OutputFormatJSON,
+		}
 
 		// Parse options
-		options, err := parseLogsOptions()
+		options, err := parseLogsOptions(logsOptions)
 
 		// Verify
 		assert.NoError(t, err)
-		assert.Equal(t, false, options.Follow)
-		assert.Equal(t, 50, options.Tail)
-		assert.Equal(t, true, options.ShowTimestamps)
-		assert.Equal(t, "error", options.Pattern)
-		assert.Equal(t, OutputFormatJSON, options.OutputFormat)
+		assert.Equal(t, false, options.follow)
+		assert.Equal(t, 50, options.tail)
+		assert.Equal(t, true, options.showTimestamps)
+		assert.Equal(t, "error", options.pattern)
+		assert.Equal(t, OutputFormatJSON, options.outputFormat)
 	})
 
 	// Test case 3: Invalid output format
 	t.Run("InvalidOutputFormat", func(t *testing.T) {
 		// Set flags
-		logsOutputFormat = "invalid"
+		logsOptions := &logsOptions{
+			outputFormat: "invalid",
+		}
 
 		// Parse options
-		_, err := parseLogsOptions()
+		_, err := parseLogsOptions(logsOptions)
 
 		// Verify
 		assert.Error(t, err)
@@ -127,9 +117,9 @@ func TestParseSinceTime(t *testing.T) {
 // TestProcessLogResponse tests the processLogResponse function
 func TestProcessLogResponse(t *testing.T) {
 	// Mock trace options
-	options := &LogsOptions{
-		ShowTimestamps: false,
-		NoColor:        true, // Disable colors for testing
+	options := &logsOptions{
+		showTimestamps: false,
+		noColor:        true, // Disable colors for testing
 	}
 
 	// Test with a log entry
@@ -150,9 +140,9 @@ func TestProcessLogResponse(t *testing.T) {
 	// Test filtering by log type
 	t.Run("FilterByLogType", func(t *testing.T) {
 		// Set up options to filter out logs
-		filteredOptions := &LogsOptions{
-			ShowTimestamps: false,
-			NoColor:        true,
+		filteredOptions := &logsOptions{
+			showTimestamps: false,
+			noColor:        true,
 		}
 
 		resp := &generated.LogResponse{
@@ -174,9 +164,9 @@ func TestProcessLogResponse(t *testing.T) {
 	// Test timestamp toggling
 	t.Run("TimestampToggle", func(t *testing.T) {
 		// Set up options with timestamps enabled
-		timestampOptions := &LogsOptions{
-			ShowTimestamps: true,
-			NoColor:        true,
+		timestampOptions := &logsOptions{
+			showTimestamps: true,
+			noColor:        true,
 		}
 
 		resp := &generated.LogResponse{

@@ -229,8 +229,9 @@ func TestWatchServices(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up test globals
-			getNamespace = tt.namespace
-			allNamespaces = tt.namespace == "*"
+			opts := &getOptions{}
+			opts.namespace = tt.namespace
+			opts.allNamespaces = tt.namespace == "*"
 
 			// Create a buffered watch channel
 			watchCh := make(chan client.WatchEvent, len(tt.watchEvents))
@@ -249,7 +250,7 @@ func TestWatchServices(t *testing.T) {
 			go func() {
 				// Close the channel after our test events to simulate end of stream
 				defer close(watchCh)
-				errCh <- watchServices(ctx, mockClient, tt.resourceName)
+				errCh <- watchServices(ctx, mockClient, tt.resourceName, opts)
 			}()
 
 			// Wait for the function to complete or timeout

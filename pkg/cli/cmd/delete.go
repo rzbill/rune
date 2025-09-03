@@ -15,7 +15,8 @@ import (
 
 // deleteOptions holds the options for the delete command
 type deleteOptions struct {
-	namespace      string
+	cmdOptions
+
 	force          bool
 	timeoutSeconds int32
 	detach         bool
@@ -30,19 +31,7 @@ type deleteOptions struct {
 
 // newDeleteCmd creates the delete command
 func newDeleteCmd() *cobra.Command {
-	// Add flags for shorthand usage
-	var shorthandNamespace string
-	var shorthandForce bool
-	var shorthandTimeout int32
-	var shorthandDetach bool
-	var shorthandDryRun bool
-	var shorthandGracePeriod int32
-	var shorthandNow bool
-	var shorthandIgnoreNotFound bool
-	var shorthandFinalizers []string
-	var shorthandOutput string
-	var shorthandNoDeps bool
-
+	opts := &deleteOptions{}
 	cmd := &cobra.Command{
 		Use:     "delete",
 		Aliases: []string{"remove", "rm"},
@@ -81,61 +70,22 @@ Examples:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If no subcommand is specified and a target is provided, treat it as shorthand
-			if len(args) > 0 {
-				target := args[0]
-
-				// Create options for shorthand usage using the flag variables
-				opts := &deleteOptions{
-					namespace:      shorthandNamespace,
-					force:          shorthandForce,
-					timeoutSeconds: shorthandTimeout,
-					detach:         shorthandDetach,
-					dryRun:         shorthandDryRun,
-					gracePeriod:    shorthandGracePeriod,
-					now:            shorthandNow,
-					ignoreNotFound: shorthandIgnoreNotFound,
-					finalizers:     shorthandFinalizers,
-					output:         shorthandOutput,
-					noDependencies: shorthandNoDeps,
-				}
-
-				// Try deleting as a service first
-				if err := runServiceDelete(cmd.Context(), target, opts); err != nil {
-					// Only fall back to secret/config when the service truly doesn't exist
-					if strings.Contains(strings.ToLower(err.Error()), "not found") {
-						// Secret path
-						if err := runDeleteSecret(cmd.Context(), target, opts); err == nil {
-							return nil
-						}
-						// Config path
-						if err := runDeleteConfigmap(cmd.Context(), target, opts); err == nil {
-							return nil
-						}
-						return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, shorthandNamespace)
-					}
-					// For any other error (e.g., dependents exist), return immediately
-					return err
-				}
-				return nil
-			}
-
-			// If no args provided, show help
-			return cmd.Help()
+			opts.namespace = effectiveNS(opts.namespace)
+			return runDelete(cmd, args, opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&shorthandNamespace, "namespace", "n", "default", "Namespace of the target")
-	cmd.Flags().BoolVarP(&shorthandForce, "force", "f", false, "Skip confirmation prompt")
-	cmd.Flags().Int32VarP(&shorthandTimeout, "timeout", "t", 30, "Graceful shutdown timeout in seconds")
-	cmd.Flags().BoolVar(&shorthandDetach, "detach", false, "Start deletion and return immediately")
-	cmd.Flags().BoolVar(&shorthandDryRun, "dry-run", false, "Show what would be deleted without actually deleting")
-	cmd.Flags().Int32Var(&shorthandGracePeriod, "grace-period", 0, "Grace period for graceful shutdown (alternative to --timeout)")
-	cmd.Flags().BoolVar(&shorthandNow, "now", false, "Immediate deletion without graceful shutdown")
-	cmd.Flags().BoolVar(&shorthandIgnoreNotFound, "ignore-not-found", false, "Don't error if target doesn't exist")
-	cmd.Flags().StringSliceVar(&shorthandFinalizers, "finalizers", nil, "Optional finalizers to run")
-	cmd.Flags().StringVarP(&shorthandOutput, "output", "o", "text", "Output format (text, json, yaml)")
-	cmd.Flags().BoolVar(&shorthandNoDeps, "no-dependencies", false, "Ignore dependents and proceed with deletion")
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "default", "Namespace of the target")
+	cmd.Flags().BoolVarP(&opts.force, "force", "f", false, "Skip confirmation prompt")
+	cmd.Flags().Int32VarP(&opts.timeoutSeconds, "timeout", "t", 30, "Graceful shutdown timeout in seconds")
+	cmd.Flags().BoolVar(&opts.detach, "detach", false, "Start deletion and return immediately")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would be deleted without actually deleting")
+	cmd.Flags().Int32Var(&opts.gracePeriod, "grace-period", 0, "Grace period for graceful shutdown (alternative to --timeout)")
+	cmd.Flags().BoolVar(&opts.now, "now", false, "Immediate deletion without graceful shutdown")
+	cmd.Flags().BoolVar(&opts.ignoreNotFound, "ignore-not-found", false, "Don't error if target doesn't exist")
+	cmd.Flags().StringSliceVar(&opts.finalizers, "finalizers", nil, "Optional finalizers to run")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "text", "Output format (text, json, yaml)")
+	cmd.Flags().BoolVar(&opts.noDependencies, "no-dependencies", false, "Ignore dependents and proceed with deletion")
 
 	// Mark mutually exclusive flags
 	cmd.MarkFlagsMutuallyExclusive("detach", "now")
@@ -147,6 +97,34 @@ Examples:
 	cmd.AddCommand(newDeleteStatusCmd())
 
 	return cmd
+}
+
+func runDelete(cmd *cobra.Command, args []string, opts *deleteOptions) error {
+	// If no subcommand is specified and a target is provided, treat it as shorthand
+	if len(args) > 0 {
+		target := args[0]
+		// Try deleting as a service first
+		if err := runServiceDelete(cmd.Context(), target, opts); err != nil {
+			// Only fall back to secret/config when the service truly doesn't exist
+			if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				// Secret path
+				if err := runDeleteSecret(cmd.Context(), target, opts); err == nil {
+					return nil
+				}
+				// Config path
+				if err := runDeleteConfigmap(cmd.Context(), target, opts); err == nil {
+					return nil
+				}
+				return fmt.Errorf("failed to delete resource '%s' in namespace %s (not found)", target, opts.namespace)
+			}
+			// For any other error (e.g., dependents exist), return immediately
+			return err
+		}
+		return nil
+	}
+
+	// If no args provided, show help
+	return cmd.Help()
 }
 
 // newDeleteServiceCmd creates the service deletion subcommand
@@ -195,6 +173,7 @@ Examples:
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
 			return runServiceDelete(cmd.Context(), args[0], opts)
 		},
 	}
@@ -221,6 +200,8 @@ Examples:
 
 // listOptions holds the options for the list subcommand
 type listOptions struct {
+	cmdOptions
+
 	namespace string
 	status    string
 	output    string
@@ -256,6 +237,7 @@ Examples:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
 			return runDeleteList(cmd.Context(), opts)
 		},
 	}
@@ -296,6 +278,7 @@ Examples:
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
 			return runDeleteStatus(cmd.Context(), args[0], opts)
 		},
 	}
@@ -315,7 +298,7 @@ func runServiceDelete(ctx context.Context, serviceName string, opts *deleteOptio
 	}
 
 	// Create API client
-	apiClient, err := newAPIClient("", "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -705,7 +688,7 @@ func convertProtoFinalizersToTypes(protoFinalizers []*generated.Finalizer) []typ
 // runDeleteList executes the list subcommand
 func runDeleteList(ctx context.Context, opts *listOptions) error {
 	// Create API client
-	apiClient, err := newAPIClient("", "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -733,7 +716,7 @@ func runDeleteList(ctx context.Context, opts *listOptions) error {
 	case "yaml":
 		return outputYAML(resp.Operations)
 	default:
-		return outputTable(resp.Operations)
+		return outputDeleteTable(resp.Operations, opts)
 	}
 }
 
@@ -816,13 +799,11 @@ func outputDeleteStatusText(operation *generated.DeletionOperation) error {
 	return nil
 }
 
-func init() {
-	rootCmd.AddCommand(newDeleteCmd())
-}
+func init() { rootCmd.AddCommand(newDeleteCmd()) }
 
 // runDeleteSecret deletes a secret by name using the SecretClient
 func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) error {
-	apiClient, err := newAPIClient("", "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return err
 	}
@@ -837,7 +818,7 @@ func runDeleteSecret(ctx context.Context, name string, opts *deleteOptions) erro
 
 // runDeleteConfigmap deletes a config by name using the ConfigClient
 func runDeleteConfigmap(ctx context.Context, name string, opts *deleteOptions) error {
-	apiClient, err := newAPIClient("", "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return err
 	}
@@ -848,4 +829,15 @@ func runDeleteConfigmap(ctx context.Context, name string, opts *deleteOptions) e
 	}
 	fmt.Printf("Config %s/%s deleted\n", opts.namespace, name)
 	return nil
+}
+
+// outputDeleteTable outputs deletion operations in a formatted table
+func outputDeleteTable(operations []*generated.DeletionOperation, opts *listOptions) error {
+	// Create and configure the table renderer
+	table := NewResourceTable()
+	table.ShowHeaders = !opts.noHeaders
+	table.ShowLabels = opts.showLabels
+
+	// Render the table
+	return table.RenderDeletionOperations(operations)
 }

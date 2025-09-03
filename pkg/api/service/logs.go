@@ -154,26 +154,21 @@ func (s *LogService) getLogReader(ctx context.Context, req *generated.LogRequest
 	var serviceName string
 	var instanceName string
 
-	namespace := req.Namespace
-	if namespace == "" {
-		namespace = DefaultNamespace
-	}
-
-	resourceType, resource, err := s.identifyResourceType(ctx, req.ResourceTarget, namespace)
+	resourceTarget, err := resolveResourceTarget(ctx, s.store, req.ResourceTarget, types.NS(req.Namespace))
 	if err != nil {
-		s.logger.Error("Failed to identify resource type", log.Err(err))
+		s.logger.Error("Failed to resolve resource target", log.Err(err))
 		return nil, "", "", status.Errorf(codes.InvalidArgument, "invalid resource target: %v", err)
 	}
 
-	if resourceType == types.ResourceTypeService {
+	if resourceTarget.Type == types.ResourceTypeService {
 		// Target is a service
-		service, ok := resource.(types.Service)
-		if !ok {
-			return nil, "", "", status.Errorf(codes.Internal, "resource is not a service")
+		service, err := resourceTarget.GetService()
+		if err != nil {
+			return nil, "", "", status.Errorf(codes.Internal, "resource is not a service: %v", err)
 		}
 
 		// Use orchestrator to get service logs
-		logReader, err = s.orchestrator.GetServiceLogs(ctx, namespace, service.Name, logOptions)
+		logReader, err = s.orchestrator.GetServiceLogs(ctx, types.NS(req.Namespace), service.Name, logOptions)
 		if err != nil {
 			s.logger.Error("Failed to get service logs",
 				log.Str("service", serviceName),
@@ -182,15 +177,14 @@ func (s *LogService) getLogReader(ctx context.Context, req *generated.LogRequest
 		}
 	}
 
-	if resourceType == types.ResourceTypeInstance {
-
-		instance, ok := resource.(types.Instance)
-		if !ok {
-			return nil, "", "", status.Errorf(codes.Internal, "resource is not an instance ---0")
+	if resourceTarget.Type == types.ResourceTypeInstance {
+		instance, err := resourceTarget.GetInstance()
+		if err != nil {
+			return nil, "", "", status.Errorf(codes.Internal, "resource is not an instance: %v", err)
 		}
 
 		// Use orchestrator to get instance logs
-		logReader, err = s.orchestrator.GetInstanceLogs(ctx, namespace, instance.ID, logOptions)
+		logReader, err = s.orchestrator.GetInstanceLogs(ctx, types.NS(req.Namespace), instance.ID, logOptions)
 		if err != nil {
 			s.logger.Error("Failed to get instance logs",
 				log.Str("instance", instanceName),
@@ -350,58 +344,4 @@ func (s *LogService) validateLogRequest(req *generated.LogRequest) error {
 	}
 
 	return nil
-}
-
-// identifyResourceType attempts to identify the type of resource being queried
-// It checks if the argument is service, instance, or type/name format
-// Returns resource type, name, and any error that occurred
-func (s *LogService) identifyResourceType(ctx context.Context, arg string, namespace string) (types.ResourceType, interface{}, error) {
-	// Check if the argument is in the format TYPE/NAME
-	if strings.Contains(arg, "/") {
-		parts := strings.SplitN(arg, "/", 2)
-		resourceType := strings.ToLower(parts[0])
-		resourceName := parts[1]
-
-		resource, err := s.getResourceByType(ctx, resourceType, resourceName, namespace)
-		if err != nil {
-			return "", nil, err
-		}
-
-		return types.ResourceType(resourceType), resource, nil
-	}
-
-	// Try to fetch as a service first
-	var service types.Service
-	err := s.store.Get(ctx, types.ResourceTypeService, namespace, arg, &service)
-	if err == nil {
-		// It's a service
-		return types.ResourceTypeService, service, nil
-	}
-
-	// Try to fetch as an instance
-	instance, err := s.store.GetInstanceByID(ctx, namespace, arg)
-	if err != nil {
-		return "", nil, err
-	}
-
-	return types.ResourceTypeInstance, instance, nil
-}
-
-func (s *LogService) getResourceByType(ctx context.Context, resourceType string, resourceName string, namespace string) (interface{}, error) {
-	if resourceType == string(types.ResourceTypeService) {
-		var service types.Service
-		err := s.store.Get(ctx, types.ResourceTypeService, namespace, resourceName, &service)
-		if err == nil {
-			return service, nil
-		}
-	}
-
-	if resourceType == string(types.ResourceTypeInstance) {
-		instance, err := s.store.GetInstanceByID(ctx, namespace, resourceName)
-		if err == nil {
-			return instance, nil
-		}
-	}
-
-	return nil, fmt.Errorf("resource not found")
 }

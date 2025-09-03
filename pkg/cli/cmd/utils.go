@@ -8,12 +8,121 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/internal/config"
-	"github.com/rzbill/rune/pkg/api/generated"
+	"github.com/rzbill/rune/pkg/api/client"
 	"github.com/rzbill/rune/pkg/types"
-	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
+
+type resourceTargetType string
+
+const (
+	resourceTargetTypeInstance resourceTargetType = "instance"
+	resourceTargetTypeService  resourceTargetType = "service"
+)
+
+type resolvedResourceTarget struct {
+	namespace  string
+	targetType resourceTargetType
+	target     string
+}
+
+func parseTargetExpression(targetExpression string) resourceTargetType {
+	if strings.Contains(targetExpression, "instance/") || strings.Contains(targetExpression, "inst/") {
+		return resourceTargetTypeInstance
+	}
+
+	if strings.Contains(targetExpression, "service/") || strings.Contains(targetExpression, "svc/") {
+		return resourceTargetTypeService
+	}
+
+	return ""
+}
+
+func resolveResourceTarget(apiClient *client.Client, targetExpression string, namespace string) (*resolvedResourceTarget, error) {
+
+	targetType := parseTargetExpression(targetExpression)
+
+	switch targetType {
+	case resourceTargetTypeInstance:
+		return resolveTargetInstance(apiClient, targetExpression, namespace)
+	case resourceTargetTypeService:
+		return resolveTargetService(apiClient, targetExpression, namespace)
+	}
+
+	// try to resolve as a service
+	serviceTarget, err := resolveTargetService(apiClient, targetExpression, namespace)
+	if err == nil {
+		return serviceTarget, nil
+	}
+
+	// try to resolve as an instance if it's not a service
+	instanceTarget, err := resolveTargetInstance(apiClient, targetExpression, namespace)
+	if err == nil {
+		return instanceTarget, nil
+	}
+
+	return nil, fmt.Errorf("failed to resolve resource target")
+}
+
+func resolveTargetService(apiClient *client.Client, target string, namespace string) (*resolvedResourceTarget, error) {
+
+	serviceClient := client.NewServiceClient(apiClient)
+	_, err := serviceClient.GetService(namespace, target)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resolvedResourceTarget{targetType: resourceTargetTypeService, target: target, namespace: namespace}, nil
+}
+
+func resolveTargetInstance(apiClient *client.Client, target string, namespace string) (*resolvedResourceTarget, error) {
+	instanceClient := client.NewInstanceClient(apiClient)
+	_, err := instanceClient.GetInstance(namespace, target)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resolvedResourceTarget{targetType: resourceTargetTypeInstance, target: target, namespace: namespace}, nil
+}
+
+// buildClientOptions builds ClientOptions using current context from viper and an optional address override.
+func buildClientOptions(addressOverride string) *client.ClientOptions {
+	opts := client.DefaultClientOptions()
+	// Address precedence: explicit override > context server (normalized) > default
+	if addressOverride != "" {
+		opts.Address = ensureDefaultGRPCPort(addressOverride)
+	} else {
+		if s := viper.GetString("contexts.default.server"); s != "" {
+			opts.Address = ensureDefaultGRPCPort(s)
+		}
+	}
+	// Token from context/env
+	if t := viper.GetString("contexts.default.token"); t != "" {
+		opts.Token = t
+	} else if t, ok := getEnv("RUNE_TOKEN"); ok {
+		opts.Token = t
+	}
+	return opts
+}
+
+// newAPIClient creates a new client using buildClientOptions with optional address and token overrides.
+func newAPIClient(addressOverride string, tokenOverride string) (*client.Client, error) {
+	opts := buildClientOptions(addressOverride)
+	if tokenOverride != "" {
+		opts.Token = tokenOverride
+	}
+	return client.NewClient(opts)
+}
+
+// newDefaultClient creates a new client using buildClientOptions with optional address and token overrides.
+func createAPIClient(opts *cmdOptions) (*client.Client, error) {
+	clientOpts := buildClientOptions(opts.addressOverride)
+	if opts.tokenOverride != "" {
+		clientOpts.Token = opts.tokenOverride
+	}
+	return client.NewClient(clientOpts)
+}
 
 // resolveResourceType resolves a resource type from user input to a canonical type
 func resolveResourceType(input string) (string, error) {
@@ -60,34 +169,32 @@ func getTargetRuneServer() string {
 }
 
 // outputResource outputs a resource in the specified format
-func outputResource(resources interface{}, cmd *cobra.Command) error {
-	switch getOutputFormat {
+func outputResource(resources interface{}, opts *getOptions) error {
+	switch opts.outputFormat {
 	case "json":
 		return outputJSON(resources)
 	case "yaml":
 		return outputYAML(resources)
 	case "table", "":
-		return outputTable(resources)
+		return outputTable(resources, opts)
 	default:
-		return fmt.Errorf("unsupported output format: %s", getOutputFormat)
+		return fmt.Errorf("unsupported output format: %s", opts.outputFormat)
 	}
 }
 
 // outputTable outputs resources in table format
-func outputTable(resources interface{}) error {
+func outputTable(resources interface{}, opts *getOptions) error {
 	switch r := resources.(type) {
 	case []*types.Service:
-		return outputServicesTable(r)
+		return outputServicesTable(r, opts)
 	case []*types.Instance:
-		return outputInstancesTable(r)
+		return outputInstancesTable(r, opts)
 	case []*types.Namespace:
-		return outputNamespacesTable(r)
-	case []*generated.DeletionOperation:
-		return outputDeleteTable(r)
+		return outputNamespacesTable(r, opts)
 	case []*types.Secret:
-		return outputSecretsTable(r)
+		return outputSecretsTable(r, opts)
 	case []*types.Configmap:
-		return outputConfigmapsTable(r)
+		return outputConfigmapsTable(r, opts)
 	// TODO: Add more resource types here
 	default:
 		return fmt.Errorf("unsupported resource type for table output")

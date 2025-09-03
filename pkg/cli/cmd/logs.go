@@ -25,42 +25,28 @@ const (
 	OutputFormatRaw  = "raw"
 )
 
-var (
-	// Logs command flags
-	logsNamespace      string
-	logsFollow         bool
-	logsTail           int
-	logsSinceStr       string
-	logsUntilStr       string
-	logsPattern        string
-	logsShowTimestamps bool
-	logsShowPrefix     bool
-	logsNoColor        bool
-	logsOutputFormat   string
-	logsClientAddr     string
-	logsInstanceID     string
-)
+type logsOptions struct {
+	cmdOptions
 
-// LogsOptions defines the configuration for log tracing
-type LogsOptions struct {
-	Follow         bool
-	Tail           int
-	Since          time.Time
-	Until          time.Time
-	Pattern        string
-	ShowTimestamps bool
-	ShowPrefix     bool
-	NoColor        bool
-	OutputFormat   string
-	Namespace      string
-	InstanceID     string
+	follow         bool
+	tail           int
+	since          time.Time
+	until          time.Time
+	sinceStr       string
+	untilStr       string
+	pattern        string
+	showTimestamps bool
+	showPrefix     bool
+	noColor        bool
+	outputFormat   string
 }
 
-// logsCmd represents the logs command
-var logsCmd = &cobra.Command{
-	Use:   "logs (SERVICE_NAME | INSTANCE_NAME | TYPE/NAME)",
-	Short: "Show logs for a service or instance",
-	Long: `Display logs for Rune services and instances.
+func newLogsCmd() *cobra.Command {
+	opts := &logsOptions{}
+	cmd := &cobra.Command{
+		Use:   "logs (SERVICE_NAME | INSTANCE_NAME | TYPE/NAME)",
+		Short: "Show logs for a service or instance",
+		Long: `Display logs for Rune services and instances.
 
 This command allows you to view the logs of your services, helping
 with debugging, monitoring, and understanding service behavior.
@@ -95,44 +81,49 @@ Examples:
 
   # Output logs in JSON format for machine processing
   rune logs api --output=json`,
-	Aliases:       []string{"log"},
-	Args:          cobra.ExactArgs(1),
-	RunE:          runLogs,
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
-
-func init() {
-	rootCmd.AddCommand(logsCmd)
+		Aliases: []string{"log"},
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.namespace = effectiveNS(opts.namespace)
+			return runLogs(cmd, args, opts)
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
 
 	// Local flags for the logs command
-	logsCmd.Flags().StringVarP(&logsNamespace, "namespace", "n", "default", "Namespace of the service")
-	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "Stream logs in real-time")
-	logsCmd.Flags().IntVarP(&logsTail, "tail", "t", 100, "Number of recent log lines to show (use 0 for all available)")
-	logsCmd.Flags().StringVar(&logsSinceStr, "since", "", "Show logs since timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
-	logsCmd.Flags().StringVar(&logsUntilStr, "until", "", "Show logs until timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
-	logsCmd.Flags().StringVarP(&logsPattern, "pattern", "p", "", "Filter logs by pattern")
-	logsCmd.Flags().BoolVar(&logsShowTimestamps, "timestamps", false, "Show timestamps in the output")
-	logsCmd.Flags().BoolVar(&logsShowPrefix, "prefix", false, "Show resource type, service and instance prefixes in log output")
-	logsCmd.Flags().BoolVar(&logsNoColor, "no-color", false, "Disable colorized output")
-	logsCmd.Flags().StringVarP(&logsOutputFormat, "output", "o", OutputFormatText, "Output format: text, json, or raw")
+	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "Namespace of the service")
+	cmd.Flags().BoolVarP(&opts.follow, "follow", "f", false, "Stream logs in real-time")
+	cmd.Flags().IntVarP(&opts.tail, "tail", "t", 100, "Number of recent log lines to show (use 0 for all available)")
+	cmd.Flags().StringVar(&opts.sinceStr, "since", "", "Show logs since timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
+	cmd.Flags().StringVar(&opts.untilStr, "until", "", "Show logs until timestamp (e.g., '5m', '2h', '2023-01-01T10:00:00Z')")
+	cmd.Flags().StringVarP(&opts.pattern, "pattern", "p", "", "Filter logs by pattern")
+	cmd.Flags().BoolVar(&opts.showTimestamps, "timestamps", false, "Show timestamps in the output")
+	cmd.Flags().BoolVar(&opts.showPrefix, "prefix", false, "Show resource type, service and instance prefixes in log output")
+	cmd.Flags().BoolVar(&opts.noColor, "no-color", false, "Disable colorized output")
+	cmd.Flags().StringVarP(&opts.outputFormat, "output", "o", OutputFormatText, "Output format: text, json, or raw")
 
 	// API client flags
-	logsCmd.Flags().StringVar(&logsClientAddr, "api-server", "", "Address of the API server")
+	cmd.Flags().StringVar(&opts.addressOverride, "api-server", "", "Address of the API server")
+
+	return cmd
+
 }
 
+func init() { rootCmd.AddCommand(newLogsCmd()) }
+
 // runLogs is the main entry point for the logs command
-func runLogs(cmd *cobra.Command, args []string) error {
+func runLogs(cmd *cobra.Command, args []string, opts *logsOptions) error {
 	resourceArg := args[0]
 
 	// Configure logs options
-	options, err := parseLogsOptions()
+	opts, err := parseLogsOptions(opts)
 	if err != nil {
 		return err
 	}
 
 	// Create API client
-	apiClient, err := newAPIClient(logsClientAddr, "")
+	apiClient, err := createAPIClient(&opts.cmdOptions)
 	if err != nil {
 		return fmt.Errorf("failed to connect to API server: %w", err)
 	}
@@ -151,51 +142,39 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	return streamLogs(ctx, apiClient, resourceArg, options)
+	return streamLogs(ctx, apiClient, resourceArg, opts)
 }
 
 // parseLogsOptions parses and validates command line flags into TraceOptions
-func parseLogsOptions() (*LogsOptions, error) {
-	options := &LogsOptions{
-		Follow:         logsFollow,
-		Tail:           logsTail,
-		Pattern:        logsPattern,
-		ShowTimestamps: logsShowTimestamps,
-		ShowPrefix:     logsShowPrefix,
-		NoColor:        logsNoColor,
-		OutputFormat:   logsOutputFormat,
-		Namespace:      logsNamespace,
-		InstanceID:     logsInstanceID,
-	}
-
+func parseLogsOptions(opts *logsOptions) (*logsOptions, error) {
 	// Validate output format
-	switch options.OutputFormat {
+	switch opts.outputFormat {
 	case OutputFormatText, OutputFormatJSON, OutputFormatRaw:
 		// Valid format
 	default:
-		return nil, fmt.Errorf("invalid output format: %s (must be text, json, or raw)", options.OutputFormat)
+		return nil, fmt.Errorf("invalid output format: %s (must be text, json, or raw)", opts.outputFormat)
 	}
 
 	// Parse since time if provided
-	if logsSinceStr != "" {
-		since, err := parseSinceTime(logsSinceStr)
+	if opts.sinceStr != "" {
+		since, err := parseSinceTime(opts.sinceStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid since time: %w", err)
 		}
-		options.Since = since
+		opts.since = since
 	}
 
 	// Parse until time if provided
-	if logsUntilStr != "" {
+	if opts.untilStr != "" {
 		// If "until" is a relative time, interpret it as time ago from now
-		until, err := parseSinceTime(logsUntilStr)
+		until, err := parseSinceTime(opts.untilStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid until time: %w", err)
 		}
-		options.Until = until
+		opts.until = until
 	}
 
-	return options, nil
+	return opts, nil
 }
 
 // parseSinceTime parses a human-friendly time string into a time.Time
@@ -223,7 +202,7 @@ func parseSinceTime(value string) (time.Time, error) {
 }
 
 // streamLogs streams logs from all instances of a service
-func streamLogs(ctx context.Context, apiClient *client.Client, targetName string, options *LogsOptions) error {
+func streamLogs(ctx context.Context, apiClient *client.Client, targetName string, opts *logsOptions) error {
 	// Create a log client directly from the API client
 	logClient := client.NewLogClient(apiClient)
 
@@ -236,14 +215,14 @@ func streamLogs(ctx context.Context, apiClient *client.Client, targetName string
 	// Create log request for service
 	logRequest := &generated.LogRequest{
 		ResourceTarget: targetName,
-		Namespace:      options.Namespace,
-		Follow:         options.Follow,
-		Tail:           utils.ToInt32NonNegative(options.Tail),
-		Timestamps:     options.ShowTimestamps,
+		Namespace:      opts.namespace,
+		Follow:         opts.follow,
+		Tail:           utils.ToInt32NonNegative(opts.tail),
+		Timestamps:     opts.showTimestamps,
 	}
 
 	// Add common parameters to request
-	addCommonRequestParams(logRequest, options)
+	addCommonRequestParams(logRequest, opts)
 
 	// Send the initial request
 	if err := stream.Send(logRequest); err != nil {
@@ -251,40 +230,40 @@ func streamLogs(ctx context.Context, apiClient *client.Client, targetName string
 	}
 
 	// Handle logs based on mode (streaming or non-streaming)
-	if !options.Follow {
-		return handleNonStreamingLogs(ctx, stream, options)
+	if !opts.follow {
+		return handleNonStreamingLogs(ctx, stream, opts)
 	} else {
-		return handleStreamingLogs(ctx, stream, options)
+		return handleStreamingLogs(ctx, stream, opts)
 	}
 }
 
 // addCommonRequestParams adds common parameters to the log request
-func addCommonRequestParams(logRequest *generated.LogRequest, options *LogsOptions) {
+func addCommonRequestParams(logRequest *generated.LogRequest, opts *logsOptions) {
 	// Add since time if specified
-	if !options.Since.IsZero() {
-		logRequest.Since = options.Since.Format(time.RFC3339)
+	if !opts.since.IsZero() {
+		logRequest.Since = opts.since.Format(time.RFC3339)
 	}
 
 	// Add until time if specified
-	if !options.Until.IsZero() {
-		logRequest.Until = options.Until.Format(time.RFC3339)
+	if !opts.until.IsZero() {
+		logRequest.Until = opts.until.Format(time.RFC3339)
 	}
 
 	// Add filter if specified
-	if options.Pattern != "" {
-		logRequest.Filter = options.Pattern
+	if opts.pattern != "" {
+		logRequest.Filter = opts.pattern
 	}
 }
 
 // handleNonStreamingLogs handles logs in non-streaming (non-follow) mode
-func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *LogsOptions) error {
+func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, opts *logsOptions) error {
 	// Create a timeout context to prevent infinite waiting in non-follow mode
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Use a ring buffer approach to only keep the most recent logs
 	// This is much more memory efficient than collecting all logs first
-	ringBuffer := make([]*generated.LogResponse, options.Tail)
+	ringBuffer := make([]*generated.LogResponse, opts.tail)
 	bufferIndex := 0
 	bufferFilled := false
 
@@ -308,19 +287,19 @@ func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_Str
 		select {
 		case resp := <-respCh:
 			// Skip logs that don't match filters
-			if !shouldProcessLog(resp, options) {
+			if !shouldProcessLog(resp, opts) {
 				continue
 			}
 
 			// Add to ring buffer, overwriting older entries as needed
 			ringBuffer[bufferIndex] = resp
-			bufferIndex = (bufferIndex + 1) % options.Tail
+			bufferIndex = (bufferIndex + 1) % opts.tail
 			if bufferIndex == 0 {
 				bufferFilled = true
 			}
 
 			// If we've received enough logs and filled the buffer, we can exit collection
-			if options.Tail > 0 && (bufferFilled || bufferIndex >= options.Tail) {
+			if opts.tail > 0 && (bufferFilled || bufferIndex >= opts.tail) {
 				logsCollecting = false
 			}
 
@@ -355,7 +334,7 @@ func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_Str
 		if resp == nil {
 			continue // Skip any nil entries in the buffer
 		}
-		if err := processLogResponse(resp, options); err != nil {
+		if err := processLogResponse(resp, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing log: %v\n", err)
 		}
 	}
@@ -364,7 +343,7 @@ func handleNonStreamingLogs(ctx context.Context, stream generated.LogService_Str
 }
 
 // handleStreamingLogs handles logs in streaming (follow) mode
-func handleStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, options *LogsOptions) error {
+func handleStreamingLogs(ctx context.Context, stream generated.LogService_StreamLogsClient, opts *logsOptions) error {
 	errCh := make(chan error, 1)
 
 	// For follow mode, process logs as they arrive
@@ -384,12 +363,12 @@ func handleStreamingLogs(ctx context.Context, stream generated.LogService_Stream
 			}
 
 			// Skip logs that don't match filters
-			if !shouldProcessLog(resp, options) {
+			if !shouldProcessLog(resp, opts) {
 				continue
 			}
 
 			// Process the log response
-			if err := processLogResponse(resp, options); err != nil {
+			if err := processLogResponse(resp, opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error processing log: %v\n", err)
 			}
 		}
@@ -406,16 +385,16 @@ func handleStreamingLogs(ctx context.Context, stream generated.LogService_Stream
 }
 
 // shouldProcessLog determines if a log should be processed based on filters
-func shouldProcessLog(resp *generated.LogResponse, options *LogsOptions) bool {
+func shouldProcessLog(resp *generated.LogResponse, opts *logsOptions) bool {
 	// Apply pattern filter if specified
-	if options.Pattern != "" && !strings.Contains(strings.ToLower(resp.Content), strings.ToLower(options.Pattern)) {
+	if opts.pattern != "" && !strings.Contains(strings.ToLower(resp.Content), strings.ToLower(opts.pattern)) {
 		return false
 	}
 
 	// Skip logs outside the time range if Until is specified
-	if !options.Until.IsZero() {
+	if !opts.until.IsZero() {
 		if logTime, err := time.Parse(time.RFC3339, resp.Timestamp); err == nil {
-			if logTime.After(options.Until) {
+			if logTime.After(opts.until) {
 				return false
 			}
 		}
@@ -425,7 +404,7 @@ func shouldProcessLog(resp *generated.LogResponse, options *LogsOptions) bool {
 }
 
 // processLogResponse processes and displays a log response based on the output format
-func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error {
+func processLogResponse(resp *generated.LogResponse, opts *logsOptions) error {
 	// Get the log level
 	logLevel := resp.LogLevel
 
@@ -438,7 +417,7 @@ func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error
 	}
 
 	// Apply pattern filter if specified
-	if options.Pattern != "" && !strings.Contains(strings.ToLower(resp.Content), strings.ToLower(options.Pattern)) {
+	if opts.pattern != "" && !strings.Contains(strings.ToLower(resp.Content), strings.ToLower(opts.pattern)) {
 		return nil
 	}
 
@@ -456,7 +435,7 @@ func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error
 	errorColor := color.New(color.FgRed)
 	infoColor := color.New(color.FgWhite)
 
-	if options.NoColor {
+	if opts.noColor {
 		timeColor.DisableColor()
 		nameColor.DisableColor()
 		errorColor.DisableColor()
@@ -476,7 +455,7 @@ func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error
 
 	// Create prefix if requested
 	var prefix string
-	if options.ShowPrefix {
+	if opts.showPrefix {
 		var prefixParts []string
 
 		if resp.ServiceName != "" {
@@ -491,7 +470,7 @@ func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error
 	}
 
 	// Output based on format
-	switch options.OutputFormat {
+	switch opts.outputFormat {
 	case OutputFormatJSON:
 		// Output as JSON
 		jsonEntry := map[string]string{
@@ -528,7 +507,7 @@ func processLogResponse(resp *generated.LogResponse, options *LogsOptions) error
 		formattedContent = strings.TrimSpace(formattedContent)
 
 		// Check if timestamps should be shown
-		if options.ShowTimestamps {
+		if opts.showTimestamps {
 			fmt.Printf("%s | %s%s\n",
 				timeColor.Sprint(timestamp),
 				prefix,

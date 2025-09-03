@@ -17,6 +17,30 @@ var (
 	logLevel string
 )
 
+type cmdOptions struct {
+	namespace       string
+	addressOverride string
+	tokenOverride   string
+	showLabels      bool
+	noHeaders       bool
+}
+
+// effectiveNS returns effective namespace, if not provided,
+// the default namespace for the current context is used or "default"
+func effectiveNS(namespace string) string {
+	// Set Namespace
+	if namespace != "" {
+		return namespace
+	}
+
+	defaultNamespace := viper.GetString("contexts.default.defaultNamespace")
+	if defaultNamespace != "" {
+		return defaultNamespace
+	}
+
+	return "default"
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "rune",
