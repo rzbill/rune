@@ -72,7 +72,7 @@ namespace: default
 envFrom:
   - secret: app-secrets
     prefix: APP_
-  - configMap: app-config
+  - configmap: app-config
 `
 	var spec ServiceSpec
 	if err := yaml.Unmarshal([]byte(yamlData), &spec); err != nil {
@@ -97,13 +97,13 @@ envFrom:
 }
 
 func TestServiceSpec_EnvFrom_Validation(t *testing.T) {
-	// both secret and configMap set -> error
+	// both secret and configmap set -> error
 	yamlData := `
 name: api
 image: repo/api
 envFrom:
   - secret: a
-    configMap: b
+    configmap: b
 `
 	var spec ServiceSpec
 	if err := yaml.Unmarshal([]byte(yamlData), &spec); err != nil {

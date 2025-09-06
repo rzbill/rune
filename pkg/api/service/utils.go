@@ -21,14 +21,24 @@ func (r ResourceTarget) GetService() (*types.Service, error) {
 	if r.Type != types.ResourceTypeService {
 		return nil, fmt.Errorf("resource is not a service")
 	}
-	return r.Resource.(*types.Service), nil
+
+	service, ok := r.Resource.(*types.Service)
+	if !ok {
+		return nil, fmt.Errorf("resource is not a service")
+	}
+
+	return service, nil
 }
 
 func (r ResourceTarget) GetInstance() (*types.Instance, error) {
 	if r.Type != types.ResourceTypeInstance {
 		return nil, fmt.Errorf("resource is not an instance")
 	}
-	return r.Resource.(*types.Instance), nil
+	instance, ok := r.Resource.(*types.Instance)
+	if !ok {
+		return nil, fmt.Errorf("resource is not an instance")
+	}
+	return instance, nil
 }
 
 // resolveResourceTarget attempts to identify the type of resource being queried
@@ -54,7 +64,7 @@ func resolveResourceTarget(ctx context.Context, _store store.Store, arg string, 
 	err := _store.Get(ctx, types.ResourceTypeService, namespace, arg, &service)
 	if err == nil {
 		// It's a service
-		return ResourceTarget{Type: types.ResourceTypeService, Resource: service}, nil
+		return ResourceTarget{Type: types.ResourceTypeService, Resource: &service}, nil
 	}
 
 	// Try to fetch as an instance
@@ -75,7 +85,7 @@ func getResourceByType(ctx context.Context, _store store.Store, resourceType str
 		var service types.Service
 		err := _store.Get(ctx, types.ResourceTypeService, namespace, resourceName, &service)
 		if err == nil {
-			return service, nil
+			return &service, nil
 		}
 	}
 

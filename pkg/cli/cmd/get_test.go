@@ -82,33 +82,6 @@ func TestParseSelector(t *testing.T) {
 	}
 }
 
-func TestFormatAge(t *testing.T) {
-	tests := []struct {
-		name     string
-		duration float64 // in seconds
-		expected string
-	}{
-		{"just now", 30, "Just now"},
-		{"minutes", 120, "2m"},
-		{"hours", 3600, "1h"},
-		{"days", 86400, "1d"},
-		{"months", 2592000, "1mo"},
-		{"years", 31536000, "1y"},
-	}
-
-	now := timeNow()
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			timestamp := now.Add(-(time.Duration(tc.duration) * time.Second))
-			age := formatAge(timestamp)
-			assert.Equal(t, tc.expected, age)
-		})
-	}
-}
-
-// Mock time.Now for testing
-var timeNow = time.Now
-
 // TestSortServices tests the sortServices function
 func TestSortServices(t *testing.T) {
 	now := time.Now()

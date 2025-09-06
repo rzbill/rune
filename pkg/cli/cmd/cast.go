@@ -73,7 +73,7 @@ func newCastCmd() *cobra.Command {
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runCast(cmd.Context(), args, opts)
 		},
 	}
@@ -462,21 +462,21 @@ func deployConfigmaps(apiClient *client.Client, info *ResourceInfo, results *Dep
 
 	resourceIndex := 0
 
-	for _, configMaps := range info.ConfigmapsByFile {
-		for _, configMap := range configMaps {
+	for _, configmaps := range info.ConfigmapsByFile {
+		for _, configmap := range configmaps {
 			resourceIndex++
 
-			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configMap.Name))
-			fmt.Print(strings.Repeat(".", 25-len(configMap.Name)))
-			if err := configClient.CreateConfigmap(configMap, opts.createNamespace); err != nil {
-				if uerr := configClient.UpdateConfigmap(configMap); uerr != nil {
+			fmt.Printf("  [%d/%d] Creating Config \"%s\" ", resourceIndex, resourceCount, format.Highlight(configmap.Name))
+			fmt.Print(strings.Repeat(".", 25-len(configmap.Name)))
+			if err := configClient.CreateConfigmap(configmap, opts.createNamespace); err != nil {
+				if uerr := configClient.UpdateConfigmap(configmap); uerr != nil {
 					fmt.Println(" ❌")
-					results.FailedResources[configMap.Name] = uerr.Error()
-					return fmt.Errorf("failed to apply config %s: %w", configMap.Name, uerr)
+					results.FailedResources[configmap.Name] = uerr.Error()
+					return fmt.Errorf("failed to apply config %s: %w", configmap.Name, uerr)
 				}
 			}
 			fmt.Println(" ✓")
-			results.SuccessfulResources["Configmap"] = append(results.SuccessfulResources["Configmap"], configMap.Name)
+			results.SuccessfulResources["Configmap"] = append(results.SuccessfulResources["Configmap"], configmap.Name)
 		}
 	}
 	return nil

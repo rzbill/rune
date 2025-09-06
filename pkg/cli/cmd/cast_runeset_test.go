@@ -50,7 +50,7 @@ func TestRuneset_RenderOnly_ExampleApp(t *testing.T) {
 
 	// Assert (spot-check key expansions and includes)
 	require.Contains(t, out, "webapp-api")
-	require.Contains(t, out, "configMap:")
+	require.Contains(t, out, "configmap:")
 	require.Contains(t, out, "README_BANNER")
 	require.Contains(t, out, "APP_ENV")
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rzbill/rune/pkg/api/client"
+	"github.com/rzbill/rune/pkg/types"
 	"github.com/rzbill/rune/pkg/utils"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -67,7 +68,7 @@ func newExecCmd() *cobra.Command {
 		Aliases: []string{"e"},
 		Args:    cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runExec(cmd, args, opts)
 		},
 		SilenceUsage:  true,
@@ -182,7 +183,7 @@ func runExec(cmd *cobra.Command, args []string, opts *execOptions) error {
 }
 
 func initializeExecSession(session *client.ExecSession, resolvedTarget *resolvedResourceTarget, execOptions *client.ExecOptions) error {
-	if resolvedTarget.targetType == resourceTargetTypeInstance {
+	if resolvedTarget.targetType == types.ResourceTypeInstance {
 		return session.InitializeInstanceTarget(resolvedTarget.target, resolvedTarget.namespace, execOptions)
 	} else {
 		return session.InitializeServiceTarget(resolvedTarget.target, resolvedTarget.namespace, execOptions)

@@ -66,7 +66,7 @@ func newGetCmd() *cobra.Command {
 	* secrets`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runGet(cmd, args, opts)
 		},
 		Example: `  # List all services in the current namespace

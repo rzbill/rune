@@ -84,7 +84,7 @@ Examples:
 		Aliases: []string{"log"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runLogs(cmd, args, opts)
 		},
 		SilenceUsage:  true,

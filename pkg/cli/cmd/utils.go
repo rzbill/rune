@@ -14,26 +14,43 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type resourceTargetType string
-
-const (
-	resourceTargetTypeInstance resourceTargetType = "instance"
-	resourceTargetTypeService  resourceTargetType = "service"
-)
+type cmdOptions struct {
+	namespace       string
+	addressOverride string
+	tokenOverride   string
+	showLabels      bool
+	noHeaders       bool
+}
 
 type resolvedResourceTarget struct {
 	namespace  string
-	targetType resourceTargetType
+	targetType types.ResourceType
 	target     string
 }
 
-func parseTargetExpression(targetExpression string) resourceTargetType {
+// effectiveCmdNS returns effective namespace for the command, if not provided,
+// the default namespace for the current context  else "" is returned
+func effectiveCmdNS(namespace string) string {
+	// Set Namespace
+	if namespace != "" {
+		return namespace
+	}
+
+	defaultNamespace := viper.GetString("contexts.default.defaultNamespace")
+	if defaultNamespace != "" {
+		return defaultNamespace
+	}
+
+	return ""
+}
+
+func parseTargetExpression(targetExpression string) types.ResourceType {
 	if strings.Contains(targetExpression, "instance/") || strings.Contains(targetExpression, "inst/") {
-		return resourceTargetTypeInstance
+		return types.ResourceTypeInstance
 	}
 
 	if strings.Contains(targetExpression, "service/") || strings.Contains(targetExpression, "svc/") {
-		return resourceTargetTypeService
+		return types.ResourceTypeService
 	}
 
 	return ""
@@ -44,9 +61,9 @@ func resolveResourceTarget(apiClient *client.Client, targetExpression string, na
 	targetType := parseTargetExpression(targetExpression)
 
 	switch targetType {
-	case resourceTargetTypeInstance:
+	case types.ResourceTypeInstance:
 		return resolveTargetInstance(apiClient, targetExpression, namespace)
-	case resourceTargetTypeService:
+	case types.ResourceTypeService:
 		return resolveTargetService(apiClient, targetExpression, namespace)
 	}
 
@@ -73,7 +90,7 @@ func resolveTargetService(apiClient *client.Client, target string, namespace str
 		return nil, err
 	}
 
-	return &resolvedResourceTarget{targetType: resourceTargetTypeService, target: target, namespace: namespace}, nil
+	return &resolvedResourceTarget{targetType: types.ResourceTypeService, target: target, namespace: namespace}, nil
 }
 
 func resolveTargetInstance(apiClient *client.Client, target string, namespace string) (*resolvedResourceTarget, error) {
@@ -83,7 +100,7 @@ func resolveTargetInstance(apiClient *client.Client, target string, namespace st
 		return nil, err
 	}
 
-	return &resolvedResourceTarget{targetType: resourceTargetTypeInstance, target: target, namespace: namespace}, nil
+	return &resolvedResourceTarget{targetType: types.ResourceTypeInstance, target: target, namespace: namespace}, nil
 }
 
 // buildClientOptions builds ClientOptions using current context from viper and an optional address override.

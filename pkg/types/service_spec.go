@@ -83,7 +83,7 @@ type ServiceSpec struct {
 	// Dependencies in user-facing form. Accepts either:
 	// - FQDN strings (e.g., "db.prod.rune") as YAML sequence entries
 	// - ResourceRef strings (e.g., "secret:db-creds" or "configmap:app-settings")
-	// - Structured objects (service/secret/configMap with optional namespace)
+	// - Structured objects (service/secret/configmap with optional namespace)
 	// These will be normalized to []DependencyRef in internal Service
 	Dependencies []ServiceDependency `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 
@@ -133,7 +133,7 @@ func (l *EnvFromList) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // UnmarshalYAML allows envFrom entries to be specified as either a mapping
-// (secret/configMap/namespace/prefix) or a shorthand scalar like
+// (secret/configmap/namespace/prefix) or a shorthand scalar like
 // "{{secret:name}}", "secret:name", "config:app-settings" or FQDN forms.
 func (e *EnvFromSourceSpec) UnmarshalYAML(value *yaml.Node) error {
 	switch value.Kind {
@@ -322,13 +322,13 @@ func (s *ServiceSpec) Validate() error {
 	// Validate envFrom sources
 	for i, src := range s.EnvFrom {
 		if (src.Secret == "" && src.Configmap == "") || (src.Secret != "" && src.Configmap != "") {
-			return NewValidationError("envFrom item at index " + strconv.Itoa(i) + " must specify exactly one of 'secret' or 'configMap'")
+			return NewValidationError("envFrom item at index " + strconv.Itoa(i) + " must specify exactly one of 'secret' or 'configmap'")
 		}
 		if src.Secret != "" && strings.TrimSpace(src.Secret) == "" {
 			return NewValidationError("envFrom.secret cannot be empty at index " + strconv.Itoa(i))
 		}
 		if src.Configmap != "" && strings.TrimSpace(src.Configmap) == "" {
-			return NewValidationError("envFrom.configMap cannot be empty at index " + strconv.Itoa(i))
+			return NewValidationError("envFrom.configmap cannot be empty at index " + strconv.Itoa(i))
 		}
 		// Prefix can be any non-empty string; stricter validation enforced when materializing env vars
 	}
@@ -359,7 +359,7 @@ func (s *ServiceSpec) Validate() error {
 	// Basic dependency validation (independent of autoscale)
 	for i, dep := range s.Dependencies {
 		if dep.Service == "" && dep.FQDN == "" && dep.Secret == "" && dep.Configmap == "" {
-			return NewValidationError("dependency at index " + strconv.Itoa(i) + " must specify service, secret, or configMap (or FQDN string)")
+			return NewValidationError("dependency at index " + strconv.Itoa(i) + " must specify service, secret, or configmap (or FQDN string)")
 		}
 	}
 

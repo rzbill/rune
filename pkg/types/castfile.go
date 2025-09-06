@@ -106,7 +106,7 @@ func IsCastFile(filename string) (bool, error) {
 	if m == nil {
 		return false, nil
 	}
-	keys := []string{"service", "services", "secret", "secrets", "configMap", "configMaps"}
+	keys := []string{"service", "services", "secret", "secrets", "configmap", "configmaps"}
 	for _, k := range keys {
 		if _, ok := m[k]; ok {
 			return true, nil
@@ -116,7 +116,7 @@ func IsCastFile(filename string) (bool, error) {
 }
 
 // collectRepeatedSpecs traverses the YAML AST and appends all occurrences of
-// top-level 'service', 'secret', and 'configMap' mapping nodes into cf.Specs (without deduping).
+// top-level 'service', 'secret', and 'configmap' mapping nodes into cf.Specs (without deduping).
 func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 	if node == nil {
 		return
@@ -186,15 +186,15 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 				cf.lineInfo[makeLineKey("Secret", ns, name)] = val.Line
 			}
 		}
-		if key.Value == "configMap" && val.Kind == yaml.MappingNode {
+		if key.Value == "configmap" && val.Kind == yaml.MappingNode {
 			var spec ConfigmapSpec
 			b, err := yaml.Marshal(val)
 			if err != nil {
-				cf.AddParseError(fmt.Errorf("failed to marshal configMap at line %d: %w", val.Line, err))
+				cf.AddParseError(fmt.Errorf("failed to marshal configmap at line %d: %w", val.Line, err))
 				continue
 			}
 			if err := yaml.Unmarshal(b, &spec); err != nil {
-				cf.AddParseError(fmt.Errorf("failed to unmarshal configMap at line %d: %w", val.Line, err))
+				cf.AddParseError(fmt.Errorf("failed to unmarshal configmap at line %d: %w", val.Line, err))
 				continue
 			}
 			spec.rawNode = val
@@ -273,17 +273,17 @@ func collectRepeatedSpecs(node *yaml.Node, cf *CastFile) {
 			}
 		}
 
-		if key.Value == "configMaps" && val.Kind == yaml.SequenceNode {
+		if key.Value == "configmaps" && val.Kind == yaml.SequenceNode {
 			for _, item := range val.Content {
 				if item.Kind == yaml.MappingNode {
 					var spec ConfigmapSpec
 					b, err := yaml.Marshal(item)
 					if err != nil {
-						cf.AddParseError(fmt.Errorf("failed to marshal configMap in configMaps array at line %d: %w", item.Line, err))
+						cf.AddParseError(fmt.Errorf("failed to marshal configmap in configmaps array at line %d: %w", item.Line, err))
 						continue
 					}
 					if err := yaml.Unmarshal(b, &spec); err != nil {
-						cf.AddParseError(fmt.Errorf("failed to unmarshal configMap in configMaps array at line %d: %w", item.Line, err))
+						cf.AddParseError(fmt.Errorf("failed to unmarshal configmap in configmaps array at line %d: %w", item.Line, err))
 						continue
 					}
 					spec.rawNode = item
@@ -323,8 +323,6 @@ func validateTopLevelKeys(node *yaml.Node) error {
 		"secret":     true,
 		"configmap":  true,
 		"configmaps": true,
-		"configMap":  true,
-		"configMaps": true,
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key := node.Content[i]

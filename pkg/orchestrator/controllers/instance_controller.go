@@ -907,7 +907,7 @@ func (c *instanceController) prepareEnvVars(ctx context.Context, service *types.
 		} else if src.ConfigmapName != "" {
 			cfg, err := c.configRepo.Get(ctx, src.Namespace, src.ConfigmapName)
 			if err != nil {
-				return nil, fmt.Errorf("envFrom configMap %s.%s: %w", src.Namespace, src.ConfigmapName, err)
+				return nil, fmt.Errorf("envFrom configmap %s.%s: %w", src.Namespace, src.ConfigmapName, err)
 			}
 			data = cfg.Data
 		}

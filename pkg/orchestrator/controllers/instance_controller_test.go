@@ -667,7 +667,7 @@ func TestInterpolateEnv_TemplateSyntax(t *testing.T) {
 	err := secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "test-secret"), secret)
 	require.NoError(t, err)
 
-	configMap := &types.Configmap{
+	configmap := &types.Configmap{
 		ID:        "test-config",
 		Name:      "test-config",
 		Namespace: "default",
@@ -676,7 +676,7 @@ func TestInterpolateEnv_TemplateSyntax(t *testing.T) {
 			"app-name":  "test-app",
 		},
 	}
-	err = testStore.Create(ctx, types.ResourceTypeConfigmap, "default", "test-config", configMap)
+	err = testStore.Create(ctx, types.ResourceTypeConfigmap, "default", "test-config", configmap)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -961,7 +961,7 @@ func TestPrepareEnvVars_WithTemplateInterpolation(t *testing.T) {
 	err := secretRepo.CreateRef(ctx, types.FormatRef(types.ResourceTypeSecret, "default", "db-credentials"), secret)
 	require.NoError(t, err)
 
-	configMap := &types.Configmap{
+	configmap := &types.Configmap{
 		ID:        "app-settings",
 		Name:      "app-settings",
 		Namespace: "default",
@@ -970,7 +970,7 @@ func TestPrepareEnvVars_WithTemplateInterpolation(t *testing.T) {
 			"app-name":  "my-app",
 		},
 	}
-	err = testStore.Create(ctx, types.ResourceTypeConfigmap, "default", "app-settings", configMap)
+	err = testStore.Create(ctx, types.ResourceTypeConfigmap, "default", "app-settings", configmap)
 	require.NoError(t, err)
 
 	// Create a test service with template interpolation in environment variables

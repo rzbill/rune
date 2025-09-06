@@ -415,6 +415,19 @@ func ServiceToProto(service *types.Service) *generated.Service {
 		}
 	}
 
+	// Convert envFrom sources
+	if len(service.EnvFrom) > 0 {
+		protoService.EnvFrom = make([]*generated.EnvFromSource, 0, len(service.EnvFrom))
+		for _, src := range service.EnvFrom {
+			protoService.EnvFrom = append(protoService.EnvFrom, &generated.EnvFromSource{
+				SecretName:    src.SecretName,
+				ConfigmapName: src.ConfigmapName,
+				Namespace:     src.Namespace,
+				Prefix:        src.Prefix,
+			})
+		}
+	}
+
 	// Convert ports
 	if len(service.Ports) > 0 {
 		protoService.Ports = make([]*generated.ServicePort, len(service.Ports))
@@ -611,6 +624,19 @@ func ProtoToService(proto *generated.Service) (*types.Service, error) {
 		service.Env = make(map[string]string)
 		for k, v := range proto.Env {
 			service.Env[k] = v
+		}
+	}
+
+	// Convert envFrom sources
+	if len(proto.EnvFrom) > 0 {
+		service.EnvFrom = make([]types.EnvFromSource, 0, len(proto.EnvFrom))
+		for _, src := range proto.EnvFrom {
+			service.EnvFrom = append(service.EnvFrom, types.EnvFromSource{
+				SecretName:    src.SecretName,
+				ConfigmapName: src.ConfigmapName,
+				Namespace:     src.Namespace,
+				Prefix:        src.Prefix,
+			})
 		}
 	}
 

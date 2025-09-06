@@ -70,7 +70,7 @@ Examples:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runDelete(cmd, args, opts)
 		},
 	}
@@ -173,7 +173,7 @@ Examples:
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runServiceDelete(cmd.Context(), args[0], opts)
 		},
 	}
@@ -237,7 +237,7 @@ Examples:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runDeleteList(cmd.Context(), opts)
 		},
 	}
@@ -250,15 +250,15 @@ Examples:
 	return cmd
 }
 
-// statusOptions holds the options for the status subcommand
-type statusOptions struct {
+// deleteStatusOptions holds the options for the status subcommand
+type deleteStatusOptions struct {
 	namespace string
 	output    string
 }
 
 // newDeleteStatusCmd creates the status subcommand
 func newDeleteStatusCmd() *cobra.Command {
-	opts := &statusOptions{}
+	opts := &deleteStatusOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "status <deletion-id>",
@@ -278,7 +278,7 @@ Examples:
 		SilenceErrors: true,
 		Args:          cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.namespace = effectiveNS(opts.namespace)
+			opts.namespace = effectiveCmdNS(opts.namespace)
 			return runDeleteStatus(cmd.Context(), args[0], opts)
 		},
 	}
@@ -721,7 +721,7 @@ func runDeleteList(ctx context.Context, opts *listOptions) error {
 }
 
 // runDeleteStatus executes the status subcommand
-func runDeleteStatus(ctx context.Context, deletionID string, opts *statusOptions) error {
+func runDeleteStatus(ctx context.Context, deletionID string, opts *deleteStatusOptions) error {
 	// Create API client
 	apiClient, err := newAPIClient("", "")
 	if err != nil {
